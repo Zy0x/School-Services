@@ -1,8 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+const dotenv = require("dotenv");
+const packageJson = require("./package.json");
 
 const distDir = path.join(__dirname, "dist");
+const repoRoot = path.join(__dirname, "..");
+const runtimeConfigOutputPath = path.join(distDir, "agent.runtime.json");
 
 fs.mkdirSync(distDir, { recursive: true });
 
@@ -23,13 +27,41 @@ const legacyShortcutPaths = [
 function safeExec(command) {
   try {
     return execSync(command, {
-      cwd: path.join(__dirname, ".."),
+      cwd: repoRoot,
       stdio: ["ignore", "pipe", "ignore"],
       encoding: "utf8",
     }).trim();
   } catch (error) {
     return "";
   }
+}
+
+function loadPackagedRuntimeConfig() {
+  const envPath = path.join(repoRoot, ".env");
+  const runtimeConfigPath = path.join(repoRoot, "agent.runtime.json");
+  const envValues = fs.existsSync(envPath)
+    ? dotenv.parse(fs.readFileSync(envPath, "utf8"))
+    : {};
+  const runtimeConfig = fs.existsSync(runtimeConfigPath)
+    ? JSON.parse(fs.readFileSync(runtimeConfigPath, "utf8"))
+    : {};
+
+  const packaged = JSON.parse(JSON.stringify(runtimeConfig));
+  packaged.supabase = {
+    ...(packaged.supabase || {}),
+    url:
+      envValues.SUPABASE_URL ||
+      process.env.SUPABASE_URL ||
+      packaged.supabase?.url ||
+      "https://fgimyyicixazygairmsa.supabase.co",
+    anonKey:
+      envValues.SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      packaged.supabase?.anonKey ||
+      "",
+  };
+
+  return packaged;
 }
 
 function parseGitHubRemote(remoteUrl) {
@@ -57,6 +89,7 @@ const buildInfo = {
   owner: githubRemote.owner,
   repo: githubRemote.repo,
   branch: gitBranch === "HEAD" ? "main" : gitBranch || "main",
+  version: packageJson.version,
   commit: gitCommit || null,
   releaseChannel: "latest",
   assetName: "e-rapor-agent-win-x64.zip",
@@ -185,8 +218,36 @@ const updateAndRunPs1Content = [
   '  if ($token) { $headers["Authorization"] = "Bearer $token" }',
   '  return $headers',
   '}',
+  'function Normalize-VersionToken([string]$value) {',
+  '  if (-not $value) { return "" }',
+  '  $normalized = $value.Trim()',
+  '  if ($normalized.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {',
+  '    $normalized = $normalized.Substring(1)',
+  '  }',
+  '  return $normalized.ToLowerInvariant()',
+  '}',
+  'function Get-ReleaseVersion([object]$release) {',
+  '  return Normalize-VersionToken([string]$release.tag_name)',
+  '}',
+  'function Start-AgentDeferred {',
+  '  $launcherPath = Join-Path ([System.IO.Path]::GetTempPath()) ("e-rapor-agent-relaunch-" + [guid]::NewGuid().ToString("N") + ".ps1")',
+  "  $launcherContent = @'",
+  'Start-Sleep -Seconds 2',
+  "$exePath = '{0}'",
+  "$workingDir = '{1}'",
+  'Start-Process -FilePath $exePath -WorkingDirectory $workingDir -WindowStyle Hidden',
+  'Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue',
+  "'@ -f ($exePath -replace \"'\", \"''\"), ($distDir -replace \"'\", \"''\")",
+  '  Set-Content -Path $launcherPath -Value $launcherContent -Encoding UTF8',
+  '  Write-UpdaterLog "Starting deferred relaunch helper."',
+  '  Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$launcherPath) -WindowStyle Hidden',
+  '}',
+  'function Start-AgentNow {',
+  '  Write-UpdaterLog "Starting agent immediately."',
+  '  Start-Process -FilePath $exePath -WorkingDirectory $distDir -WindowStyle Hidden',
+  '}',
   'function Invoke-Robocopy($source, $destination) {',
-  '  & robocopy $source $destination /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null',
+  '  & robocopy $source $destination /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XF "agent.runtime.json" | Out-Null',
   '  $code = $LASTEXITCODE',
   '  if ($code -gt 7) { throw "robocopy failed with exit code $code" }',
   '}',
@@ -206,9 +267,12 @@ const updateAndRunPs1Content = [
   '  if (-not $buildInfo) { throw "agent-build.json is missing or invalid." }',
   '  $release = Get-LatestRelease',
   '  $releaseTag = [string]$release.tag_name',
+  '  $releaseVersion = Get-ReleaseVersion $release',
   '  $currentReleaseTag = [string]$buildInfo.releaseTag',
-  '  if ($currentReleaseTag -and $currentReleaseTag -eq $releaseTag) {',
-  '    Write-UpdaterLog "Agent is already on latest release $releaseTag"',
+  '  $currentVersion = Normalize-VersionToken([string]$buildInfo.version)',
+  '  $currentReleaseVersion = Normalize-VersionToken($currentReleaseTag)',
+  '  if (($currentReleaseTag -and $currentReleaseTag -eq $releaseTag) -or ($currentVersion -and $releaseVersion -and $currentVersion -eq $releaseVersion) -or ($currentReleaseVersion -and $releaseVersion -and $currentReleaseVersion -eq $releaseVersion)) {',
+  '    Write-UpdaterLog ("Agent already latest. currentVersion={0}; currentReleaseTag={1}; latestReleaseTag={2}" -f $currentVersion, $currentReleaseTag, $releaseTag)',
   '    return $false',
   '  }',
   '  $assetName = [string]$buildInfo.assetName',
@@ -234,6 +298,7 @@ const updateAndRunPs1Content = [
   '  }',
   '  Invoke-Robocopy $packageDist $distDir',
   '  Set-BuildInfoValue $buildInfo "releaseTag" $releaseTag',
+  '  Set-BuildInfoValue $buildInfo "version" $releaseVersion',
   '  $nextCommit = $buildInfo.commit',
   '  if ($release.target_commitish) { $nextCommit = [string]$release.target_commitish }',
   '  Set-BuildInfoValue $buildInfo "commit" $nextCommit',
@@ -243,12 +308,17 @@ const updateAndRunPs1Content = [
   '  Write-UpdaterLog "Agent updated successfully to release $releaseTag"',
   '  return $true',
   '}',
+  '$didUpdate = $false',
   'try {',
-  '  Update-FromRelease | Out-Null',
+  '  $didUpdate = Update-FromRelease',
   '} catch {',
   '  Write-UpdaterLog "Auto-update failed: $($_.Exception.Message)"',
   '}',
-  'Start-Process -FilePath $exePath -WorkingDirectory $distDir -WindowStyle Hidden',
+  'if ($didUpdate) {',
+  '  Start-AgentDeferred',
+  '} else {',
+  '  Start-AgentNow',
+  '}',
   "",
 ].join("\r\n");
 
@@ -261,6 +331,11 @@ fs.writeFileSync(watchLogPs1Path, watchLogPs1Content, "ascii");
 fs.writeFileSync(resetCloudflaredPs1Path, resetCloudflaredPs1Content, "ascii");
 fs.writeFileSync(updateAndRunPs1Path, updateAndRunPs1Content, "utf8");
 fs.writeFileSync(buildInfoPath, `${JSON.stringify(buildInfo, null, 2)}\n`, "utf8");
+fs.writeFileSync(
+  runtimeConfigOutputPath,
+  `${JSON.stringify(loadPackagedRuntimeConfig(), null, 2)}\n`,
+  "utf8"
+);
 
 for (const legacyPath of legacyShortcutPaths) {
   try {

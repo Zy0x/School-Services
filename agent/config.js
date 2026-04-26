@@ -200,7 +200,7 @@ function loadConfig() {
         fileName:
           overrides.shortcuts?.rapor?.fileName ||
           process.env.ERAPOR_SHORTCUT_FILE_NAME ||
-          "E-Rapor SD.url",
+          "e-Rapor SD.url",
         iconFile:
           overrides.shortcuts?.rapor?.iconFile ||
           process.env.ERAPOR_SHORTCUT_ICON_FILE ||

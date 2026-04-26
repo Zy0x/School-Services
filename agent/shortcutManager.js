@@ -13,6 +13,10 @@ function normalizeShortcutName(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function hasSamePathIgnoringCase(left, right) {
+  return String(left || "").toLowerCase() === String(right || "").toLowerCase();
+}
+
 function readShortcutFields(filePath) {
   if (!fs.existsSync(filePath)) {
     return [];
@@ -105,7 +109,7 @@ class ShortcutManager {
 
   listDiscoveredShortcutPaths(shortcut) {
     const discovered = [];
-    const targetName = normalizeShortcutName(shortcut.fileName || "E-Rapor SD.url");
+    const targetName = normalizeShortcutName(shortcut.fileName || "e-Rapor SD.url");
     const seen = new Set();
 
     for (const root of shortcut.searchRoots || []) {
@@ -205,7 +209,7 @@ class ShortcutManager {
     if (combined.length === 0) {
       const primaryRoot = (shortcut.searchRoots || []).find(Boolean);
       if (primaryRoot) {
-        combined.push(path.join(primaryRoot, shortcut.fileName || "E-Rapor SD.url"));
+        combined.push(path.join(primaryRoot, shortcut.fileName || "e-Rapor SD.url"));
       }
     }
 
@@ -233,6 +237,33 @@ class ShortcutManager {
     }
   }
 
+  ensureCanonicalShortcutPath(filePath, shortcut) {
+    if (!filePath || !shortcut?.fileName) {
+      return filePath;
+    }
+
+    const canonicalPath = path.join(path.dirname(filePath), shortcut.fileName);
+    if (filePath === canonicalPath) {
+      return filePath;
+    }
+
+    if (!hasSamePathIgnoringCase(filePath, canonicalPath)) {
+      return filePath;
+    }
+
+    try {
+      const tempPath = path.join(
+        path.dirname(filePath),
+        `.__shortcut-rename-${Date.now()}.url`
+      );
+      fs.renameSync(filePath, tempPath);
+      fs.renameSync(tempPath, canonicalPath);
+      return canonicalPath;
+    } catch (error) {
+      return filePath;
+    }
+  }
+
   syncServiceUrl(serviceName, publicUrl) {
     const shortcut = this.getShortcutConfig(serviceName);
     if (!shortcut || shortcut.enabled === false) {
@@ -251,7 +282,8 @@ class ShortcutManager {
     const { managedPaths, duplicatePaths } = this.resolveManagedShortcutPaths(serviceName);
     this.removeDuplicateShortcuts(duplicatePaths);
 
-    for (const filePath of managedPaths) {
+    for (const originalPath of managedPaths) {
+      const filePath = this.ensureCanonicalShortcutPath(originalPath, shortcut);
       ensureParentDirectory(filePath);
       const existingFields = readShortcutFields(filePath);
       fs.writeFileSync(
@@ -259,6 +291,9 @@ class ShortcutManager {
         buildInternetShortcutContent(effectiveUrl, existingFields, shortcut),
         "ascii"
       );
+      if (filePath !== originalPath && fs.existsSync(originalPath)) {
+        this.removeDuplicateShortcuts([originalPath]);
+      }
     }
 
     this.cache[serviceName] = {

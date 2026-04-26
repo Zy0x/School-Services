@@ -143,23 +143,40 @@ class ShortcutManager {
     return discovered;
   }
 
-  dedupeShortcutPaths(filePaths) {
-    const seenNames = new Set();
-    const deduped = [];
-    const duplicates = [];
+  rankShortcutPath(filePath, shortcut) {
+    const normalized = String(filePath || "").toLowerCase();
+    const searchRoots = Array.isArray(shortcut.searchRoots)
+      ? shortcut.searchRoots.map((root) => String(root || "").toLowerCase())
+      : [];
+    const matchedIndex = searchRoots.findIndex((root) =>
+      normalized.startsWith(root.endsWith("\\") ? root : `${root}\\`)
+    );
 
-    for (const filePath of filePaths) {
-      const key = filePath.toLowerCase();
-      if (seenNames.has(key)) {
-        duplicates.push(filePath);
-        continue;
-      }
+    return matchedIndex === -1 ? Number.MAX_SAFE_INTEGER : matchedIndex;
+  }
 
-      seenNames.add(key);
-      deduped.push(filePath);
+  chooseManagedShortcutPath(filePaths, shortcut) {
+    if (filePaths.length === 0) {
+      return { managedPath: null, duplicatePaths: [] };
     }
 
-    return { deduped, duplicates };
+    const ranked = filePaths
+      .slice()
+      .sort((left, right) => {
+        const leftRank = this.rankShortcutPath(left, shortcut);
+        const rightRank = this.rankShortcutPath(right, shortcut);
+
+        if (leftRank !== rightRank) {
+          return leftRank - rightRank;
+        }
+
+        return left.localeCompare(right);
+      });
+
+    return {
+      managedPath: ranked[0],
+      duplicatePaths: ranked.slice(1),
+    };
   }
 
   resolveManagedShortcutPaths(serviceName) {
@@ -192,10 +209,13 @@ class ShortcutManager {
       }
     }
 
-    const { deduped, duplicates } = this.dedupeShortcutPaths(combined);
+    const { managedPath, duplicatePaths } = this.chooseManagedShortcutPath(
+      combined,
+      shortcut
+    );
     return {
-      managedPaths: deduped.slice(0, 1),
-      duplicatePaths: duplicates.concat(deduped.slice(1)),
+      managedPaths: managedPath ? [managedPath] : [],
+      duplicatePaths,
     };
   }
 

@@ -112,7 +112,7 @@ const buildInfo = {
   commit: gitCommit || null,
   releaseChannel: "latest",
   assetName: "e-rapor-agent-win-x64.zip",
-  releaseTag: null,
+  releaseTag: `v${packageJson.version}`,
   builtAt: new Date().toISOString(),
 };
 
@@ -266,7 +266,7 @@ const updateAndRunPs1Content = [
   '  Start-Process -FilePath $exePath -WorkingDirectory $distDir -WindowStyle Hidden',
   '}',
   'function Invoke-Robocopy($source, $destination) {',
-  '  & robocopy $source $destination /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XF "agent.runtime.json" | Out-Null',
+  '  & robocopy $source $destination /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XF "agent.runtime.json" "agent-build.json" | Out-Null',
   '  $code = $LASTEXITCODE',
   '  if ($code -gt 7) { throw "robocopy failed with exit code $code" }',
   '}',
@@ -288,6 +288,7 @@ const updateAndRunPs1Content = [
   '  $releaseTag = [string]$release.tag_name',
   '  $releaseVersion = Get-ReleaseVersion $release',
   '  $currentReleaseTag = [string]$buildInfo.releaseTag',
+  '  if (-not $currentReleaseTag -and $buildInfo.version) { $currentReleaseTag = "v" + [string]$buildInfo.version }',
   '  $currentVersion = Normalize-VersionToken([string]$buildInfo.version)',
   '  $currentReleaseVersion = Normalize-VersionToken($currentReleaseTag)',
   '  if (($currentReleaseTag -and $currentReleaseTag -eq $releaseTag) -or ($currentVersion -and $releaseVersion -and $currentVersion -eq $releaseVersion) -or ($currentReleaseVersion -and $releaseVersion -and $currentReleaseVersion -eq $releaseVersion)) {',

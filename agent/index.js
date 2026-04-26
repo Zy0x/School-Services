@@ -166,6 +166,9 @@ async function main() {
 
     shuttingDown = true;
     if (preserveManagedResources) {
+      for (const service of serviceManager.list()) {
+        shortcutManager.syncServiceUrl(service.serviceName, null);
+      }
       logger.info(
         "Stopping agent process and preserving running services and Cloudflare tunnels"
       );

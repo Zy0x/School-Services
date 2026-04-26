@@ -145,6 +145,10 @@ function loadConfig() {
     : [10000, 30000, 60000, 120000, 300000];
   const raporPort = Number(mergedServices.rapor?.port || 8535);
   const defaultShortcutSearchRoots = [
+    "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs",
+    process.env.APPDATA
+      ? path.join(process.env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs")
+      : null,
     process.env.USERPROFILE
       ? path.join(process.env.USERPROFILE, "Desktop")
       : null,

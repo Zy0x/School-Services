@@ -9,6 +9,10 @@ function normalizeShortcutUrl(value) {
   return String(value || "").trim();
 }
 
+function normalizeShortcutName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function readShortcutFields(filePath) {
   if (!fs.existsSync(filePath)) {
     return [];
@@ -18,7 +22,7 @@ function readShortcutFields(filePath) {
   return content.split(/\r?\n/).filter((line) => line.trim() !== "");
 }
 
-function buildInternetShortcutContent(url, existingFields = []) {
+function buildInternetShortcutContent(url, existingFields = [], shortcutConfig = {}) {
   const preservedFields = [];
   const seenKeys = new Set(["url"]);
 
@@ -48,6 +52,20 @@ function buildInternetShortcutContent(url, existingFields = []) {
 
   if (!seenKeys.has("hotkey")) {
     preservedFields.push("HotKey=0");
+    seenKeys.add("hotkey");
+  }
+
+  if (shortcutConfig.iconFile && !seenKeys.has("iconfile")) {
+    preservedFields.push(`IconFile=${shortcutConfig.iconFile}`);
+    seenKeys.add("iconfile");
+  }
+
+  if (
+    shortcutConfig.iconIndex !== undefined &&
+    shortcutConfig.iconIndex !== null &&
+    !seenKeys.has("iconindex")
+  ) {
+    preservedFields.push(`IconIndex=${shortcutConfig.iconIndex}`);
   }
 
   return ["[InternetShortcut]", `URL=${url}`, ...preservedFields, ""].join("\r\n");
@@ -85,6 +103,116 @@ class ShortcutManager {
     return this.shortcuts?.[serviceName] || null;
   }
 
+  listDiscoveredShortcutPaths(shortcut) {
+    const discovered = [];
+    const targetName = normalizeShortcutName(shortcut.fileName || "E-Rapor SD.url");
+    const seen = new Set();
+
+    for (const root of shortcut.searchRoots || []) {
+      if (!root || !fs.existsSync(root)) {
+        continue;
+      }
+
+      let entries = [];
+      try {
+        entries = fs.readdirSync(root, { withFileTypes: true });
+      } catch (error) {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isFile()) {
+          continue;
+        }
+
+        if (normalizeShortcutName(entry.name) !== targetName) {
+          continue;
+        }
+
+        const fullPath = path.join(root, entry.name);
+        const token = fullPath.toLowerCase();
+        if (seen.has(token)) {
+          continue;
+        }
+
+        seen.add(token);
+        discovered.push(fullPath);
+      }
+    }
+
+    return discovered;
+  }
+
+  dedupeShortcutPaths(filePaths) {
+    const seenNames = new Set();
+    const deduped = [];
+    const duplicates = [];
+
+    for (const filePath of filePaths) {
+      const key = filePath.toLowerCase();
+      if (seenNames.has(key)) {
+        duplicates.push(filePath);
+        continue;
+      }
+
+      seenNames.add(key);
+      deduped.push(filePath);
+    }
+
+    return { deduped, duplicates };
+  }
+
+  resolveManagedShortcutPaths(serviceName) {
+    const shortcut = this.getShortcutConfig(serviceName);
+    if (!shortcut || shortcut.enabled === false) {
+      return { managedPaths: [], duplicatePaths: [] };
+    }
+
+    const explicitPaths = Array.isArray(shortcut.filePaths)
+      ? shortcut.filePaths.filter(Boolean)
+      : [];
+    const discoveredPaths = this.listDiscoveredShortcutPaths(shortcut);
+    const combined = [];
+    const seen = new Set();
+
+    for (const filePath of [...discoveredPaths, ...explicitPaths]) {
+      const token = String(filePath || "").toLowerCase();
+      if (!filePath || seen.has(token)) {
+        continue;
+      }
+
+      seen.add(token);
+      combined.push(filePath);
+    }
+
+    if (combined.length === 0) {
+      const primaryRoot = (shortcut.searchRoots || []).find(Boolean);
+      if (primaryRoot) {
+        combined.push(path.join(primaryRoot, shortcut.fileName || "E-Rapor SD.url"));
+      }
+    }
+
+    const { deduped, duplicates } = this.dedupeShortcutPaths(combined);
+    return {
+      managedPaths: deduped.slice(0, 1),
+      duplicatePaths: duplicates.concat(deduped.slice(1)),
+    };
+  }
+
+  removeDuplicateShortcuts(filePaths) {
+    for (const filePath of filePaths) {
+      if (!filePath || !fs.existsSync(filePath)) {
+        continue;
+      }
+
+      try {
+        fs.unlinkSync(filePath);
+      } catch (error) {
+        // Keep going; do not break sync because one duplicate could not be removed.
+      }
+    }
+  }
+
   syncServiceUrl(serviceName, publicUrl) {
     const shortcut = this.getShortcutConfig(serviceName);
     if (!shortcut || shortcut.enabled === false) {
@@ -100,16 +228,15 @@ class ShortcutManager {
       return;
     }
 
-    for (const filePath of shortcut.filePaths || []) {
-      if (!filePath) {
-        continue;
-      }
+    const { managedPaths, duplicatePaths } = this.resolveManagedShortcutPaths(serviceName);
+    this.removeDuplicateShortcuts(duplicatePaths);
 
+    for (const filePath of managedPaths) {
       ensureParentDirectory(filePath);
       const existingFields = readShortcutFields(filePath);
       fs.writeFileSync(
         filePath,
-        buildInternetShortcutContent(effectiveUrl, existingFields),
+        buildInternetShortcutContent(effectiveUrl, existingFields, shortcut),
         "ascii"
       );
     }
@@ -117,6 +244,7 @@ class ShortcutManager {
     this.cache[serviceName] = {
       publicUrl: normalizedPublicUrl,
       effectiveUrl,
+      filePaths: managedPaths,
       updatedAt: new Date().toISOString(),
     };
     this.writeCache();

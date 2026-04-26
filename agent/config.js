@@ -144,14 +144,13 @@ function loadConfig() {
         .filter(Number.isFinite)
     : [10000, 30000, 60000, 120000, 300000];
   const raporPort = Number(mergedServices.rapor?.port || 8535);
-  const defaultShortcutPaths = [
-    process.env.PUBLIC
-      ? path.join(process.env.PUBLIC, "Desktop", "E-Rapor SD.url")
-      : "C:\\Users\\Public\\Desktop\\E-Rapor SD.url",
+  const defaultShortcutSearchRoots = [
     process.env.USERPROFILE
-      ? path.join(process.env.USERPROFILE, "Desktop", "E-Rapor SD.url")
+      ? path.join(process.env.USERPROFILE, "Desktop")
       : null,
-    path.join(getBaseDir(), "E-Rapor SD.url"),
+    process.env.PUBLIC
+      ? path.join(process.env.PUBLIC, "Desktop")
+      : "C:\\Users\\Public\\Desktop",
   ].filter(Boolean);
 
   if (!supabaseAnonKey) {
@@ -198,12 +197,29 @@ function loadConfig() {
     shortcuts: {
       rapor: {
         enabled: overrides.shortcuts?.rapor?.enabled !== false,
+        fileName:
+          overrides.shortcuts?.rapor?.fileName ||
+          process.env.ERAPOR_SHORTCUT_FILE_NAME ||
+          "E-Rapor SD.url",
+        iconFile:
+          overrides.shortcuts?.rapor?.iconFile ||
+          process.env.ERAPOR_SHORTCUT_ICON_FILE ||
+          "C:\\newappraporsd2025\\ico\\logo128.ico",
+        iconIndex: Number(
+          overrides.shortcuts?.rapor?.iconIndex ||
+            process.env.ERAPOR_SHORTCUT_ICON_INDEX ||
+            0
+        ),
         fallbackUrl:
           overrides.shortcuts?.rapor?.fallbackUrl ||
           process.env.ERAPOR_SHORTCUT_FALLBACK_URL ||
           `http://localhost:${raporPort}`,
         filePaths: resolveConfigRelativePaths(
-          overrides.shortcuts?.rapor?.filePaths || defaultShortcutPaths,
+          overrides.shortcuts?.rapor?.filePaths || [],
+          runtimeConfigPath
+        ),
+        searchRoots: resolveConfigRelativePaths(
+          overrides.shortcuts?.rapor?.searchRoots || defaultShortcutSearchRoots,
           runtimeConfigPath
         ),
       },

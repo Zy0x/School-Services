@@ -1,0 +1,17 @@
+{
+  "name": "e-rapor-control-plane",
+  "private": true,
+  "workspaces": [
+    "agent",
+    "dashboard"
+  ],
+  "scripts": {
+    "agent:dev": "npm --workspace agent run dev",
+    "agent:build": "npm --workspace agent run build",
+    "dashboard:dev": "npm --workspace dashboard run dev",
+    "dashboard:build": "npm --workspace dashboard run build"
+  },
+  "devDependencies": {
+    "supabase": "^2.95.3"
+  }
+}

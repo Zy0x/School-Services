@@ -1,0 +1,23 @@
+{
+  "name": "e-rapor-agent",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "bin": "index.js",
+  "scripts": {
+    "dev": "node index.js",
+    "build": "pkg . --targets node18-win-x64 --output dist/e-rapor-agent.exe && node write-launchers.js"
+  },
+  "pkg": {
+    "assets": [
+      "../cloudflared.exe"
+    ]
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}

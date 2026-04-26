@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dashboard/dist/
+agent/dist/
+.env
+*.log
+agent.runtime.json
+agent/.state/
+supabase/.temp/

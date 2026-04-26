@@ -12,6 +12,10 @@ const adminPs1Path = path.join(distDir, "run-agent-admin.ps1");
 const stopPs1Path = path.join(distDir, "stop-agent.ps1");
 const watchLogPs1Path = path.join(distDir, "watch-agent-log.ps1");
 const resetCloudflaredPs1Path = path.join(distDir, "reset-cloudflared.ps1");
+const legacyShortcutPaths = [
+  path.join(distDir, "E-Rapor SD.url"),
+  path.join(distDir, "e-Rapor SD.url"),
+];
 
 const vbsContent = [
   'Set shell = CreateObject("WScript.Shell")',
@@ -94,5 +98,15 @@ fs.writeFileSync(adminPs1Path, adminPs1Content, "ascii");
 fs.writeFileSync(stopPs1Path, stopPs1Content, "ascii");
 fs.writeFileSync(watchLogPs1Path, watchLogPs1Content, "ascii");
 fs.writeFileSync(resetCloudflaredPs1Path, resetCloudflaredPs1Content, "ascii");
+
+for (const legacyPath of legacyShortcutPaths) {
+  try {
+    if (fs.existsSync(legacyPath)) {
+      fs.unlinkSync(legacyPath);
+    }
+  } catch (error) {
+    // Best-effort cleanup for old shortcut artifacts in dist.
+  }
+}
 
 console.log(`Wrote launcher files to ${distDir}`);

@@ -144,10 +144,20 @@ function loadConfig() {
         .filter(Number.isFinite)
     : [10000, 30000, 60000, 120000, 300000];
   const raporPort = Number(mergedServices.rapor?.port || 8535);
+  const oneDriveRoot =
+    process.env.OneDrive ||
+    process.env.ONEDRIVE ||
+    process.env.OneDriveConsumer ||
+    process.env.ONEDRIVECONSUMER ||
+    null;
   const defaultShortcutSearchRoots = [
     "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs",
     process.env.APPDATA
       ? path.join(process.env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs")
+      : null,
+    oneDriveRoot ? path.join(oneDriveRoot, "Desktop") : null,
+    process.env.USERPROFILE
+      ? path.join(process.env.USERPROFILE, "OneDrive", "Desktop")
       : null,
     process.env.USERPROFILE
       ? path.join(process.env.USERPROFILE, "Desktop")

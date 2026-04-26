@@ -5,6 +5,8 @@ async function executeCommands({
   serviceManager,
   tunnelManager,
   supabaseApi,
+  shortcutManager,
+  urlCache,
 }) {
   let shouldExit = false;
 
@@ -39,6 +41,12 @@ async function executeCommands({
         serviceManager.setDesiredState(command.service_name, "stopped", "remote-stop");
         const snapshot = await serviceManager.stopService(command.service_name);
         await tunnelManager.suspendTunnel(command.service_name);
+        if (urlCache) {
+          urlCache.clear(command.service_name);
+        }
+        if (shortcutManager) {
+          shortcutManager.syncServiceUrl(command.service_name, null);
+        }
         await supabaseApi.upsertServiceStatus({
           deviceId: command.device_id,
           serviceName: command.service_name,
@@ -57,6 +65,12 @@ async function executeCommands({
       } else if (command.action === "kill") {
         await tunnelManager.stopAll();
         for (const service of serviceManager.list()) {
+          if (urlCache) {
+            urlCache.clear(service.serviceName);
+          }
+          if (shortcutManager) {
+            shortcutManager.syncServiceUrl(service.serviceName, null);
+          }
           const snapshot = await serviceManager.refreshService(service.serviceName);
           await supabaseApi.upsertServiceStatus({
             deviceId: command.device_id,
@@ -86,6 +100,14 @@ async function executeCommands({
 
       if (command.service_name) {
         await tunnelManager.stopTunnel(command.service_name);
+        if (command.action === "stop") {
+          if (urlCache) {
+            urlCache.clear(command.service_name);
+          }
+          if (shortcutManager) {
+            shortcutManager.syncServiceUrl(command.service_name, null);
+          }
+        }
         try {
           const snapshot = await serviceManager.refreshService(command.service_name);
           await supabaseApi.upsertServiceStatus({

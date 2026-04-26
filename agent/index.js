@@ -329,6 +329,8 @@ async function main() {
         serviceManager,
         tunnelManager,
         supabaseApi,
+        shortcutManager,
+        urlCache,
       });
 
       if (result.shouldExit) {

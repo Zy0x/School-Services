@@ -9,13 +9,48 @@ function normalizeShortcutUrl(value) {
   return String(value || "").trim();
 }
 
-function buildInternetShortcutContent(url) {
-  return [
-    "[InternetShortcut]",
-    `URL=${url}`,
-    "HotKey=0",
-    "",
-  ].join("\r\n");
+function readShortcutFields(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+
+  const content = fs.readFileSync(filePath, "utf8");
+  return content.split(/\r?\n/).filter((line) => line.trim() !== "");
+}
+
+function buildInternetShortcutContent(url, existingFields = []) {
+  const preservedFields = [];
+  const seenKeys = new Set(["url"]);
+
+  for (const line of existingFields) {
+    if (!line || line.trim() === "[InternetShortcut]") {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex === -1) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    if (!key) {
+      continue;
+    }
+
+    const normalizedKey = key.toLowerCase();
+    if (seenKeys.has(normalizedKey)) {
+      continue;
+    }
+
+    preservedFields.push(line);
+    seenKeys.add(normalizedKey);
+  }
+
+  if (!seenKeys.has("hotkey")) {
+    preservedFields.push("HotKey=0");
+  }
+
+  return ["[InternetShortcut]", `URL=${url}`, ...preservedFields, ""].join("\r\n");
 }
 
 class ShortcutManager {
@@ -71,7 +106,12 @@ class ShortcutManager {
       }
 
       ensureParentDirectory(filePath);
-      fs.writeFileSync(filePath, buildInternetShortcutContent(effectiveUrl), "ascii");
+      const existingFields = readShortcutFields(filePath);
+      fs.writeFileSync(
+        filePath,
+        buildInternetShortcutContent(effectiveUrl, existingFields),
+        "ascii"
+      );
     }
 
     this.cache[serviceName] = {

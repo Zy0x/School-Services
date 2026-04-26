@@ -29,6 +29,19 @@ class TunnelManager {
     this.lastLoggedGlobalCooldownUntil = null;
   }
 
+  getSystem32Path() {
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    return path.join(systemRoot, "System32");
+  }
+
+  getTasklistPath() {
+    return path.join(this.getSystem32Path(), "tasklist.exe");
+  }
+
+  getCmdPath() {
+    return path.join(this.getSystem32Path(), "cmd.exe");
+  }
+
   ensureStateDir() {
     fs.mkdirSync(this.stateDir, { recursive: true });
   }
@@ -169,7 +182,7 @@ class TunnelManager {
     }
 
     try {
-      const { stdout } = await this.runCapture("tasklist.exe", [
+      const { stdout } = await this.runCapture(this.getTasklistPath(), [
         "/FI",
         `PID eq ${pid}`,
         "/FO",
@@ -640,7 +653,7 @@ class TunnelManager {
     tunnel.stopping = true;
     if (tunnel.pid) {
       try {
-        await this.runCapture("cmd.exe", ["/c", `taskkill /PID ${tunnel.pid} /T /F`]);
+        await this.runCapture(this.getCmdPath(), ["/c", `taskkill /PID ${tunnel.pid} /T /F`]);
       } catch (error) {
         if (!this.isProcessNotFoundError(error)) {
           logger.warn(`Failed to stop Cloudflare tunnel for ${serviceName}: ${error.message}`, {

@@ -94,13 +94,13 @@ class ServiceManager {
 
     if (typeof commandConfig === "string") {
       return {
-        command: "cmd.exe",
+        command: this.getCmdPath(),
         args: ["/c", commandConfig],
       };
     }
 
     return {
-      command: commandConfig.command,
+      command: this.resolveSystemCommandPath(commandConfig.command),
       args: commandConfig.args || [],
       cwd: commandConfig.cwd,
       env: commandConfig.env,
@@ -122,6 +122,45 @@ class ServiceManager {
       "v1.0",
       "powershell.exe"
     );
+  }
+
+  getSystem32Path() {
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    return path.join(systemRoot, "System32");
+  }
+
+  getCmdPath() {
+    return path.join(this.getSystem32Path(), "cmd.exe");
+  }
+
+  getScPath() {
+    return path.join(this.getSystem32Path(), "sc.exe");
+  }
+
+  getTaskkillPath() {
+    return path.join(this.getSystem32Path(), "taskkill.exe");
+  }
+
+  resolveSystemCommandPath(command) {
+    const normalized = String(command || "").trim().toLowerCase();
+
+    if (normalized === "cmd.exe" || normalized === "cmd") {
+      return this.getCmdPath();
+    }
+
+    if (normalized === "sc.exe" || normalized === "sc") {
+      return this.getScPath();
+    }
+
+    if (normalized === "taskkill.exe" || normalized === "taskkill") {
+      return this.getTaskkillPath();
+    }
+
+    if (normalized === "powershell.exe" || normalized === "powershell") {
+      return this.getPowerShellPath();
+    }
+
+    return command;
   }
 
   getWindowsServices(definition) {
@@ -206,7 +245,13 @@ class ServiceManager {
 
     try {
       if (definition.startStrategy === "windows-service") {
-        await this.startWindowsServices(serviceName);
+        const { missingServices } = await this.startWindowsServices(serviceName);
+        if (missingServices.length > 0) {
+          const message = `Windows service(s) not installed for ${serviceName}: ${missingServices.join(", ")}`;
+          this.setLastError(serviceName, message);
+          this.setDesiredState(serviceName, "stopped", "missing-windows-service");
+          return this.refreshService(serviceName);
+        }
         state.warnedMissingStart = false;
       } else {
         const command = this.normalizeCommand(definition.startCommand);
@@ -377,7 +422,8 @@ class ServiceManager {
 
   async getWindowsServiceStatus(serviceName) {
     const script = [
-      `$service = Get-Service -Name '${escapePowerShellSingleQuotedString(serviceName)}' -ErrorAction Stop`,
+      `$service = Get-Service -Name '${escapePowerShellSingleQuotedString(serviceName)}' -ErrorAction SilentlyContinue`,
+      "if (-not $service) { Write-Output '__missing__'; exit 0 }",
       "Write-Output $service.Status",
     ].join("; ");
     const { stdout } = await this.runCapture(this.getPowerShellPath(), [
@@ -385,8 +431,8 @@ class ServiceManager {
       "-Command",
       script,
     ]);
-
-    return String(stdout || "").trim().toLowerCase();
+    const status = String(stdout || "").trim().toLowerCase();
+    return status === "__missing__" ? "missing" : status;
   }
 
   async waitForWindowsServiceState(serviceName, expectedState, timeoutMs = 20000) {
@@ -417,11 +463,19 @@ class ServiceManager {
 
     try {
       const status = await this.getWindowsServiceStatus(serviceName);
+      if (status === "missing") {
+        logger.warn(
+          `Windows service ${serviceName} is not installed on this device. Skipping ${action}.`,
+          { serviceName, action }
+        );
+        return { missing: true };
+      }
+
       if (status === expectedState) {
         logger.info(`Windows service ${serviceName} already ${expectedState}`, {
           serviceName,
         });
-        return;
+        return { missing: false };
       }
     } catch (error) {
       throw new Error(`Failed to query Windows service ${serviceName}: ${error.message}`);
@@ -441,7 +495,7 @@ class ServiceManager {
 
     try {
       await this.runOneShot({
-        command: "sc.exe",
+        command: this.getScPath(),
         args: [action, serviceName],
       });
     } catch (error) {
@@ -460,6 +514,8 @@ class ServiceManager {
         { serviceName, expectedState }
       );
     }
+
+    return { missing: false };
   }
 
   async startWindowsServices(serviceName) {
@@ -477,9 +533,16 @@ class ServiceManager {
       windowsServices,
     });
 
+    const missingServices = [];
+
     for (const windowsServiceName of windowsServices) {
-      await this.runWindowsServiceAction("start", windowsServiceName);
+      const result = await this.runWindowsServiceAction("start", windowsServiceName);
+      if (result?.missing) {
+        missingServices.push(windowsServiceName);
+      }
     }
+
+    return { missingServices };
   }
 
   async stopWindowsServices(serviceName) {
@@ -497,9 +560,16 @@ class ServiceManager {
       windowsServices,
     });
 
+    const missingServices = [];
+
     for (const windowsServiceName of windowsServices.slice().reverse()) {
-      await this.runWindowsServiceAction("stop", windowsServiceName);
+      const result = await this.runWindowsServiceAction("stop", windowsServiceName);
+      if (result?.missing) {
+        missingServices.push(windowsServiceName);
+      }
     }
+
+    return { missingServices };
   }
 
   async stopByPort(serviceName) {
@@ -514,7 +584,10 @@ class ServiceManager {
       return;
     }
 
-    await this.runOneShot(`taskkill /PID ${portPid} /T /F`);
+    await this.runOneShot({
+      command: this.getTaskkillPath(),
+      args: ["/PID", String(portPid), "/T", "/F"],
+    });
   }
 
   async stopService(serviceName) {
@@ -546,7 +619,10 @@ class ServiceManager {
       } else if (definition.stopCommand) {
         await this.runOneShot(definition.stopCommand);
       } else if (state.child && state.pid) {
-        await this.runOneShot(`taskkill /PID ${state.pid} /T /F`);
+        await this.runOneShot({
+          command: this.getTaskkillPath(),
+          args: ["/PID", String(state.pid), "/T", "/F"],
+        });
       } else {
         await this.stopByPort(serviceName);
       }

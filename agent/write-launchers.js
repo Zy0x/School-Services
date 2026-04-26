@@ -61,6 +61,25 @@ function loadPackagedRuntimeConfig() {
       "",
   };
 
+  const eraporEnvPath =
+    envValues.ERAPOR_ENV_PATH ||
+    process.env.ERAPOR_ENV_PATH ||
+    (envValues.ERAPOR_ROOT
+      ? path.join(envValues.ERAPOR_ROOT, "wwwroot", ".env")
+      : process.env.ERAPOR_ROOT
+        ? path.join(process.env.ERAPOR_ROOT, "wwwroot", ".env")
+        : "C:\\newappraporsd2025\\wwwroot\\.env");
+
+  if (!packaged.services) {
+    packaged.services = {};
+  }
+
+  if (!packaged.services.rapor) {
+    packaged.services.rapor = {};
+  }
+
+  packaged.services.rapor.path = eraporEnvPath;
+
   return packaged;
 }
 

@@ -26,13 +26,18 @@
 }
 
 html {
+  margin: 0;
+  padding: 0;
   scroll-behavior: smooth;
+  min-height: 100%;
 }
 
 body {
   margin: 0;
+  padding: 0;
   min-height: 100vh;
   background: transparent;
+  display: block;
 }
 
 button,
@@ -47,13 +52,16 @@ a {
 
 #root {
   min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  display: block;
 }
 
 .app-shell {
   position: relative;
   max-width: 1540px;
   margin: 0 auto;
-  padding: 10px 20px 56px;
+  padding: 0 20px 56px;
 }
 
 .app-backdrop {
@@ -102,6 +110,7 @@ a {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.7fr);
   gap: 24px;
+  margin-top: 0;
   padding: 28px;
   border-radius: 30px;
 }
@@ -966,7 +975,7 @@ button:disabled {
 
 @media (max-width: 880px) {
   .app-shell {
-    padding: 8px 12px 34px;
+    padding: 0 12px 34px;
   }
 
   .hero-panel,

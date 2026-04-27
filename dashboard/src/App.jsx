@@ -20,6 +20,15 @@ function isInvalidSessionError(error) {
   return /invalid admin session|missing authorization header|jwt|unauthorized/i.test(message);
 }
 
+function isSamePasswordError(error) {
+  const code = String(error?.code || "").trim().toLowerCase();
+  const message = String(error?.message || error || "").trim().toLowerCase();
+  return (
+    code === "same_password" ||
+    /same password|different password|password.*same|different from the one currently used/i.test(message)
+  );
+}
+
 function formatEdgeFunctionError(error) {
   const message = String(error?.message || error || "Unknown error");
   if (/email rate limit exceeded/i.test(message)) {
@@ -29,6 +38,16 @@ function formatEdgeFunctionError(error) {
     return "Sesi login telah berakhir. Silakan masuk lagi.";
   }
   return message;
+}
+
+function formatPasswordUpdateError(error) {
+  if (isInvalidSessionError(error)) {
+    return "Sesi login telah berakhir. Silakan masuk lagi.";
+  }
+  if (isSamePasswordError(error)) {
+    return "Password baru tidak boleh sama dengan password yang lama.";
+  }
+  return String(error?.message || error || "Gagal memperbarui password.");
 }
 
 function clearStoredAuthArtifacts() {
@@ -280,6 +299,43 @@ function StatusChip({ status, label }) {
   );
 }
 
+function PasswordField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+  disabled = false,
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <label className="password-field">
+      {label ? <span>{label}</span> : null}
+      <div className="password-input-shell">
+        <input
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          className="password-toggle"
+          aria-label={visible ? "Sembunyikan password" : "Lihat password"}
+          aria-pressed={visible}
+          onClick={() => setVisible((current) => !current)}
+          disabled={disabled}
+        >
+          {visible ? "Sembunyikan" : "Lihat"}
+        </button>
+      </div>
+    </label>
+  );
+}
+
 function LoginScreen({
   mode,
   email,
@@ -343,16 +399,14 @@ function LoginScreen({
               </label>
             </>
           ) : null}
-          <label>
-            <span>Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Password super admin"
-              autoComplete="current-password"
-            />
-          </label>
+          <PasswordField
+            label="Password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder={mode === "register" ? "Buat password akun" : "Password super admin"}
+            autoComplete={mode === "register" ? "new-password" : "current-password"}
+            disabled={loading}
+          />
           {error ? <div className="error-banner">{error}</div> : null}
           {info ? <div className="explorer-warning">{info}</div> : null}
           <button className="primary-button login-button" disabled={loading} type="submit">
@@ -378,7 +432,7 @@ function LoginScreen({
               onClick={onForgotPassword}
               disabled={loading || !email}
             >
-              Reset password
+              Lupa password
             </button>
           ) : null}
         </form>
@@ -423,6 +477,7 @@ function AccountStatusScreen({ profile, onSignOut }) {
 }
 
 function ProfilePanel({ profile, session, onSignOut }) {
+  const [currentPassword, setCurrentPassword] = useState("");
   const [nextPassword, setNextPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -430,10 +485,23 @@ function ProfilePanel({ profile, session, onSignOut }) {
   const [info, setInfo] = useState("");
 
   async function submitPasswordChange() {
+    const trimmedCurrentPassword = currentPassword.trim();
     const trimmedPassword = nextPassword.trim();
+
+    if (!trimmedCurrentPassword) {
+      setError("Password saat ini wajib diisi.");
+      setInfo("");
+      return;
+    }
 
     if (trimmedPassword.length < 8) {
       setError("Password baru minimal 8 karakter.");
+      setInfo("");
+      return;
+    }
+
+    if (trimmedCurrentPassword === trimmedPassword) {
+      setError("Password baru tidak boleh sama dengan password saat ini.");
       setInfo("");
       return;
     }
@@ -448,10 +516,14 @@ function ProfilePanel({ profile, session, onSignOut }) {
       setBusy(true);
       setError("");
       setInfo("");
-      const { error: updateError } = await supabase.auth.updateUser({ password: trimmedPassword });
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: trimmedPassword,
+        currentPassword: trimmedCurrentPassword,
+      });
       if (updateError) {
         throw updateError;
       }
+      setCurrentPassword("");
       setNextPassword("");
       setConfirmPassword("");
       setInfo("Password berhasil diperbarui.");
@@ -461,7 +533,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
         onSignOut();
         return;
       }
-      setError(formatEdgeFunctionError(updateError));
+      setError(formatPasswordUpdateError(updateError));
     } finally {
       setBusy(false);
     }
@@ -498,33 +570,37 @@ function ProfilePanel({ profile, session, onSignOut }) {
           <h3>Ganti Password</h3>
         </div>
         <div className="service-detail-grid">
-          <label>
-            <span>Password baru</span>
-            <input
-              type="password"
-              value={nextPassword}
-              onChange={(event) => setNextPassword(event.target.value)}
-              placeholder="Minimal 8 karakter"
-              autoComplete="new-password"
-            />
-          </label>
-          <label>
-            <span>Konfirmasi password</span>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              placeholder="Ulangi password baru"
-              autoComplete="new-password"
-            />
-          </label>
+          <PasswordField
+            label="Password saat ini"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+            placeholder="Masukkan password saat ini"
+            autoComplete="current-password"
+            disabled={busy}
+          />
+          <PasswordField
+            label="Password baru"
+            value={nextPassword}
+            onChange={(event) => setNextPassword(event.target.value)}
+            placeholder="Minimal 8 karakter"
+            autoComplete="new-password"
+            disabled={busy}
+          />
+          <PasswordField
+            label="Konfirmasi password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            placeholder="Ulangi password baru"
+            autoComplete="new-password"
+            disabled={busy}
+          />
           <div>
             <span>Aksi akun</span>
             <div className="panel-actions">
               <button
                 type="button"
                 className="primary-button"
-                disabled={busy || !nextPassword || !confirmPassword}
+                disabled={busy || !currentPassword || !nextPassword || !confirmPassword}
                 onClick={submitPasswordChange}
               >
                 {busy ? "Menyimpan..." : "Simpan password"}
@@ -674,7 +750,9 @@ function GuestConsole({ deviceId }) {
 
 function PasswordResetScreen() {
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
 
@@ -686,7 +764,8 @@ function PasswordResetScreen() {
       const refreshToken = params.get("refresh_token");
 
       if (!accessToken || !refreshToken) {
-        setStatus("Recovery token is missing or expired.");
+        setError("Tautan verifikasi reset password tidak valid atau sudah kedaluwarsa.");
+        setInfo("");
         return;
       }
 
@@ -696,27 +775,49 @@ function PasswordResetScreen() {
       });
 
       if (error) {
-        setStatus(error.message);
+        setError("Tautan verifikasi reset password tidak valid atau sudah kedaluwarsa.");
+        setInfo("");
         return;
       }
 
       setReady(true);
-      setStatus("");
+      setError("");
+      setInfo("Verifikasi email berhasil. Silakan buat password baru untuk akun Anda.");
     }
 
     bootstrapRecovery();
   }, []);
 
   async function submit() {
+    const trimmedPassword = password.trim();
+
+    if (trimmedPassword.length < 8) {
+      setError("Password baru minimal 8 karakter.");
+      setInfo("");
+      return;
+    }
+
+    if (trimmedPassword !== confirmPassword.trim()) {
+      setError("Konfirmasi password tidak cocok.");
+      setInfo("");
+      return;
+    }
+
     try {
       setBusy(true);
-      const { error } = await supabase.auth.updateUser({ password });
+      setError("");
+      setInfo("");
+      const { error } = await supabase.auth.updateUser({ password: trimmedPassword });
       if (error) {
         throw error;
       }
-      setStatus("Password updated. You can close this page and sign in again.");
+      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      clearStoredAuthArtifacts();
+      setPassword("");
+      setConfirmPassword("");
+      setInfo("Password baru berhasil disimpan. Silakan masuk kembali dengan password baru.");
     } catch (error) {
-      setStatus(error.message);
+      setError(formatPasswordUpdateError(error));
     } finally {
       setBusy(false);
     }
@@ -725,22 +826,38 @@ function PasswordResetScreen() {
   return (
     <main className="login-shell">
       <div className="login-card">
-        <div className="login-eyebrow">Password Recovery</div>
-        <h1>Set a new password</h1>
-        <p>Masukkan password baru untuk menyelesaikan proses reset akun dashboard.</p>
+        <div className="login-eyebrow">Lupa Password</div>
+        <h1>Buat password baru</h1>
+        <p>
+          Buka halaman ini dari tautan verifikasi yang dikirim ke email Anda, lalu masukkan password baru untuk
+          menyelesaikan pemulihan akun dashboard.
+        </p>
         <div className="login-form">
-          <label>
-            <span>New password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Password baru"
-            />
-          </label>
-          {status ? <div className="explorer-warning">{status}</div> : null}
-          <button type="button" className="primary-button" disabled={busy || !password || !ready} onClick={submit}>
-            {busy ? "Updating..." : "Update password"}
+          <PasswordField
+            label="Password baru"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Minimal 8 karakter"
+            autoComplete="new-password"
+            disabled={busy}
+          />
+          <PasswordField
+            label="Konfirmasi password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            placeholder="Ulangi password baru"
+            autoComplete="new-password"
+            disabled={busy}
+          />
+          {error ? <div className="error-banner">{error}</div> : null}
+          {info ? <div className="explorer-warning">{info}</div> : null}
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || !password || !confirmPassword || !ready}
+            onClick={submit}
+          >
+            {busy ? "Menyimpan..." : "Simpan password baru"}
           </button>
         </div>
       </div>
@@ -1466,7 +1583,7 @@ export default function App() {
         redirectTo,
       });
 
-      setAuthInfo("Reset password email sent. Check your inbox.");
+      setAuthInfo("Email verifikasi untuk ganti password sudah dikirim. Buka email Anda, verifikasi tautan, lalu buat password baru.");
     } catch (forgotError) {
       setAuthError(formatEdgeFunctionError(forgotError));
     } finally {
@@ -2303,10 +2420,13 @@ export default function App() {
                         <span>Display name</span>
                         <input value={createDisplayName} onChange={(event) => setCreateDisplayName(event.target.value)} placeholder="Nama pengguna" />
                       </label>
-                      <label>
-                        <span>Password</span>
-                        <input value={createPassword} onChange={(event) => setCreatePassword(event.target.value)} placeholder="Password sementara" />
-                      </label>
+                      <PasswordField
+                        label="Password"
+                        value={createPassword}
+                        onChange={(event) => setCreatePassword(event.target.value)}
+                        placeholder="Password sementara"
+                        autoComplete="new-password"
+                      />
                       <label>
                         <span>Role</span>
                         <select value={createRole} onChange={(event) => setCreateRole(event.target.value)}>

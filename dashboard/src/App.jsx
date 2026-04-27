@@ -15,13 +15,18 @@ function getFunctionUrl(name) {
   return `${SUPABASE_URL}/functions/v1/${name}`;
 }
 
+function isInvalidSessionError(error) {
+  const message = String(error?.message || error || "");
+  return /invalid admin session|missing authorization header|jwt|unauthorized/i.test(message);
+}
+
 function formatEdgeFunctionError(error) {
   const message = String(error?.message || error || "Unknown error");
   if (/email rate limit exceeded/i.test(message)) {
     return "Terlalu banyak permintaan reset password. Coba lagi beberapa menit lagi.";
   }
-  if (/invalid admin session|missing authorization header|jwt|unauthorized/i.test(message)) {
-    return "Sesi login tidak valid atau sudah berakhir. Silakan masuk ulang.";
+  if (isInvalidSessionError(message)) {
+    return "Sesi login telah berakhir. Silakan masuk lagi.";
   }
   return message;
 }
@@ -946,6 +951,14 @@ export default function App() {
       })
       .catch((profileError) => {
         if (!active) {
+          return;
+        }
+        if (isInvalidSessionError(profileError)) {
+          setAuthError(formatEdgeFunctionError(profileError));
+          setProfile(null);
+          setProfileLoading(false);
+          setSession(null);
+          supabase.auth.signOut().catch(() => {});
           return;
         }
         setAuthError(formatEdgeFunctionError(profileError));

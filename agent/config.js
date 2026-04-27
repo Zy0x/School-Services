@@ -246,6 +246,14 @@ function loadConfig() {
           Math.max(loopIntervalMs * 6, 45000)
       ),
     },
+    selfUpdate: {
+      enabled: overrides.selfUpdate?.enabled !== false,
+      intervalMs: Number(
+        overrides.selfUpdate?.intervalMs ||
+          process.env.AGENT_SELF_UPDATE_INTERVAL_MS ||
+          300000
+      ),
+    },
     deviceName: overrides.deviceName || process.env.DEVICE_NAME || null,
     shortcuts: {
       rapor: {

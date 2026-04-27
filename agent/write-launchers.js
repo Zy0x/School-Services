@@ -275,6 +275,7 @@ const resetCloudflaredPs1Content = [
 
 const updateAndRunPs1Content = [
   '$ErrorActionPreference = "Stop"',
+  'Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force',
   '$distDir = $PSScriptRoot',
   '$agentDir = Split-Path $distDir -Parent',
   '$repoRoot = Split-Path $agentDir -Parent',
@@ -291,6 +292,7 @@ const updateAndRunPs1Content = [
   '$logDir = Join-Path $distDir "logs"',
   '$logPath = Join-Path $logDir "updater.log"',
   'if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }',
+  '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls',
   'function Write-UpdaterLog([string]$message) {',
   '  $timestamp = (Get-Date).ToString("s")',
   '  Add-Content -Path $logPath -Value "[$timestamp] $message"',
@@ -321,6 +323,7 @@ const updateAndRunPs1Content = [
   '  $processEntries = Join-UniquePathEntries (Normalize-PathEntries $env:Path) (Join-UniquePathEntries (Normalize-PathEntries $machinePath) $requiredPathEntries)',
   '  $env:Path = ($processEntries -join ";")',
   '  $env:PATH = $env:Path',
+  '  Get-ChildItem -Path $distDir -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue',
   '}',
   'function Stop-AgentProcess {',
   '  $lockPath = Join-Path $distDir ".state\\agent.lock"',
@@ -433,6 +436,7 @@ const updateAndRunPs1Content = [
   '  if (-not $packageRoot) { $packageRoot = $extractPath }',
   '  $packageDist = Join-Path $packageRoot "dist"',
   '  if (-not (Test-Path $packageDist)) { $packageDist = $packageRoot }',
+  '  Get-ChildItem -Path $packageDist -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue',
   '  if (-not (Test-Path (Join-Path $packageDist "e-rapor-agent.exe"))) {',
   '    throw "Downloaded package does not contain e-rapor-agent.exe."',
   '  }',

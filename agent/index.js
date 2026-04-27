@@ -11,6 +11,7 @@ const logger = require("./logger");
 const { acquireProcessLock, releaseProcessLock } = require("./processLock");
 const { getConfigTargetsForService } = require("./serviceConfigs");
 const ServiceManager = require("./serviceManager");
+const SelfUpdater = require("./selfUpdater");
 const { createSupabaseApi } = require("./supabase");
 const ShortcutManager = require("./shortcutManager");
 const TunnelManager = require("./tunnel");
@@ -97,6 +98,11 @@ async function main() {
   const supabaseApi = createSupabaseApi(config.supabase);
   let removeLogSink = null;
   const serviceManager = new ServiceManager(config.services);
+  const selfUpdater = new SelfUpdater({
+    enabled: config.selfUpdate.enabled,
+    intervalMs: config.selfUpdate.intervalMs,
+    logger,
+  });
   await serviceManager.warnIfWindowsServiceControlNeedsElevation();
   await serviceManager.initializeDesiredStates();
   const urlCache = new UrlCache();
@@ -116,6 +122,7 @@ async function main() {
   let lastLoopAt = Date.now();
   let remoteDisconnectedAt = null;
   let fileWorkerRun = null;
+  let updateInProgress = false;
   const remoteState = {
     connected: true,
     registered: false,
@@ -299,6 +306,7 @@ async function main() {
   async function shutdown(options = {}) {
     const preserveManagedResources = options.preserveManagedResources === true;
     const stopLocalServices = options.stopLocalServices !== false;
+    const skipRemotePublish = options.skipRemotePublish === true;
 
     if (shuttingDown) {
       return;
@@ -329,15 +337,17 @@ async function main() {
     for (const service of serviceManager.list()) {
       try {
         shortcutManager.syncServiceUrl(service.serviceName, null);
-        await supabaseApi.upsertServiceStatus({
-          deviceId: device.deviceId,
-          serviceName: service.serviceName,
-          port: service.port,
-          status: stopLocalServices ? "stopped" : "offline",
-          publicUrl: null,
-          desiredState: serviceManager.getDesiredState(service.serviceName),
-          lastError: stopLocalServices ? null : "Agent stopped.",
-        });
+        if (!skipRemotePublish) {
+          await supabaseApi.upsertServiceStatus({
+            deviceId: device.deviceId,
+            serviceName: service.serviceName,
+            port: service.port,
+            status: stopLocalServices ? "stopped" : "offline",
+            publicUrl: null,
+            desiredState: serviceManager.getDesiredState(service.serviceName),
+            lastError: stopLocalServices ? null : "Agent stopped.",
+          });
+        }
       } catch (error) {
         logger.warn(
           `Failed to publish shutdown status for ${service.serviceName}: ${error.message}`
@@ -496,6 +506,40 @@ async function main() {
         fileWorkerRun = null;
       }
     })();
+  }
+
+  async function maybeRunSelfUpdate() {
+    if (
+      updateInProgress ||
+      !config.selfUpdate.enabled ||
+      !remoteState.connected ||
+      fileWorkerRun
+    ) {
+      return false;
+    }
+
+    try {
+      const check = await selfUpdater.checkForUpdate(false);
+      if (!check.checked || !check.updateAvailable) {
+        return false;
+      }
+
+      updateInProgress = true;
+      logger.warn("A newer GitHub release is available. Stopping local services and relaunching updater.", {
+        serviceName: null,
+        currentVersion: check.currentVersion,
+        currentReleaseTag: check.currentReleaseTag,
+        latestReleaseTag: check.latestReleaseTag,
+      });
+      await shutdown({ stopLocalServices: true, skipRemotePublish: true });
+      selfUpdater.launchUpdater();
+      return true;
+    } catch (error) {
+      logger.warn(`Automatic update check failed: ${error.message}`, {
+        serviceName: null,
+      });
+      return false;
+    }
   }
 
   while (true) {
@@ -693,6 +737,10 @@ async function main() {
     }
 
     kickFileWorker();
+    const updateTriggered = await maybeRunSelfUpdate();
+    if (updateTriggered) {
+      return;
+    }
 
     await sleep(config.loopIntervalMs);
     lastLoopAt = Date.now();

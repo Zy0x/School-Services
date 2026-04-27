@@ -8,6 +8,57 @@ const JOB_LIMIT = 80;
 const PUBLIC_DASHBOARD_URL = String(
   import.meta.env.VITE_PUBLIC_SITE_URL || "https://school-services.netlify.app"
 ).replace(/\/+$/, "");
+const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "");
+
+function getFunctionUrl(name) {
+  return `${SUPABASE_URL}/functions/v1/${name}`;
+}
+
+function formatEdgeFunctionError(error) {
+  const message = String(error?.message || error || "Unknown error");
+  if (/email rate limit exceeded/i.test(message)) {
+    return "Terlalu banyak permintaan reset password. Coba lagi beberapa menit lagi.";
+  }
+  if (/invalid admin session|missing authorization header|jwt|unauthorized/i.test(message)) {
+    return "Sesi login tidak valid atau sudah berakhir. Silakan masuk ulang.";
+  }
+  return message;
+}
+
+async function invokeEdgeFunction(name, body, session = null) {
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: SUPABASE_ANON_KEY,
+  };
+
+  if (session?.access_token) {
+    headers.Authorization = `Bearer ${session.access_token}`;
+  }
+
+  const response = await fetch(getFunctionUrl(name), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body || {}),
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(
+      payload?.error ||
+        payload?.message ||
+        `Edge Function returned HTTP ${response.status}.`
+    );
+  }
+
+  return payload;
+}
 
 function formatDate(value) {
   if (!value) {
@@ -884,24 +935,21 @@ export default function App() {
 
     let active = true;
     setProfileLoading(true);
-    supabase.functions
-      .invoke("account-access", {
-        body: { action: "sessionProfile" },
-      })
-      .then(({ data, error: profileError }) => {
+    invokeEdgeFunction("account-access", { action: "sessionProfile" }, session)
+      .then((data) => {
         if (!active) {
           return;
         }
-        if (profileError) {
-          setAuthError(profileError.message);
-          setProfile(null);
-        } else if (!data?.ok) {
-          setAuthError(data?.error || "Failed to load account profile.");
-          setProfile(null);
-        } else {
-          setProfile(data.profile || null);
-          setAuthError("");
+        setProfile(data.profile || null);
+        setAuthError("");
+        setProfileLoading(false);
+      })
+      .catch((profileError) => {
+        if (!active) {
+          return;
         }
+        setAuthError(formatEdgeFunctionError(profileError));
+        setProfile(null);
         setProfileLoading(false);
       });
 
@@ -1184,22 +1232,20 @@ export default function App() {
     setAuthError("");
     setAuthInfo("");
     if (authMode === "register") {
-      const { data, error: registerError } = await supabase.functions.invoke("account-access", {
-        body: {
+      try {
+        await invokeEdgeFunction("account-access", {
           action: "register",
           email: loginEmail,
           password: loginPassword,
           displayName: registerDisplayName,
           role: registerRole,
-        },
-      });
-      if (registerError || !data?.ok) {
-        setAuthError(registerError?.message || data?.error || "Registration failed.");
-      } else {
+        });
         setAuthInfo(
           "Registration received. Sign in with the same credentials to view approval status."
         );
         setAuthMode("login");
+      } catch (registerError) {
+        setAuthError(formatEdgeFunctionError(registerError));
       }
     } else {
       const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -1221,21 +1267,15 @@ export default function App() {
       setAuthError("");
       setAuthInfo("");
       const redirectTo = `${PUBLIC_DASHBOARD_URL}/reset-password`;
-      const { data, error: invokeError } = await supabase.functions.invoke("account-access", {
-        body: {
-          action: "forgotPassword",
-          email: loginEmail,
-          redirectTo,
-        },
+      await invokeEdgeFunction("account-access", {
+        action: "forgotPassword",
+        email: loginEmail,
+        redirectTo,
       });
-
-      if (invokeError || !data?.ok) {
-        throw invokeError || new Error(data?.error || "Failed to send reset email.");
-      }
 
       setAuthInfo("Reset password email sent. Check your inbox.");
     } catch (forgotError) {
-      setAuthError(forgotError.message);
+      setAuthError(formatEdgeFunctionError(forgotError));
     } finally {
       setAuthLoading(false);
     }

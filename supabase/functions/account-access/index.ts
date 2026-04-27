@@ -1,6 +1,15 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { createAnonClient, createServiceClient, getRequestActor } from "../_shared/admin.ts";
 
+class HttpError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
 function sanitizeRole(value: unknown) {
   const role = String(value || "").trim().toLowerCase();
   if (role === "operator" || role === "user") {
@@ -33,6 +42,21 @@ function normalizePublicRedirect(value: unknown) {
   }
 }
 
+function inferErrorStatus(error: unknown) {
+  if (error instanceof HttpError) {
+    return error.status;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  if (/missing authorization header|invalid admin session|admin access denied/i.test(message)) {
+    return 401;
+  }
+  if (/rate limit/i.test(message)) {
+    return 429;
+  }
+  return 400;
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -60,7 +84,7 @@ Deno.serve(async (request) => {
       const redirectTo = normalizePublicRedirect(body.redirectTo);
 
       if (!email) {
-        throw new Error("Email is required.");
+        throw new HttpError("Email is required.", 400);
       }
 
       const anon = createAnonClient();
@@ -86,7 +110,7 @@ Deno.serve(async (request) => {
     const role = sanitizeRole(body.role);
 
     if (!email || !password) {
-      throw new Error("Email and password are required.");
+      throw new HttpError("Email and password are required.", 400);
     }
 
     const { data: settings } = await service
@@ -138,7 +162,7 @@ Deno.serve(async (request) => {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       },
-      { status: 400 }
+      { status: inferErrorStatus(error) }
     );
   }
 });

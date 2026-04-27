@@ -84,6 +84,10 @@ function isConnectivityError(error) {
   ].some((token) => message.includes(token));
 }
 
+function escapePowerShellSingleQuotedString(value) {
+  return String(value || "").replace(/'/g, "''");
+}
+
 class FileWorker {
   constructor(options) {
     this.device = options.device;
@@ -694,14 +698,60 @@ class FileWorker {
     }
 
     const literalPaths = resolvedSelection
-      .map((targetPath) => `'${String(targetPath).replace(/'/g, "''")}'`)
+      .map((targetPath) => `'${escapePowerShellSingleQuotedString(targetPath)}'`)
       .join(", ");
+    const archiveRootName = safeBasename(resolvedSelection[0], "backup");
     const command = [
+      "$ErrorActionPreference = 'Stop'",
+      "Add-Type -AssemblyName System.IO.Compression",
+      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+      `$destination = '${escapePowerShellSingleQuotedString(archivePath)}'`,
+      "if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }",
       `$paths = @(${literalPaths})`,
-      `Compress-Archive -LiteralPath $paths -DestinationPath '${archivePath.replace(/'/g, "''")}' -Force`,
+      "$zip = [System.IO.Compression.ZipFile]::Open($destination, [System.IO.Compression.ZipArchiveMode]::Create)",
+      "$added = 0",
+      "$skipped = New-Object System.Collections.Generic.List[string]",
+      "function Add-Entry($sourcePath, $entryName) {",
+      "  try {",
+      "    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $sourcePath, ($entryName -replace '\\\\','/'), [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null",
+      "    $script:added += 1",
+      "  } catch {",
+      "    [void]$skipped.Add(($sourcePath + ': ' + $_.Exception.Message))",
+      "  }",
+      "}",
+      "try {",
+      "  foreach ($item in $paths) {",
+      "    if (-not (Test-Path -LiteralPath $item)) {",
+      "      [void]$skipped.Add(($item + ': path not found'))",
+      "      continue",
+      "    }",
+      "    $itemInfo = Get-Item -LiteralPath $item -Force -ErrorAction SilentlyContinue",
+      "    if (-not $itemInfo) {",
+      "      [void]$skipped.Add(($item + ': access denied'))",
+      "      continue",
+      "    }",
+      "    if ($itemInfo.PSIsContainer) {",
+      "      $rootName = Split-Path -Path $item -Leaf",
+      `      if (-not $rootName) { $rootName = '${escapePowerShellSingleQuotedString(archiveRootName)}' }`,
+      "      Get-ChildItem -LiteralPath $item -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object {",
+      "        $file = $_",
+      "        $relative = $file.FullName.Substring($item.Length).TrimStart('\\')",
+      "        if (-not $relative) { $relative = $file.Name }",
+      "        $entryName = Join-Path $rootName $relative",
+      "        Add-Entry $file.FullName $entryName",
+      "      }",
+      "    } else {",
+      "      Add-Entry $itemInfo.FullName $itemInfo.Name",
+      "    }",
+      "  }",
+      "} finally {",
+      "  $zip.Dispose()",
+      "}",
+      "$result = @{ added = $added; skipped = $skipped.Count; skippedItems = @($skipped | Select-Object -First 20) }",
+      "$result | ConvertTo-Json -Compress",
     ].join("; ");
 
-    await this.serviceManager.runCapture(this.serviceManager.getPowerShellPath(), [
+    const { stdout } = await this.serviceManager.runCapture(this.serviceManager.getPowerShellPath(), [
       "-NoProfile",
       "-Command",
       command,
@@ -709,6 +759,15 @@ class FileWorker {
 
     if (!fs.existsSync(archivePath)) {
       throw new Error(`Archive was not created at ${archivePath}`);
+    }
+
+    const archiveMetadata = stdout ? JSON.parse(stdout) : { added: 0, skipped: 0, skippedItems: [] };
+    if (!Number(archiveMetadata.added || 0)) {
+      throw new Error(
+        archiveMetadata.skippedItems?.[0]
+          ? `Archive could not include any readable files. First error: ${archiveMetadata.skippedItems[0]}`
+          : `Archive could not include any readable files from ${resolvedSelection[0]}`
+      );
     }
 
     const bucket = job.delivery_mode === "persistent" ? "agent-archives" : "agent-temp-artifacts";
@@ -723,6 +782,13 @@ class FileWorker {
       size,
       progressCurrent: selection.length,
       progressTotal: selection.length,
+      warnings:
+        Number(archiveMetadata.skipped || 0) > 0
+          ? {
+              skippedCount: Number(archiveMetadata.skipped || 0),
+              skippedItems: archiveMetadata.skippedItems || [],
+            }
+          : null,
       expiresAt:
         job.delivery_mode === "persistent"
           ? null

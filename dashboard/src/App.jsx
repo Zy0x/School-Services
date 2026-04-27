@@ -5,6 +5,9 @@ const HEARTBEAT_STALE_MS = Number(import.meta.env.VITE_HEARTBEAT_STALE_MS || 200
 const REFRESH_INTERVAL_MS = Number(import.meta.env.VITE_DASHBOARD_REFRESH_MS || 5000);
 const LOG_LIMIT = 120;
 const JOB_LIMIT = 80;
+const PUBLIC_DASHBOARD_URL = String(
+  import.meta.env.VITE_PUBLIC_SITE_URL || "https://school-services.netlify.app"
+).replace(/\/+$/, "");
 
 function formatDate(value) {
   if (!value) {
@@ -475,6 +478,36 @@ function PasswordResetScreen() {
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    async function bootstrapRecovery() {
+      const hash = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+
+      if (!accessToken || !refreshToken) {
+        setStatus("Recovery token is missing or expired.");
+        return;
+      }
+
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+
+      if (error) {
+        setStatus(error.message);
+        return;
+      }
+
+      setReady(true);
+      setStatus("");
+    }
+
+    bootstrapRecovery();
+  }, []);
 
   async function submit() {
     try {
@@ -508,7 +541,7 @@ function PasswordResetScreen() {
             />
           </label>
           {status ? <div className="explorer-warning">{status}</div> : null}
-          <button type="button" className="primary-button" disabled={busy || !password} onClick={submit}>
+          <button type="button" className="primary-button" disabled={busy || !password || !ready} onClick={submit}>
             {busy ? "Updating..." : "Update password"}
           </button>
         </div>
@@ -765,11 +798,14 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
 
 export default function App() {
   const currentPathname = typeof window !== "undefined" ? window.location.pathname : "/";
+  const currentHash = typeof window !== "undefined" ? window.location.hash : "";
   const guestDeviceId =
     typeof window !== "undefined"
       ? decodeURIComponent(currentPathname.match(/^\/guest\/([^/]+)$/)?.[1] || "")
       : "";
-  const resetPasswordMode = currentPathname === "/reset-password";
+  const resetPasswordMode =
+    currentPathname === "/reset-password" ||
+    /(^|[&#])type=recovery(?:[&#]|$)/.test(currentHash);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState("login");
@@ -1184,10 +1220,7 @@ export default function App() {
       setAuthLoading(true);
       setAuthError("");
       setAuthInfo("");
-      const redirectTo =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/reset-password`
-          : "https://school-services.netlify.app/reset-password";
+      const redirectTo = `${PUBLIC_DASHBOARD_URL}/reset-password`;
       const { data, error: invokeError } = await supabase.functions.invoke("account-access", {
         body: {
           action: "forgotPassword",

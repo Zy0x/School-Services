@@ -9,6 +9,30 @@ function sanitizeRole(value: unknown) {
   throw new Error("Unsupported registration role.");
 }
 
+function normalizePublicRedirect(value: unknown) {
+  const fallback = "https://school-services.netlify.app/reset-password";
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1"
+    ) {
+      return fallback;
+    }
+
+    return parsed.toString();
+  } catch (_error) {
+    return fallback;
+  }
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -33,9 +57,7 @@ Deno.serve(async (request) => {
 
     if (action === "forgotPassword") {
       const email = String(body.email || "").trim().toLowerCase();
-      const redirectTo =
-        String(body.redirectTo || "").trim() ||
-        "https://school-services.netlify.app/reset-password";
+      const redirectTo = normalizePublicRedirect(body.redirectTo);
 
       if (!email) {
         throw new Error("Email is required.");

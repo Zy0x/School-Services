@@ -7,6 +7,14 @@ const packageJson = require("./package.json");
 const distDir = path.join(__dirname, "dist");
 const repoRoot = path.join(__dirname, "..");
 const runtimeConfigOutputPath = path.join(distDir, "agent.runtime.json");
+const systemRoot = process.env.SystemRoot || "C:\\Windows";
+const system32Path = path.join(systemRoot, "System32");
+const powerShellPath = path.join(
+  system32Path,
+  "WindowsPowerShell",
+  "v1.0",
+  "powershell.exe"
+);
 
 fs.mkdirSync(distDir, { recursive: true });
 
@@ -194,7 +202,7 @@ const vbsContent = [
   'Set shell = CreateObject("WScript.Shell")',
   'Set fso = CreateObject("Scripting.FileSystemObject")',
   'currentDir = fso.GetParentFolderName(WScript.ScriptFullName)',
-  'command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\update-and-run.ps1" & Chr(34)',
+  `command = "${powerShellPath.replace(/\\/g, "\\\\")} -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\update-and-run.ps1" & Chr(34)`,
   'shell.Run command, 0, False',
   "",
 ].join("\r\n");
@@ -204,7 +212,7 @@ const adminVbsContent = [
   'Set fso = CreateObject("Scripting.FileSystemObject")',
   'currentDir = fso.GetParentFolderName(WScript.ScriptFullName)',
   'args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\update-and-run.ps1" & Chr(34)',
-  'shellApp.ShellExecute "powershell.exe", args, currentDir, "runas", 0',
+  `shellApp.ShellExecute "${powerShellPath.replace(/\\/g, "\\\\")}", args, currentDir, "runas", 0`,
   "",
 ].join("\r\n");
 
@@ -215,7 +223,7 @@ const ps1Content = [
 
 const adminPs1Content = [
   '$scriptPath = Join-Path $PSScriptRoot "update-and-run.ps1"',
-  'Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$scriptPath) -Verb RunAs -WindowStyle Hidden',
+  `Start-Process -FilePath "${powerShellPath.replace(/\\/g, "\\\\")}" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$scriptPath) -Verb RunAs -WindowStyle Hidden`,
   "",
 ].join("\r\n");
 
@@ -271,6 +279,14 @@ const updateAndRunPs1Content = [
   '$agentDir = Split-Path $distDir -Parent',
   '$repoRoot = Split-Path $agentDir -Parent',
   '$exePath = Join-Path $distDir "e-rapor-agent.exe"',
+  '$systemRoot = $env:SystemRoot',
+  'if (-not $systemRoot) { $systemRoot = "C:\\Windows" }',
+  '$system32Path = Join-Path $systemRoot "System32"',
+  '$requiredPathEntries = @(',
+  '  $system32Path,',
+  '  (Join-Path $system32Path "WindowsPowerShell\\v1.0"),',
+  '  (Join-Path $system32Path "Wbem")',
+  ') | Where-Object { $_ -and (Test-Path $_) }',
   '$buildInfoPath = Join-Path $distDir "agent-build.json"',
   '$logDir = Join-Path $distDir "logs"',
   '$logPath = Join-Path $logDir "updater.log"',
@@ -278,6 +294,33 @@ const updateAndRunPs1Content = [
   'function Write-UpdaterLog([string]$message) {',
   '  $timestamp = (Get-Date).ToString("s")',
   '  Add-Content -Path $logPath -Value "[$timestamp] $message"',
+  '}',
+  'function Normalize-PathEntries([string]$value) {',
+  '  if (-not $value) { return @() }',
+  '  return @($value.Split(";") | ForEach-Object { $_.Trim() } | Where-Object { $_ })',
+  '}',
+  'function Join-UniquePathEntries([string[]]$baseEntries, [string[]]$additionalEntries) {',
+  '  $result = New-Object System.Collections.Generic.List[string]',
+  '  $seen = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)',
+  '  foreach ($entry in @($additionalEntries) + @($baseEntries)) {',
+  '    if (-not $entry) { continue }',
+  '    if ($seen.Add($entry)) { [void]$result.Add($entry) }',
+  '  }',
+  '  return @($result)',
+  '}',
+  'function Ensure-RequiredEnvironment {',
+  '  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")',
+  '  $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")',
+  '  $existingUserEntries = Normalize-PathEntries $userPath',
+  '  $mergedUserEntries = Join-UniquePathEntries $existingUserEntries $requiredPathEntries',
+  '  $mergedUserPath = ($mergedUserEntries -join ";")',
+  '  if ($mergedUserPath -ne $userPath) {',
+  '    [Environment]::SetEnvironmentVariable("Path", $mergedUserPath, "User")',
+  '    Write-UpdaterLog ("Updated user PATH with required Windows entries: {0}" -f ($requiredPathEntries -join ", "))',
+  '  }',
+  '  $processEntries = Join-UniquePathEntries (Normalize-PathEntries $env:Path) (Join-UniquePathEntries (Normalize-PathEntries $machinePath) $requiredPathEntries)',
+  '  $env:Path = ($processEntries -join ";")',
+  '  $env:PATH = $env:Path',
   '}',
   'function Stop-AgentProcess {',
   '  $lockPath = Join-Path $distDir ".state\\agent.lock"',
@@ -328,12 +371,15 @@ const updateAndRunPs1Content = [
   'Start-Sleep -Seconds 2',
   "$exePath = '{0}'",
   "$workingDir = '{1}'",
+  "$bootstrapPaths = '{2}'",
+  '$env:Path = (($bootstrapPaths -split ";") + ($env:Path -split ";") | Where-Object { $_ } | Select-Object -Unique) -join ";"',
+  '$env:PATH = $env:Path',
   'Start-Process -FilePath $exePath -WorkingDirectory $workingDir -WindowStyle Hidden',
   'Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue',
-  "'@ -f ($exePath -replace \"'\", \"''\"), ($distDir -replace \"'\", \"''\")",
+  "'@ -f ($exePath -replace \"'\", \"''\"), ($distDir -replace \"'\", \"''\"), (($requiredPathEntries -join ';') -replace \"'\", \"''\")",
   '  Set-Content -Path $launcherPath -Value $launcherContent -Encoding UTF8',
   '  Write-UpdaterLog "Starting deferred relaunch helper."',
-  '  Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$launcherPath) -WindowStyle Hidden',
+  `  Start-Process -FilePath "${powerShellPath.replace(/\\/g, "\\\\")}" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$launcherPath) -WindowStyle Hidden`,
   '}',
   'function Start-AgentNow {',
   '  Write-UpdaterLog "Starting agent immediately."',
@@ -403,6 +449,7 @@ const updateAndRunPs1Content = [
   '  return $true',
   '}',
   '$didUpdate = $false',
+  'Ensure-RequiredEnvironment',
   'try {',
   '  $didUpdate = Update-FromRelease',
   '} catch {',

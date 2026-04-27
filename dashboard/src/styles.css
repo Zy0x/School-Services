@@ -401,10 +401,67 @@ a {
   gap: 16px;
 }
 
+.explorer-shell {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.explorer-toolbar,
+.explorer-breadcrumbs,
+.explorer-summary {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.explorer-toolbar {
+  justify-content: space-between;
+}
+
+.explorer-breadcrumbs {
+  overflow-x: auto;
+  padding-bottom: 4px;
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+
+.breadcrumb-chip {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(17, 33, 29, 0.08);
+  background: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+}
+
+.breadcrumb-chip-active {
+  background: rgba(10, 139, 117, 0.12);
+  border-color: rgba(10, 139, 117, 0.22);
+  color: #0b6d5f;
+}
+
+.explorer-summary {
+  color: var(--text-soft);
+  font-size: 0.92rem;
+}
+
+.explorer-warning {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(185, 120, 22, 0.12);
+  color: #8b5e12;
+}
+
 .file-table {
   display: grid;
   gap: 8px;
-  margin-top: 12px;
+}
+
+.file-table-scroll {
+  overflow-x: auto;
+  padding-bottom: 6px;
 }
 
 .file-table-head,
@@ -421,6 +478,7 @@ a {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 0 6px 8px;
+  min-width: 1080px;
 }
 
 .file-row {
@@ -428,6 +486,7 @@ a {
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(17, 33, 29, 0.06);
+  min-width: 1080px;
 }
 
 .file-row-selected {
@@ -435,11 +494,41 @@ a {
   background: rgba(10, 139, 117, 0.08);
 }
 
+.file-row-focused {
+  box-shadow: inset 0 0 0 1px rgba(10, 139, 117, 0.28);
+}
+
 .file-name-cell {
   display: flex;
   gap: 10px;
-  align-items: center;
+  align-items: flex-start;
   min-width: 0;
+}
+
+.file-glyph {
+  display: inline-flex;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 800;
+  background: rgba(95, 112, 105, 0.1);
+  color: #52625c;
+  border: none;
+  cursor: pointer;
+}
+
+.file-glyph-directory {
+  background: rgba(10, 139, 117, 0.12);
+  color: #0a7a67;
+}
+
+.file-glyph-file {
+  background: rgba(17, 33, 29, 0.06);
+  color: #55655f;
 }
 
 .file-link {
@@ -449,9 +538,42 @@ a {
   color: #0f241f;
   text-align: left;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-weight: 600;
   white-space: nowrap;
+}
+
+.file-name-content {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.file-subpath {
+  color: var(--text-soft);
+  overflow-x: auto;
+  white-space: nowrap;
+  max-width: 100%;
+  padding-bottom: 2px;
+}
+
+.open-folder-button {
+  font-weight: 700;
+}
+
+.file-link,
+.file-subpath,
+.root-card-path,
+.service-link,
+.job-card-path {
+  scrollbar-width: thin;
+}
+
+.file-link {
+  display: block;
+  overflow-x: auto;
+  text-overflow: clip;
+  max-width: 100%;
 }
 
 .preview-text,
@@ -623,5 +745,6 @@ button:disabled {
   .file-table-head,
   .file-row {
     grid-template-columns: 1fr;
+    min-width: 0;
   }
 }

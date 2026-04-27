@@ -55,6 +55,69 @@ function formatRelativeTime(value, now = Date.now()) {
   return rtf.format(Math.round(deltaMs / 86400000), "day");
 }
 
+function getFileKindLabel(item) {
+  if (!item) {
+    return "-";
+  }
+  if (item.type === "directory") {
+    return "Folder";
+  }
+  const extension = String(item.name || "").split(".").pop();
+  if (!extension || extension === item.name) {
+    return "File";
+  }
+  return `${extension.toUpperCase()} file`;
+}
+
+function getItemGlyph(item) {
+  if (!item) {
+    return "ITEM";
+  }
+  if (item.type === "directory") {
+    return "DIR";
+  }
+  const extension = String(item.name || "").toLowerCase().split(".").pop();
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension)) {
+    return "IMG";
+  }
+  if (["zip", "rar", "7z"].includes(extension)) {
+    return "ZIP";
+  }
+  if (["pdf"].includes(extension)) {
+    return "PDF";
+  }
+  if (["txt", "md", "log", "json", "env", "ini", "sql"].includes(extension)) {
+    return "TXT";
+  }
+  return "FILE";
+}
+
+function buildBreadcrumbs(targetPath) {
+  const value = String(targetPath || "").trim();
+  if (!value) {
+    return [];
+  }
+
+  const normalized = value.replace(/\//g, "\\");
+  const match = normalized.match(/^([A-Za-z]:\\)(.*)$/);
+  if (!match) {
+    return [{ label: normalized, path: normalized }];
+  }
+
+  const root = match[1];
+  const rest = match[2];
+  const parts = rest.split("\\").filter(Boolean);
+  const crumbs = [{ label: root.replace(/\\$/, ""), path: root }];
+  let cursor = root;
+
+  for (const part of parts) {
+    cursor = cursor.endsWith("\\") ? `${cursor}${part}` : `${cursor}\\${part}`;
+    crumbs.push({ label: part, path: cursor });
+  }
+
+  return crumbs;
+}
+
 function isFresh(timestamp) {
   if (!timestamp) {
     return false;
@@ -81,6 +144,22 @@ function deriveServiceStatus(row, deviceStatus) {
     return "blocked";
   }
   return row.status || "unknown";
+}
+
+function getPublicUrlLabel(service) {
+  if (!service?.public_url) {
+    return "Public URL";
+  }
+
+  if (service.serviceStatus === "offline") {
+    return "Last known URL";
+  }
+
+  if (service.serviceStatus === "waiting_retry" || service.serviceStatus === "starting") {
+    return "Reconnecting URL";
+  }
+
+  return "Public URL";
 }
 
 function statusTone(status) {
@@ -209,52 +288,129 @@ function RootGrid({ roots, onOpen }) {
 }
 
 function FileTable({
+  currentPath,
   items,
+  warnings,
+  focusedPath,
   selectedPaths,
   onToggle,
   onOpen,
   onPreview,
+  onOpenParent,
 }) {
   if (!items || items.length === 0) {
-    return <div className="empty-state">Folder ini kosong atau belum berhasil dimuat.</div>;
+    return (
+      <div className="empty-state">
+        Folder ini kosong atau belum berhasil dimuat.
+      </div>
+    );
   }
 
+  const breadcrumbs = buildBreadcrumbs(currentPath);
+  const folderCount = items.filter((item) => item.type === "directory").length;
+  const fileCount = items.filter((item) => item.type === "file").length;
+
   return (
-    <div className="file-table">
-      <div className="file-table-head">
-        <span>Name</span>
-        <span>Type</span>
-        <span>Size</span>
-        <span>Modified</span>
-        <span>Action</span>
-      </div>
-      {items.map((item) => {
-        const selected = selectedPaths.includes(item.path);
-        return (
-          <div key={item.path} className={`file-row ${selected ? "file-row-selected" : ""}`}>
-            <label className="file-name-cell">
-              <input
-                type="checkbox"
-                checked={selected}
-                onChange={() => onToggle(item)}
-              />
-              <button
-                type="button"
-                className="file-link"
-                onClick={() => (item.type === "directory" ? onOpen(item.path) : onPreview(item))}
-              >
-                {item.name}
-              </button>
-            </label>
-            <span>{item.type}</span>
-            <span>{item.type === "directory" ? "-" : formatBytes(item.size)}</span>
-            <span>{formatDate(item.modifiedAt)}</span>
-            <button type="button" className="utility-button" onClick={() => onPreview(item)}>
-              Preview
+    <div className="explorer-shell">
+      <div className="explorer-toolbar">
+        <div className="explorer-breadcrumbs">
+          <button type="button" className="utility-button" onClick={onOpenParent}>
+            Up
+          </button>
+          {breadcrumbs.map((crumb) => (
+            <button
+              key={crumb.path}
+              type="button"
+              className={`breadcrumb-chip ${
+                crumb.path === currentPath ? "breadcrumb-chip-active" : ""
+              }`}
+              onClick={() => onOpen(crumb.path)}
+            >
+              {crumb.label}
             </button>
+          ))}
+        </div>
+        <div className="explorer-summary">
+          <span>{folderCount} folders</span>
+          <span>{fileCount} files</span>
+          {warnings?.length ? <span>{warnings.length} skipped</span> : null}
+        </div>
+      </div>
+
+      {warnings?.length ? (
+        <div className="explorer-warning">
+          Beberapa item tidak bisa dibaca karena sedang dikunci atau tidak dapat
+          diakses. Explorer tetap menampilkan item lain yang berhasil dimuat.
+        </div>
+      ) : null}
+
+      <div className="file-table-scroll">
+        <div className="file-table">
+          <div className="file-table-head">
+            <span>Name</span>
+            <span>Type</span>
+            <span>Size</span>
+            <span>Modified</span>
+            <span>Action</span>
           </div>
-        );
-      })}
+          {items.map((item) => {
+            const selected = selectedPaths.includes(item.path);
+            const isFocused = focusedPath && focusedPath === item.path;
+            return (
+              <div
+                key={item.path}
+                className={`file-row ${selected ? "file-row-selected" : ""} ${
+                  isFocused ? "file-row-focused" : ""
+                }`}
+                onDoubleClick={() =>
+                  item.type === "directory" ? onOpen(item.path) : onPreview(item)
+                }
+              >
+                <div className="file-name-cell">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => onToggle(item)}
+                  />
+                  <button
+                    type="button"
+                    className={`file-glyph file-glyph-${item.type}`}
+                    onClick={() =>
+                      item.type === "directory" ? onOpen(item.path) : onPreview(item)
+                    }
+                  >
+                    {getItemGlyph(item)}
+                  </button>
+                  <div className="file-name-content">
+                    <button
+                      type="button"
+                      className="file-link"
+                      onClick={() =>
+                        item.type === "directory" ? onOpen(item.path) : onPreview(item)
+                      }
+                    >
+                      {item.name}
+                    </button>
+                    <div className="file-subpath mono">{item.path}</div>
+                  </div>
+                </div>
+                <span>{getFileKindLabel(item)}</span>
+                <span>{item.type === "directory" ? "-" : formatBytes(item.size)}</span>
+                <span>{formatDate(item.modifiedAt)}</span>
+                <button
+                  type="button"
+                  className={`utility-button ${item.type === "directory" ? "open-folder-button" : ""}`}
+                  onClick={() =>
+                    item.type === "directory" ? onOpen(item.path) : onPreview(item)
+                  }
+                >
+                  {item.type === "directory" ? "Open folder" : "Preview"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -510,6 +666,9 @@ export default function App() {
 
     if (job.status === "completed" && job.result) {
       setDirectoryResult(job.result);
+      if (job.result.path) {
+        setCurrentPath(job.result.path);
+      }
       setSelectedPaths([]);
       setDirectoryJobId(null);
     } else if (job.status === "failed") {
@@ -669,6 +828,20 @@ export default function App() {
       setDirectoryResult(null);
       setSelectedTab("files");
     }
+  }
+
+  async function openParentPath() {
+    if (!currentPath) {
+      return;
+    }
+
+    const breadcrumbs = buildBreadcrumbs(currentPath);
+    if (breadcrumbs.length <= 1) {
+      await openPath(currentPath);
+      return;
+    }
+
+    await openPath(breadcrumbs[breadcrumbs.length - 2].path);
   }
 
   async function refreshRoots() {
@@ -967,7 +1140,7 @@ export default function App() {
                           </div>
                           <div className="service-detail-grid">
                             <div>
-                              <span>Public URL</span>
+                              <span>{getPublicUrlLabel(service)}</span>
                               <strong className="service-link">
                                 {service.public_url ? (
                                   <a href={service.public_url} target="_blank" rel="noreferrer">
@@ -1061,11 +1234,15 @@ export default function App() {
                         {directoryJobId ? <StatusChip status="running_job" label="loading" /> : null}
                       </div>
                       <FileTable
+                        currentPath={currentPath}
                         items={directoryResult?.items || []}
+                        warnings={directoryResult?.warnings || []}
+                        focusedPath={directoryResult?.focusedPath || null}
                         selectedPaths={selectedPaths}
                         onToggle={toggleSelection}
                         onOpen={openPath}
                         onPreview={previewItem}
+                        onOpenParent={openParentPath}
                       />
                     </article>
 

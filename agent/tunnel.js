@@ -97,6 +97,7 @@ class TunnelManager {
       pid: payload.pid || null,
       logPath: payload.logPath || this.getTunnelPaths(serviceName).logPath,
       publicUrl: payload.publicUrl || null,
+      lastKnownPublicUrl: payload.lastKnownPublicUrl || payload.publicUrl || null,
       hidden: Boolean(payload.hidden),
       lastError: payload.lastError || null,
       nextRetryAt: payload.nextRetryAt || null,
@@ -117,6 +118,7 @@ class TunnelManager {
       pid: tunnel.pid,
       logPath: tunnel.logPath,
       publicUrl: tunnel.publicUrl,
+      lastKnownPublicUrl: tunnel.lastKnownPublicUrl,
       hidden: tunnel.hidden,
       lastError: tunnel.lastError,
       nextRetryAt: tunnel.nextRetryAt,
@@ -298,7 +300,7 @@ class TunnelManager {
 
     tunnel.pid = null;
     tunnel.child = null;
-    tunnel.publicUrl = null;
+    tunnel.publicUrl = tunnel.publicUrl || tunnel.lastKnownPublicUrl || null;
     tunnel.lastError = retry.reason;
     tunnel.nextRetryAt = retry.nextRetryAt;
     tunnel.retryAttempt = retry.attempt;
@@ -350,6 +352,7 @@ class TunnelManager {
     if (publicUrl) {
       const changed = tunnel.publicUrl !== publicUrl;
       tunnel.publicUrl = publicUrl;
+      tunnel.lastKnownPublicUrl = publicUrl;
       this.clearRetryState(service.serviceName, tunnel);
       tunnel.state = tunnel.hidden ? "stopped" : "running";
       this.persistTunnelState(service.serviceName, tunnel);
@@ -439,6 +442,15 @@ class TunnelManager {
     return tunnel.publicUrl || null;
   }
 
+  getLastKnownPublicUrl(serviceName) {
+    const tunnel = this.tunnels.get(serviceName);
+    if (!tunnel) {
+      return null;
+    }
+
+    return tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
+  }
+
   getHiddenPublicUrl(serviceName) {
     return this.tunnels.get(serviceName)?.publicUrl || null;
   }
@@ -449,6 +461,7 @@ class TunnelManager {
       return {
         state: "idle",
         publicUrl: null,
+        lastKnownPublicUrl: null,
         lastError: null,
         nextRetryAt: null,
         retryAttempt: 0,
@@ -458,6 +471,7 @@ class TunnelManager {
     return {
       state: tunnel.state,
       publicUrl: this.getPublicUrl(serviceName),
+      lastKnownPublicUrl: this.getLastKnownPublicUrl(serviceName),
       lastError: tunnel.lastError,
       nextRetryAt: tunnel.nextRetryAt,
       retryAttempt: tunnel.retryAttempt,
@@ -531,7 +545,7 @@ class TunnelManager {
       tunnel.pid = child.pid;
       tunnel.logPath = logPath;
       tunnel.hidden = false;
-      tunnel.publicUrl = null;
+      tunnel.publicUrl = tunnel.lastKnownPublicUrl || null;
       tunnel.state = "starting";
       tunnel.lastQueueLogAt = null;
       tunnel.lastError = null;
@@ -638,6 +652,7 @@ class TunnelManager {
 
     tunnel.hidden = true;
     tunnel.state = "stopped";
+    tunnel.publicUrl = null;
     this.clearRetryState(serviceName, tunnel);
     this.persistTunnelState(serviceName, tunnel);
   }

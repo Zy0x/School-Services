@@ -50,6 +50,24 @@ function safeBasename(targetPath, fallback = "artifact") {
   return base || fallback;
 }
 
+function normalizeDirectoryCandidate(targetPath) {
+  const normalized = path.resolve(String(targetPath || ""));
+  if (!normalized) {
+    return normalized;
+  }
+
+  try {
+    const stats = fs.statSync(normalized);
+    if (stats.isFile()) {
+      return path.dirname(normalized);
+    }
+  } catch (error) {
+    // Keep the original path when it does not exist yet.
+  }
+
+  return normalized;
+}
+
 class FileWorker {
   constructor(options) {
     this.device = options.device;
@@ -251,11 +269,15 @@ class FileWorker {
       const diagnostics = await this.serviceManager.getLocationDiagnostics(serviceName, {
         forceRefresh: true,
       });
+      const candidatePath =
+        diagnostics.resolvedPath ||
+        diagnostics.details?.windowsServices?.[0]?.executablePath ||
+        "";
 
       results.push({
         root_key: `app:${serviceName}`,
         label: serviceName === "rapor" ? "E-Rapor" : "Dapodik",
-        path: diagnostics.resolvedPath || diagnostics.details?.windowsServices?.[0]?.executablePath || "",
+        path: normalizeDirectoryCandidate(candidatePath),
         root_type: "application",
         metadata: {
           locationStatus: diagnostics.status,
@@ -298,24 +320,50 @@ class FileWorker {
 
   async handleListDirectory(job) {
     const targetPath = this.resolveExistingPath(job.source_path);
-    const entries = fs
-      .readdirSync(targetPath)
-      .map((entryName) => this.buildDirectoryEntry(targetPath, entryName))
-      .sort((left, right) => {
-        if (left.type !== right.type) {
-          return left.type === "directory" ? -1 : 1;
-        }
+    const targetStats = fs.statSync(targetPath);
+    const warnings = [];
 
-        return left.name.localeCompare(right.name, undefined, {
-          numeric: true,
-          sensitivity: "base",
+    if (targetStats.isFile()) {
+      return {
+        path: path.dirname(targetPath),
+        parentPath: path.dirname(path.dirname(targetPath)),
+        focusedPath: targetPath,
+        items: [this.buildDirectoryEntry(path.dirname(targetPath), path.basename(targetPath))],
+        warnings,
+      };
+    }
+
+    const entryNames = fs.readdirSync(targetPath);
+    const entries = [];
+
+    for (const entryName of entryNames) {
+      try {
+        entries.push(this.buildDirectoryEntry(targetPath, entryName));
+      } catch (error) {
+        warnings.push({
+          name: entryName,
+          path: path.join(targetPath, entryName),
+          message: error.message,
         });
+      }
+    }
+
+    entries.sort((left, right) => {
+      if (left.type !== right.type) {
+        return left.type === "directory" ? -1 : 1;
+      }
+
+      return left.name.localeCompare(right.name, undefined, {
+        numeric: true,
+        sensitivity: "base",
       });
+    });
 
     return {
       path: targetPath,
       parentPath: path.dirname(targetPath),
       items: entries,
+      warnings,
     };
   }
 

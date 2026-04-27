@@ -239,6 +239,13 @@ function loadConfig() {
           ".sql",
         ],
     },
+    recovery: {
+      resumeGapMs: Number(
+        overrides.recovery?.resumeGapMs ||
+          process.env.AGENT_RESUME_GAP_MS ||
+          Math.max(loopIntervalMs * 6, 45000)
+      ),
+    },
     deviceName: overrides.deviceName || process.env.DEVICE_NAME || null,
     shortcuts: {
       rapor: {

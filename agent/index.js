@@ -5,6 +5,7 @@ const { loadConfig } = require("./config");
 const { updateMappedConfig } = require("./configManager");
 const { executeCommands } = require("./commands");
 const { createDeviceMetadata } = require("./device");
+const { ensureProcessPathEntries } = require("./environment");
 const FileWorker = require("./fileWorker");
 const logger = require("./logger");
 const { acquireProcessLock, releaseProcessLock } = require("./processLock");
@@ -62,7 +63,31 @@ function derivePublishedStatus(serviceSnapshot, tunnelSnapshot) {
   return serviceSnapshot.status;
 }
 
+function isSupabaseConnectivityError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return [
+    "fetch failed",
+    "network request failed",
+    "timed out",
+    "econnreset",
+    "enotfound",
+    "getaddrinfo",
+    "failed to fetch",
+    "socket hang up",
+    "network",
+    "temporarily unavailable",
+  ].some((token) => message.includes(token));
+}
+
 async function main() {
+  const environmentBootstrap = ensureProcessPathEntries();
+  if (environmentBootstrap.changed) {
+    logger.info("Normalized PATH for current agent process.", {
+      serviceName: null,
+      requiredEntries: environmentBootstrap.required,
+    });
+  }
+
   const config = loadConfig();
   const lockPath = path.join(getBaseDir(), ".state", "agent.lock");
   acquireProcessLock(lockPath);
@@ -88,6 +113,47 @@ async function main() {
     previewTextExtensions: config.fileAccess.previewTextExtensions,
   });
   const publishedServiceState = new Map();
+  let lastLoopAt = Date.now();
+  const remoteState = {
+    connected: true,
+    registered: false,
+    deviceBlocked: false,
+  };
+
+  function markSupabaseDisconnected(error, context) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (remoteState.connected) {
+      logger.warn(`Supabase connection lost during ${context}: ${message}`, {
+        serviceName: null,
+        context,
+      });
+    }
+    remoteState.connected = false;
+  }
+
+  function markSupabaseConnected() {
+    if (!remoteState.connected) {
+      logger.info("Supabase connection restored.", {
+        serviceName: null,
+      });
+    }
+    remoteState.connected = true;
+  }
+
+  async function trySupabase(context, operation, fallback = null) {
+    try {
+      const result = await operation();
+      markSupabaseConnected();
+      return result;
+    } catch (error) {
+      if (isSupabaseConnectivityError(error)) {
+        markSupabaseDisconnected(error, context);
+        return fallback;
+      }
+
+      throw error;
+    }
+  }
 
   async function buildLocationPayload(serviceName) {
     try {
@@ -113,6 +179,29 @@ async function main() {
           message: error.message,
         },
       };
+    }
+  }
+
+  async function handleResumeRecovery() {
+    logger.warn(
+      "Agent detected a long execution gap. The device likely resumed from sleep or standby, so tunnels and remote state will be reinitialized.",
+      {
+        serviceName: null,
+        resumeGapMs: Date.now() - lastLoopAt,
+      }
+    );
+
+    remoteState.connected = false;
+    remoteState.registered = false;
+
+    for (const service of serviceManager.list()) {
+      publishedServiceState.delete(service.serviceName);
+    }
+
+    try {
+      await fileWorker.syncRootsIfNeeded(true);
+    } catch (error) {
+      logger.warn(`File roots sync after resume failed: ${error.message}`);
     }
   }
 
@@ -182,16 +271,21 @@ async function main() {
       urlCache.remember(service.serviceName, publicUrl);
       shortcutManager.syncServiceUrl(service.serviceName, publicUrl);
       const locationPayload = await buildLocationPayload(service.serviceName);
-      await supabaseApi.upsertServiceStatus({
-        deviceId: device.deviceId,
-        serviceName: service.serviceName,
-        port: service.port,
-        status: "running",
-        publicUrl,
-        desiredState: serviceManager.getDesiredState(service.serviceName),
-        lastError: null,
-        ...locationPayload,
-      });
+      await trySupabase(
+        `publish-public-url:${service.serviceName}`,
+        () =>
+          supabaseApi.upsertServiceStatus({
+            deviceId: device.deviceId,
+            serviceName: service.serviceName,
+            port: service.port,
+            status: "running",
+            publicUrl,
+            desiredState: serviceManager.getDesiredState(service.serviceName),
+            lastError: null,
+            ...locationPayload,
+          }),
+        null
+      );
     },
   });
 
@@ -260,7 +354,12 @@ async function main() {
   });
 
   logger.info(`Registering device ${device.deviceId} (${device.deviceName})`);
-  await supabaseApi.registerDevice(device);
+  const registrationResult = await trySupabase(
+    "register-device",
+    () => supabaseApi.registerDevice(device),
+    false
+  );
+  remoteState.registered = registrationResult !== false;
   removeLogSink = logger.addSink((entry) =>
     supabaseApi.insertAgentLog({
       deviceId: device.deviceId,
@@ -274,8 +373,16 @@ async function main() {
 
   async function bootstrapRemoteDesiredStates() {
     const [remoteServices, pendingCommands] = await Promise.all([
-      supabaseApi.fetchServiceStates(device.deviceId),
-      supabaseApi.fetchPendingCommands(device.deviceId),
+      trySupabase(
+        "bootstrap-fetch-services",
+        () => supabaseApi.fetchServiceStates(device.deviceId),
+        []
+      ),
+      trySupabase(
+        "bootstrap-fetch-commands",
+        () => supabaseApi.fetchPendingCommands(device.deviceId),
+        []
+      ),
     ]);
     const remoteServiceByName = new Map(
       remoteServices.map((service) => [service.service_name, service])
@@ -312,16 +419,21 @@ async function main() {
     const snapshot = await serviceManager.refreshService(serviceName);
     const tunnelSnapshot = tunnelManager.getStatusSnapshot(serviceName);
     const locationPayload = await buildLocationPayload(serviceName);
-    await supabaseApi.upsertServiceStatus({
-      deviceId: device.deviceId,
-      serviceName,
-      port: snapshot.port,
-      status: derivePublishedStatus(snapshot, tunnelSnapshot),
-      publicUrl: tunnelManager.getPublicUrl(serviceName),
-      desiredState: snapshot.desiredState,
-      lastError: tunnelSnapshot.lastError || snapshot.lastError,
-      ...locationPayload,
-    });
+    await trySupabase(
+      `publish-startup-state:${serviceName}`,
+      () =>
+        supabaseApi.upsertServiceStatus({
+          deviceId: device.deviceId,
+          serviceName,
+          port: snapshot.port,
+          status: derivePublishedStatus(snapshot, tunnelSnapshot),
+          publicUrl: tunnelManager.getPublicUrl(serviceName),
+          desiredState: snapshot.desiredState,
+          lastError: tunnelSnapshot.lastError || snapshot.lastError,
+          ...locationPayload,
+        }),
+      null
+    );
   }
 
   async function prepareCleanOnlineStartup() {
@@ -362,12 +474,60 @@ async function main() {
   }
 
   while (true) {
-    await supabaseApi.heartbeatDevice(device);
+    const loopStartedAt = Date.now();
+    if (loopStartedAt - lastLoopAt > config.recovery.resumeGapMs) {
+      await handleResumeRecovery();
+    }
 
-    const deviceRow = await supabaseApi.fetchDevice(device.deviceId);
-    const deviceBlocked = deviceRow.status === "blocked";
+    const wasConnected = remoteState.connected;
 
-    const commands = await supabaseApi.fetchPendingCommands(device.deviceId);
+    if (!remoteState.registered) {
+      const registered = await trySupabase(
+        "register-device-retry",
+        () => supabaseApi.registerDevice(device),
+        false
+      );
+      remoteState.registered = registered !== false;
+    }
+
+    const heartbeatOk = await trySupabase(
+      "heartbeat-device",
+      async () => {
+        await supabaseApi.heartbeatDevice(device);
+        return true;
+      },
+      false
+    );
+
+    if (heartbeatOk && !remoteState.registered) {
+      remoteState.registered = true;
+    }
+
+    const deviceRow = await trySupabase(
+      "fetch-device",
+      () => supabaseApi.fetchDevice(device.deviceId),
+      null
+    );
+    if (deviceRow) {
+      remoteState.deviceBlocked = deviceRow.status === "blocked";
+    }
+
+    if (!wasConnected && remoteState.connected) {
+      try {
+        await fileWorker.syncRootsIfNeeded(true);
+      } catch (error) {
+        logger.warn(`File roots resync after reconnect failed: ${error.message}`);
+      }
+    }
+
+    const deviceBlocked = remoteState.deviceBlocked;
+
+    const commands =
+      (await trySupabase(
+        "fetch-pending-commands",
+        () => supabaseApi.fetchPendingCommands(device.deviceId),
+        []
+      )) || [];
     const executableCommands = deviceBlocked
       ? commands.filter((command) => command.action === "kill")
       : commands;
@@ -410,16 +570,21 @@ async function main() {
             lastError,
           });
 
-          await supabaseApi.upsertServiceStatus({
-            deviceId: device.deviceId,
-            serviceName: service.serviceName,
-            port: service.port,
-            status: publishedStatus,
-            publicUrl,
-            desiredState: snapshot.desiredState,
-            lastError,
-            ...locationPayload,
-          });
+          await trySupabase(
+            `publish-service-state:${service.serviceName}`,
+            () =>
+              supabaseApi.upsertServiceStatus({
+                deviceId: device.deviceId,
+                serviceName: service.serviceName,
+                port: service.port,
+                status: publishedStatus,
+                publicUrl,
+                desiredState: snapshot.desiredState,
+                lastError,
+                ...locationPayload,
+              }),
+            null
+          );
           continue;
         }
 
@@ -431,7 +596,9 @@ async function main() {
 
         if (snapshot.status === "running" && desiredState === "running") {
           await tunnelManager.ensureTunnel(service);
-          publicUrl = tunnelManager.getPublicUrl(service.serviceName);
+          publicUrl =
+            tunnelManager.getPublicUrl(service.serviceName) ||
+            tunnelManager.getLastKnownPublicUrl(service.serviceName);
         } else if (snapshot.status === "stopped" && desiredState === "stopped") {
           await tunnelManager.suspendTunnel(service.serviceName);
         } else {
@@ -457,39 +624,58 @@ async function main() {
           lastError,
         });
 
-        await supabaseApi.upsertServiceStatus({
-          deviceId: device.deviceId,
-          serviceName: service.serviceName,
-          port: service.port,
-          status: publishedStatus,
-          publicUrl,
-          desiredState: snapshot.desiredState,
-          lastError,
-          ...locationPayload,
-        });
+        await trySupabase(
+          `publish-service-state:${service.serviceName}`,
+          () =>
+            supabaseApi.upsertServiceStatus({
+              deviceId: device.deviceId,
+              serviceName: service.serviceName,
+              port: service.port,
+              status: publishedStatus,
+              publicUrl,
+              desiredState: snapshot.desiredState,
+              lastError,
+              ...locationPayload,
+            }),
+          null
+        );
       } catch (error) {
         logger.error(`Service loop failed for ${service.serviceName}: ${error.message}`);
         const locationPayload = await buildLocationPayload(service.serviceName);
-        await supabaseApi.upsertServiceStatus({
-          deviceId: device.deviceId,
-          serviceName: service.serviceName,
-          port: service.port,
-          status: "error",
-          publicUrl: tunnelManager.getPublicUrl(service.serviceName),
-          desiredState: serviceManager.getDesiredState(service.serviceName),
-          lastError: error.message,
-          ...locationPayload,
-        });
+        await trySupabase(
+          `publish-service-error:${service.serviceName}`,
+          () =>
+            supabaseApi.upsertServiceStatus({
+              deviceId: device.deviceId,
+              serviceName: service.serviceName,
+              port: service.port,
+              status: "error",
+              publicUrl:
+                tunnelManager.getPublicUrl(service.serviceName) ||
+                tunnelManager.getLastKnownPublicUrl(service.serviceName),
+              desiredState: serviceManager.getDesiredState(service.serviceName),
+              lastError: error.message,
+              ...locationPayload,
+            }),
+          null
+        );
       }
     }
 
-    try {
-      await fileWorker.processNextJob();
-    } catch (error) {
-      logger.error(`File worker loop failed: ${error.message}`);
+    if (remoteState.connected) {
+      try {
+        await fileWorker.processNextJob();
+      } catch (error) {
+        if (isSupabaseConnectivityError(error)) {
+          markSupabaseDisconnected(error, "file-worker-loop");
+        } else {
+          logger.error(`File worker loop failed: ${error.message}`);
+        }
+      }
     }
 
     await sleep(config.loopIntervalMs);
+    lastLoopAt = Date.now();
   }
 }
 

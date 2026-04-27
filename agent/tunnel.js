@@ -98,6 +98,8 @@ class TunnelManager {
       logPath: payload.logPath || this.getTunnelPaths(serviceName).logPath,
       publicUrl: payload.publicUrl || null,
       lastKnownPublicUrl: payload.lastKnownPublicUrl || payload.publicUrl || null,
+      hiddenAt: payload.hiddenAt || null,
+      requiresFreshStart: Boolean(payload.requiresFreshStart),
       hidden: Boolean(payload.hidden),
       lastError: payload.lastError || null,
       nextRetryAt: payload.nextRetryAt || null,
@@ -119,6 +121,8 @@ class TunnelManager {
       logPath: tunnel.logPath,
       publicUrl: tunnel.publicUrl,
       lastKnownPublicUrl: tunnel.lastKnownPublicUrl,
+      hiddenAt: tunnel.hiddenAt,
+      requiresFreshStart: tunnel.requiresFreshStart,
       hidden: tunnel.hidden,
       lastError: tunnel.lastError,
       nextRetryAt: tunnel.nextRetryAt,
@@ -472,6 +476,8 @@ class TunnelManager {
       state: tunnel.state,
       publicUrl: this.getPublicUrl(serviceName),
       lastKnownPublicUrl: this.getLastKnownPublicUrl(serviceName),
+      hiddenAt: tunnel.hiddenAt,
+      requiresFreshStart: tunnel.requiresFreshStart,
       lastError: tunnel.lastError,
       nextRetryAt: tunnel.nextRetryAt,
       retryAttempt: tunnel.retryAttempt,
@@ -545,6 +551,8 @@ class TunnelManager {
       tunnel.pid = child.pid;
       tunnel.logPath = logPath;
       tunnel.hidden = false;
+      tunnel.hiddenAt = null;
+      tunnel.requiresFreshStart = false;
       tunnel.publicUrl = tunnel.lastKnownPublicUrl || null;
       tunnel.state = "starting";
       tunnel.lastQueueLogAt = null;
@@ -566,6 +574,21 @@ class TunnelManager {
     const tunnel = await this.recoverTunnel(service);
 
     if (tunnel.hidden) {
+      const hiddenDurationMs = tunnel.hiddenAt ? Date.now() - tunnel.hiddenAt : 0;
+      const shouldForceFreshStart =
+        tunnel.requiresFreshStart || hiddenDurationMs > 15000;
+
+      if (shouldForceFreshStart) {
+        logger.info(`Restarting Cloudflare tunnel for ${service.serviceName} instead of reusing stale tunnel`, {
+          serviceName: service.serviceName,
+          publicUrl: tunnel.lastKnownPublicUrl || tunnel.publicUrl || null,
+          hiddenDurationMs,
+          requiresFreshStart: tunnel.requiresFreshStart,
+        });
+        await this.stopTunnel(service.serviceName);
+        return this.ensureTunnel(service);
+      }
+
       if (tunnel.publicUrl) {
         logger.info(`Reusing existing Cloudflare tunnel for ${service.serviceName}`, {
           serviceName: service.serviceName,
@@ -574,6 +597,7 @@ class TunnelManager {
       }
 
       tunnel.hidden = false;
+      tunnel.hiddenAt = null;
       if (tunnel.state === "stopped") {
         tunnel.state = "idle";
       }
@@ -651,10 +675,28 @@ class TunnelManager {
     }
 
     tunnel.hidden = true;
+    tunnel.hiddenAt = Date.now();
     tunnel.state = "stopped";
     tunnel.publicUrl = null;
     this.clearRetryState(serviceName, tunnel);
     this.persistTunnelState(serviceName, tunnel);
+  }
+
+  requestFreshStart(serviceName, reason = "reconnect") {
+    const tunnel = this.getOrCreateTunnel(serviceName);
+    tunnel.requiresFreshStart = true;
+    this.persistTunnelState(serviceName, tunnel);
+    logger.info(`Marked Cloudflare tunnel for fresh restart on next ensure`, {
+      serviceName,
+      reason,
+      publicUrl: tunnel.lastKnownPublicUrl || tunnel.publicUrl || null,
+    });
+  }
+
+  requestFreshStartAll(reason = "reconnect") {
+    for (const serviceName of this.listTrackedServiceNames()) {
+      this.requestFreshStart(serviceName, reason);
+    }
   }
 
   isProcessNotFoundError(error) {

@@ -114,6 +114,8 @@ async function main() {
   });
   const publishedServiceState = new Map();
   let lastLoopAt = Date.now();
+  let remoteDisconnectedAt = null;
+  let fileWorkerRun = null;
   const remoteState = {
     connected: true,
     registered: false,
@@ -129,6 +131,7 @@ async function main() {
       });
     }
     remoteState.connected = false;
+    remoteDisconnectedAt = remoteDisconnectedAt || Date.now();
   }
 
   function markSupabaseConnected() {
@@ -193,6 +196,8 @@ async function main() {
 
     remoteState.connected = false;
     remoteState.registered = false;
+    remoteDisconnectedAt = Date.now();
+    tunnelManager.requestFreshStartAll("resume-recovery");
 
     for (const service of serviceManager.list()) {
       publishedServiceState.delete(service.serviceName);
@@ -473,8 +478,29 @@ async function main() {
     logger.warn(`Initial file roots sync failed: ${error.message}`);
   }
 
+  function kickFileWorker() {
+    if (!remoteState.connected || fileWorkerRun) {
+      return;
+    }
+
+    fileWorkerRun = (async () => {
+      try {
+        await fileWorker.processNextJob();
+      } catch (error) {
+        if (isSupabaseConnectivityError(error)) {
+          markSupabaseDisconnected(error, "file-worker-loop");
+        } else {
+          logger.error(`File worker loop failed: ${error.message}`);
+        }
+      } finally {
+        fileWorkerRun = null;
+      }
+    })();
+  }
+
   while (true) {
     const loopStartedAt = Date.now();
+    const disconnectedAtBeforeLoop = remoteDisconnectedAt;
     if (loopStartedAt - lastLoopAt > config.recovery.resumeGapMs) {
       await handleResumeRecovery();
     }
@@ -513,11 +539,15 @@ async function main() {
     }
 
     if (!wasConnected && remoteState.connected) {
+      if (disconnectedAtBeforeLoop && Date.now() - disconnectedAtBeforeLoop > 10000) {
+        tunnelManager.requestFreshStartAll("network-reconnect");
+      }
       try {
         await fileWorker.syncRootsIfNeeded(true);
       } catch (error) {
         logger.warn(`File roots resync after reconnect failed: ${error.message}`);
       }
+      remoteDisconnectedAt = null;
     }
 
     const deviceBlocked = remoteState.deviceBlocked;
@@ -662,17 +692,7 @@ async function main() {
       }
     }
 
-    if (remoteState.connected) {
-      try {
-        await fileWorker.processNextJob();
-      } catch (error) {
-        if (isSupabaseConnectivityError(error)) {
-          markSupabaseDisconnected(error, "file-worker-loop");
-        } else {
-          logger.error(`File worker loop failed: ${error.message}`);
-        }
-      }
-    }
+    kickFileWorker();
 
     await sleep(config.loopIntervalMs);
     lastLoopAt = Date.now();

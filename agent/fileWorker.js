@@ -121,6 +121,12 @@ class FileWorker {
   }
 
   async processNextJob() {
+    ensureDirectory(this.workspaceRoot);
+    ensureDirectory(this.tempArtifactsRoot);
+    ensureDirectory(this.previewRoot);
+    ensureDirectory(this.stagingRoot);
+    ensureDirectory(this.pendingUploadsRoot);
+
     await this.flushPendingUploads();
 
     try {
@@ -635,6 +641,7 @@ class FileWorker {
       throw new Error("download_file expects a file path, not a directory.");
     }
 
+    ensureDirectory(this.stagingRoot);
     const stagedFileName = `${job.id}-${safeBasename(targetPath)}`;
     const stagedFilePath = path.join(this.stagingRoot, stagedFileName);
     fs.copyFileSync(targetPath, stagedFilePath);
@@ -680,6 +687,7 @@ class FileWorker {
 
     const resolvedSelection = selection.map((targetPath) => this.resolveExistingPath(targetPath));
     const archiveFileName = `${safeBasename(resolvedSelection[0], "backup")}-${job.id}.zip`;
+    ensureDirectory(this.stagingRoot);
     const archivePath = path.join(this.stagingRoot, archiveFileName);
     if (fs.existsSync(archivePath)) {
       fs.unlinkSync(archivePath);
@@ -698,6 +706,10 @@ class FileWorker {
       "-Command",
       command,
     ]);
+
+    if (!fs.existsSync(archivePath)) {
+      throw new Error(`Archive was not created at ${archivePath}`);
+    }
 
     const bucket = job.delivery_mode === "persistent" ? "agent-archives" : "agent-temp-artifacts";
     const objectKey = `${this.device.deviceId}/${job.id}/${archiveFileName}`;

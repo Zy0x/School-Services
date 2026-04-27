@@ -211,7 +211,9 @@ function LoginScreen({
   setRole,
   setMode,
   onSubmit,
+  onForgotPassword,
   error,
+  info,
   loading,
 }) {
   return (
@@ -271,6 +273,7 @@ function LoginScreen({
             />
           </label>
           {error ? <div className="error-banner">{error}</div> : null}
+          {info ? <div className="explorer-warning">{info}</div> : null}
           <button className="primary-button login-button" disabled={loading} type="submit">
             {loading
               ? mode === "register"
@@ -287,6 +290,16 @@ function LoginScreen({
           >
             {mode === "register" ? "Back to sign in" : "Need an account?"}
           </button>
+          {mode === "login" ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onForgotPassword}
+              disabled={loading || !email}
+            >
+              Reset password
+            </button>
+          ) : null}
         </form>
       </div>
     </main>
@@ -295,7 +308,9 @@ function LoginScreen({
 
 function AccountStatusScreen({ profile, onSignOut }) {
   const label =
-    profile?.status === "pending"
+    !profile
+      ? "Profil akun belum ditemukan. Coba masuk ulang atau hubungi administrator."
+      : profile?.status === "pending"
       ? "Akun Anda sedang menunggu persetujuan administrator."
       : profile?.status === "rejected"
         ? "Permintaan akun Anda ditolak."
@@ -314,7 +329,7 @@ function AccountStatusScreen({ profile, onSignOut }) {
         ) : null}
         <div className="panel-actions" style={{ marginTop: 16 }}>
           <StatusChip status={profile?.status || "unknown"} />
-          <StatusChip status={profile?.role || "unknown"} />
+          {profile?.role ? <StatusChip status={profile.role} /> : null}
         </div>
         <div className="panel-actions" style={{ marginTop: 20 }}>
           <button type="button" className="secondary-button" onClick={onSignOut}>
@@ -763,6 +778,7 @@ export default function App() {
   const [registerDisplayName, setRegisterDisplayName] = useState("");
   const [registerRole, setRegisterRole] = useState("operator");
   const [authError, setAuthError] = useState("");
+  const [authInfo, setAuthInfo] = useState("");
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [accounts, setAccounts] = useState([]);
@@ -832,11 +848,10 @@ export default function App() {
 
     let active = true;
     setProfileLoading(true);
-    supabase
-      .from("admin_profiles")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .maybeSingle()
+    supabase.functions
+      .invoke("account-access", {
+        body: { action: "sessionProfile" },
+      })
       .then(({ data, error: profileError }) => {
         if (!active) {
           return;
@@ -844,8 +859,12 @@ export default function App() {
         if (profileError) {
           setAuthError(profileError.message);
           setProfile(null);
+        } else if (!data?.ok) {
+          setAuthError(data?.error || "Failed to load account profile.");
+          setProfile(null);
         } else {
-          setProfile(data || null);
+          setProfile(data.profile || null);
+          setAuthError("");
         }
         setProfileLoading(false);
       });
@@ -1127,6 +1146,7 @@ export default function App() {
   async function signIn() {
     setAuthLoading(true);
     setAuthError("");
+    setAuthInfo("");
     if (authMode === "register") {
       const { data, error: registerError } = await supabase.functions.invoke("account-access", {
         body: {
@@ -1140,7 +1160,7 @@ export default function App() {
       if (registerError || !data?.ok) {
         setAuthError(registerError?.message || data?.error || "Registration failed.");
       } else {
-        setAuthError(
+        setAuthInfo(
           "Registration received. Sign in with the same credentials to view approval status."
         );
         setAuthMode("login");
@@ -1157,6 +1177,35 @@ export default function App() {
     }
 
     setAuthLoading(false);
+  }
+
+  async function sendForgotPassword() {
+    try {
+      setAuthLoading(true);
+      setAuthError("");
+      setAuthInfo("");
+      const redirectTo =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/reset-password`
+          : "https://school-services.netlify.app/reset-password";
+      const { data, error: invokeError } = await supabase.functions.invoke("account-access", {
+        body: {
+          action: "forgotPassword",
+          email: loginEmail,
+          redirectTo,
+        },
+      });
+
+      if (invokeError || !data?.ok) {
+        throw invokeError || new Error(data?.error || "Failed to send reset email.");
+      }
+
+      setAuthInfo("Reset password email sent. Check your inbox.");
+    } catch (forgotError) {
+      setAuthError(forgotError.message);
+    } finally {
+      setAuthLoading(false);
+    }
   }
 
   async function signOut() {
@@ -1500,7 +1549,9 @@ export default function App() {
         setRole={() => {}}
         setMode={() => {}}
         onSubmit={() => {}}
+        onForgotPassword={() => {}}
         error=""
+        info=""
         loading
       />
     );
@@ -1520,7 +1571,9 @@ export default function App() {
         setRole={setRegisterRole}
         setMode={setAuthMode}
         onSubmit={signIn}
+        onForgotPassword={sendForgotPassword}
         error={authError}
+        info={authInfo}
         loading={authLoading}
       />
     );

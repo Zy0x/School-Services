@@ -1,5 +1,5 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { createServiceClient } from "../_shared/admin.ts";
+import { createAnonClient, createServiceClient, getRequestActor } from "../_shared/admin.ts";
 
 function sanitizeRole(value: unknown) {
   const role = String(value || "").trim().toLowerCase();
@@ -18,6 +18,41 @@ Deno.serve(async (request) => {
     const service = createServiceClient();
     const body = await request.json();
     const action = String(body.action || "register").trim();
+
+    if (action === "sessionProfile") {
+      const actor = await getRequestActor(request);
+      return json({
+        ok: true,
+        profile: actor.profile,
+        user: {
+          id: actor.user.id,
+          email: actor.user.email,
+        },
+      });
+    }
+
+    if (action === "forgotPassword") {
+      const email = String(body.email || "").trim().toLowerCase();
+      const redirectTo =
+        String(body.redirectTo || "").trim() ||
+        "https://school-services.netlify.app/reset-password";
+
+      if (!email) {
+        throw new Error("Email is required.");
+      }
+
+      const anon = createAnonClient();
+      const { error } = await anon.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) {
+        throw error;
+      }
+
+      return json({
+        ok: true,
+        email,
+        message: "Password reset email sent.",
+      });
+    }
 
     if (action !== "register") {
       throw new Error(`Unsupported account action: ${action}`);

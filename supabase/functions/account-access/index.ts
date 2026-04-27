@@ -1,0 +1,87 @@
+import { corsHeaders, json } from "../_shared/cors.ts";
+import { createServiceClient } from "../_shared/admin.ts";
+
+function sanitizeRole(value: unknown) {
+  const role = String(value || "").trim().toLowerCase();
+  if (role === "operator" || role === "user") {
+    return role;
+  }
+  throw new Error("Unsupported registration role.");
+}
+
+Deno.serve(async (request) => {
+  if (request.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  try {
+    const service = createServiceClient();
+    const body = await request.json();
+    const action = String(body.action || "register").trim();
+
+    if (action !== "register") {
+      throw new Error(`Unsupported account action: ${action}`);
+    }
+
+    const email = String(body.email || "").trim().toLowerCase();
+    const password = String(body.password || "").trim();
+    const displayName = String(body.displayName || "").trim() || null;
+    const role = sanitizeRole(body.role);
+
+    if (!email || !password) {
+      throw new Error("Email and password are required.");
+    }
+
+    const { data: settings } = await service
+      .from("app_settings")
+      .select("value")
+      .eq("key", "auth_policy")
+      .maybeSingle();
+    const approvalWindowHours = Math.max(
+      1,
+      Number(settings?.value?.approvalWindowHours || 24)
+    );
+    const approvalDueAt = new Date(
+      Date.now() + approvalWindowHours * 60 * 60 * 1000
+    ).toISOString();
+
+    const { data: created, error: createError } = await service.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
+
+    if (createError || !created.user) {
+      throw createError || new Error("Failed to create account.");
+    }
+
+    const { error: profileError } = await service.from("admin_profiles").upsert({
+      user_id: created.user.id,
+      email,
+      display_name: displayName,
+      role,
+      status: "pending",
+      approval_due_at: approvalDueAt,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    return json({
+      ok: true,
+      pending: true,
+      approvalDueAt,
+      message: "Registration received. Your account will be reviewed before full access is granted.",
+    });
+  } catch (error) {
+    return json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      { status: 400 }
+    );
+  }
+});

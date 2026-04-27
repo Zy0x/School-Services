@@ -8,7 +8,15 @@ export function createServiceClient() {
   });
 }
 
-export async function requireSuperAdmin(request: Request) {
+export function createAnonClient() {
+  const url = Deno.env.get("SUPABASE_URL") || "";
+  const key = Deno.env.get("SUPABASE_ANON_KEY") || "";
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+export async function getRequestActor(request: Request) {
   const authHeader = request.headers.get("Authorization");
   if (!authHeader) {
     throw new Error("Missing Authorization header.");
@@ -27,7 +35,7 @@ export async function requireSuperAdmin(request: Request) {
 
   const { data: profile, error: profileError } = await service
     .from("admin_profiles")
-    .select("user_id, email, role")
+    .select("user_id, email, role, status, approval_due_at, display_name, device_scope")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -35,13 +43,18 @@ export async function requireSuperAdmin(request: Request) {
     throw profileError;
   }
 
-  if (!profile || profile.role !== "super_admin") {
-    throw new Error("Admin access denied.");
-  }
-
   return {
     service,
     user,
     profile,
   };
+}
+
+export async function requireSuperAdmin(request: Request) {
+  const actor = await getRequestActor(request);
+  if (!actor.profile || actor.profile.role !== "super_admin" || actor.profile.status !== "approved") {
+    throw new Error("Admin access denied.");
+  }
+
+  return actor;
 }

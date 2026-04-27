@@ -109,12 +109,21 @@ async function main() {
   const shortcutManager = new ShortcutManager({
     cachePath: path.join(getBaseDir(), ".state", "public-urls.json"),
     shortcuts: config.shortcuts,
+    guestPortal: config.guestPortal,
+    baseDir: getBaseDir(),
   });
+  shortcutManager.syncGuestPortalUrl(device.deviceId, null);
+  const guestPortalBaseUrl = String(config.guestPortal?.baseUrl || "").replace(/\/+$/, "");
+  const guestPortalPath = `/guest/${encodeURIComponent(device.deviceId)}`;
+  const guestPortalUrl = guestPortalBaseUrl
+    ? `${guestPortalBaseUrl}${guestPortalPath}`
+    : null;
   const fileWorker = new FileWorker({
     device,
     supabaseApi,
     serviceManager,
     workspaceRoot: config.fileAccess.workspaceRoot,
+    maxArtifactBytes: config.fileAccess.maxArtifactBytes,
     previewInlineBytes: config.fileAccess.previewInlineBytes,
     previewTextExtensions: config.fileAccess.previewTextExtensions,
   });
@@ -261,6 +270,12 @@ async function main() {
         configTargets = await serviceManager.getResolvedConfigTargets(service.serviceName);
       }
 
+      urlCache.remember(service.serviceName, publicUrl);
+      shortcutManager.syncServiceUrl(service.serviceName, publicUrl, {
+        skipDiscoveryIfPriorityMissing: service.serviceName === "rapor",
+      });
+      shortcutManager.syncGuestPortalUrl(device.deviceId, publicUrl);
+
       if (configTargets.length === 0) {
         logger.info(
           `Skipping config update for ${service.serviceName}: needsConfigUpdate is false`
@@ -279,9 +294,6 @@ async function main() {
           }
         }
       }
-
-      urlCache.remember(service.serviceName, publicUrl);
-      shortcutManager.syncServiceUrl(service.serviceName, publicUrl);
       const locationPayload = await buildLocationPayload(service.serviceName);
       await trySupabase(
         `publish-public-url:${service.serviceName}`,
@@ -375,6 +387,18 @@ async function main() {
     false
   );
   remoteState.registered = registrationResult !== false;
+  if (guestPortalUrl) {
+    await trySupabase(
+      "upsert-guest-shortcut",
+      () =>
+        supabaseApi.upsertGuestShortcut({
+          deviceId: device.deviceId,
+          guestPath: guestPortalPath,
+          guestUrl: guestPortalUrl,
+        }),
+      false
+    );
+  }
   removeLogSink = logger.addSink((entry) =>
     supabaseApi.insertAgentLog({
       deviceId: device.deviceId,
@@ -690,6 +714,7 @@ async function main() {
         lastError =
           refreshedTunnelSnapshot.lastError || snapshot.lastError || null;
         shortcutManager.syncServiceUrl(service.serviceName, publicUrl);
+        shortcutManager.syncGuestPortalUrl(device.deviceId, publicUrl);
 
         rememberPublishedServiceState(service.serviceName, {
           status: publishedStatus,

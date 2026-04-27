@@ -240,6 +240,20 @@ function createSupabaseApi(config) {
     }
   }
 
+  async function upsertGuestShortcut(entry) {
+    const { error } = await client.from("guest_shortcuts").upsert({
+      device_id: entry.deviceId,
+      guest_path: entry.guestPath,
+      guest_url: entry.guestUrl,
+      service_name: "rapor",
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      throw error;
+    }
+  }
+
   async function markCommandDone(commandId) {
     const { error } = await client
       .from("commands")
@@ -290,6 +304,7 @@ function createSupabaseApi(config) {
     replaceFileRoots,
     registerDevice,
     updateFileJob,
+    upsertGuestShortcut,
     upsertServiceStatus,
   };
 }

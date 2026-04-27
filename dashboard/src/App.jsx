@@ -32,6 +32,10 @@ function getJobStatusDetail(job) {
     return "Local archive is ready. Waiting for internet connection to upload.";
   }
 
+  if (job?.status === "completed" && Array.isArray(job?.result?.parts) && job.result.parts.length > 1) {
+    return `Archive is ready in ${job.result.parts.length} parts. Download all parts to reconstruct the full backup.`;
+  }
+
   if (job?.status === "completed" && job?.artifact_bucket && job?.artifact_object_key) {
     return "Artifact uploaded and ready to download.";
   }
@@ -195,7 +199,21 @@ function StatusChip({ status, label }) {
   );
 }
 
-function LoginScreen({ email, password, setEmail, setPassword, onSubmit, error, loading }) {
+function LoginScreen({
+  mode,
+  email,
+  password,
+  displayName,
+  role,
+  setEmail,
+  setPassword,
+  setDisplayName,
+  setRole,
+  setMode,
+  onSubmit,
+  error,
+  loading,
+}) {
   return (
     <main className="login-shell">
       <div className="login-card">
@@ -222,6 +240,26 @@ function LoginScreen({ email, password, setEmail, setPassword, onSubmit, error, 
               autoComplete="username"
             />
           </label>
+          {mode === "register" ? (
+            <>
+              <label>
+                <span>Display name</span>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  placeholder="Nama pengguna"
+                />
+              </label>
+              <label>
+                <span>Role request</span>
+                <select value={role} onChange={(event) => setRole(event.target.value)}>
+                  <option value="operator">Operator</option>
+                  <option value="user">User</option>
+                </select>
+              </label>
+            </>
+          ) : null}
           <label>
             <span>Password</span>
             <input
@@ -234,9 +272,231 @@ function LoginScreen({ email, password, setEmail, setPassword, onSubmit, error, 
           </label>
           {error ? <div className="error-banner">{error}</div> : null}
           <button className="primary-button login-button" disabled={loading} type="submit">
-            {loading ? "Signing in..." : "Sign in"}
+            {loading
+              ? mode === "register"
+                ? "Submitting..."
+                : "Signing in..."
+              : mode === "register"
+                ? "Request access"
+                : "Sign in"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setMode(mode === "register" ? "login" : "register")}
+          >
+            {mode === "register" ? "Back to sign in" : "Need an account?"}
           </button>
         </form>
+      </div>
+    </main>
+  );
+}
+
+function AccountStatusScreen({ profile, onSignOut }) {
+  const label =
+    profile?.status === "pending"
+      ? "Akun Anda sedang menunggu persetujuan administrator."
+      : profile?.status === "rejected"
+        ? "Permintaan akun Anda ditolak."
+        : "Akun Anda dinonaktifkan.";
+
+  return (
+    <main className="login-shell">
+      <div className="login-card">
+        <div className="login-eyebrow">Account Access</div>
+        <h1>{profile?.display_name || profile?.email || "Account"}</h1>
+        <p>{label}</p>
+        {profile?.approval_due_at ? (
+          <div className="explorer-warning">
+            Auto approval ETA: {formatRelativeTime(profile.approval_due_at)}
+          </div>
+        ) : null}
+        <div className="panel-actions" style={{ marginTop: 16 }}>
+          <StatusChip status={profile?.status || "unknown"} />
+          <StatusChip status={profile?.role || "unknown"} />
+        </div>
+        <div className="panel-actions" style={{ marginTop: 20 }}>
+          <button type="button" className="secondary-button" onClick={onSignOut}>
+            Sign out
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function GuestConsole({ deviceId }) {
+  const [state, setState] = useState({ device: null, service: null });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function loadGuest() {
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke("guest-access", {
+        body: { action: "status", deviceId },
+      });
+      if (invokeError) {
+        throw invokeError;
+      }
+      if (!data?.ok) {
+        throw new Error(data?.error || "Guest access failed.");
+      }
+      setState({ device: data.device, service: data.service });
+      setError("");
+    } catch (nextError) {
+      setError(nextError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadGuest();
+    const refreshId = window.setInterval(loadGuest, REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(refreshId);
+  }, [deviceId]);
+
+  async function sendCommand(action) {
+    try {
+      setBusy(true);
+      const { data, error: invokeError } = await supabase.functions.invoke("guest-access", {
+        body: { action, deviceId },
+      });
+      if (invokeError) {
+        throw invokeError;
+      }
+      if (!data?.ok) {
+        throw new Error(data?.error || "Guest command failed.");
+      }
+      await loadGuest();
+    } catch (nextError) {
+      setError(nextError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const service = state.service;
+  const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
+
+  return (
+    <main className="console-shell">
+      <header className="topbar">
+        <div>
+          <div className="section-eyebrow">Guest Device Monitor</div>
+          <h1>{state.device?.deviceName || deviceId}</h1>
+          <p>Pantau status E-Rapor dan kendalikan start/stop service Rapor untuk device ini.</p>
+        </div>
+        <div className="topbar-actions">
+          <StatusChip status={state.device?.deviceStatus || "offline"} />
+          <button type="button" className="secondary-button" onClick={loadGuest}>
+            Refresh
+          </button>
+        </div>
+      </header>
+      {error ? <div className="error-banner">{error}</div> : null}
+      <section className="workspace" style={{ marginTop: 18 }}>
+        {loading ? (
+          <div className="empty-state">Loading guest device status...</div>
+        ) : (
+          <article className="service-panel">
+            <div className="service-card-header">
+              <div>
+                <strong>E-Rapor</strong>
+                <div className="mono">{state.device?.deviceId}</div>
+              </div>
+              <div className="service-status-group">
+                <StatusChip status={service?.status || "offline"} />
+                {service?.public_url ? (
+                  <a className="primary-button" href={service.public_url} target="_blank" rel="noreferrer">
+                    Buka E-Rapor
+                  </a>
+                ) : null}
+              </div>
+            </div>
+            <div className="service-detail-grid">
+              <div>
+                <span>Public URL</span>
+                <strong className="service-link mono">{service?.public_url || "disabled"}</strong>
+              </div>
+              <div>
+                <span>Desired state</span>
+                <strong>{service?.desired_state || "-"}</strong>
+              </div>
+              <div>
+                <span>Last ping</span>
+                <strong>{formatRelativeTime(service?.last_ping)}</strong>
+              </div>
+            </div>
+            {service?.last_error ? <div className="job-error">{service.last_error}</div> : null}
+            <div className="panel-actions">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={busy || isRunning}
+                onClick={() => sendCommand("start")}
+              >
+                Start
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy || !isRunning}
+                onClick={() => sendCommand("stop")}
+              >
+                Stop
+              </button>
+            </div>
+          </article>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function PasswordResetScreen() {
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    try {
+      setBusy(true);
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        throw error;
+      }
+      setStatus("Password updated. You can close this page and sign in again.");
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="login-shell">
+      <div className="login-card">
+        <div className="login-eyebrow">Password Recovery</div>
+        <h1>Set a new password</h1>
+        <p>Masukkan password baru untuk menyelesaikan proses reset akun dashboard.</p>
+        <div className="login-form">
+          <label>
+            <span>New password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Password baru"
+            />
+          </label>
+          {status ? <div className="explorer-warning">{status}</div> : null}
+          <button type="button" className="primary-button" disabled={busy || !password} onClick={submit}>
+            {busy ? "Updating..." : "Update password"}
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -451,6 +711,9 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
             <span>{formatDate(job.created_at)}</span>
             <span>{job.progress_total ? `${job.progress_current}/${job.progress_total}` : "progress n/a"}</span>
             <span>{job.delivery_mode}</span>
+            {Array.isArray(job.result?.parts) && job.result.parts.length > 1 ? (
+              <span>{job.result.parts.length} parts</span>
+            ) : null}
             {job.result?.size ? <span>{formatBytes(job.result.size)}</span> : null}
           </div>
           {getJobStatusDetail(job) ? (
@@ -460,10 +723,15 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
           <div className="job-actions">
             {job.status === "completed" && job.artifact_bucket && job.artifact_object_key ? (
               <button type="button" className="primary-button" onClick={() => onDownload(job)}>
-                Download
+                {Array.isArray(job.result?.parts) && job.result.parts.length > 1
+                  ? "Download parts"
+                  : "Download"}
               </button>
             ) : null}
-            {job.status === "completed" && job.delivery_mode === "temp" && job.artifact_bucket ? (
+            {job.status === "completed" &&
+            job.delivery_mode === "temp" &&
+            job.artifact_bucket &&
+            !Array.isArray(job.result?.parts) ? (
               <button type="button" className="secondary-button" onClick={() => onPromote(job)}>
                 Make persistent
               </button>
@@ -481,11 +749,29 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
 }
 
 export default function App() {
+  const currentPathname = typeof window !== "undefined" ? window.location.pathname : "/";
+  const guestDeviceId =
+    typeof window !== "undefined"
+      ? decodeURIComponent(currentPathname.match(/^\/guest\/([^/]+)$/)?.[1] || "")
+      : "";
+  const resetPasswordMode = currentPathname === "/reset-password";
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authMode, setAuthMode] = useState("login");
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [registerDisplayName, setRegisterDisplayName] = useState("");
+  const [registerRole, setRegisterRole] = useState("operator");
   const [authError, setAuthError] = useState("");
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [authPolicy, setAuthPolicy] = useState({
+    autoApproveEnabled: true,
+    approvalWindowHours: 24,
+    maintenanceIntervalMinutes: 15,
+    passwordResetRedirectUrl: "https://school-services.netlify.app/reset-password",
+  });
   const [services, setServices] = useState([]);
   const [logs, setLogs] = useState([]);
   const [fileJobs, setFileJobs] = useState([]);
@@ -503,9 +789,20 @@ export default function App() {
   const [previewResult, setPreviewResult] = useState(null);
   const [selectedPaths, setSelectedPaths] = useState([]);
   const [channelState, setChannelState] = useState("connecting");
+  const [logLevelFilter, setLogLevelFilter] = useState("all");
+  const [createEmail, setCreateEmail] = useState("");
+  const [createPassword, setCreatePassword] = useState("");
+  const [createDisplayName, setCreateDisplayName] = useState("");
+  const [createRole, setCreateRole] = useState("operator");
+  const [createAutoApprove, setCreateAutoApprove] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
+    if (guestDeviceId) {
+      setAuthLoading(false);
+      return undefined;
+    }
+
     let active = true;
     supabase.auth.getSession().then(({ data }) => {
       if (active) {
@@ -525,10 +822,41 @@ export default function App() {
       active = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [guestDeviceId]);
+
+  useEffect(() => {
+    if (!session || guestDeviceId) {
+      setProfile(null);
+      return;
+    }
+
+    let active = true;
+    setProfileLoading(true);
+    supabase
+      .from("admin_profiles")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .maybeSingle()
+      .then(({ data, error: profileError }) => {
+        if (!active) {
+          return;
+        }
+        if (profileError) {
+          setAuthError(profileError.message);
+          setProfile(null);
+        } else {
+          setProfile(data || null);
+        }
+        setProfileLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [session, guestDeviceId]);
 
   async function loadAll(background = false) {
-    if (!session) {
+    if (!session || guestDeviceId) {
       return;
     }
 
@@ -536,7 +864,7 @@ export default function App() {
       setLoading(true);
     }
 
-    const [servicesResult, logsResult, jobsResult, rootsResult] = await Promise.all([
+    const [servicesResult, logsResult, jobsResult, rootsResult, accountsResult, settingsResult] = await Promise.all([
       supabase
         .from("services")
         .select("*, devices(device_name, status, last_seen)")
@@ -557,6 +885,18 @@ export default function App() {
         .select("*")
         .order("root_type", { ascending: true })
         .order("label", { ascending: true }),
+      profile?.role === "super_admin"
+        ? invokeAdmin("listAccounts").catch((invokeError) => ({
+            ok: false,
+            error: invokeError.message,
+          }))
+        : Promise.resolve(null),
+      profile?.role === "super_admin"
+        ? invokeAdmin("setupStatus").catch((invokeError) => ({
+            ok: false,
+            error: invokeError.message,
+          }))
+        : Promise.resolve(null),
     ]);
 
     const nextError =
@@ -564,6 +904,8 @@ export default function App() {
       logsResult.error?.message ||
       jobsResult.error?.message ||
       rootsResult.error?.message ||
+      (accountsResult && accountsResult.ok === false ? accountsResult.error : "") ||
+      (settingsResult && settingsResult.ok === false ? settingsResult.error : "") ||
       "";
 
     setError(nextError);
@@ -573,6 +915,12 @@ export default function App() {
         setLogs(logsResult.data || []);
         setFileJobs(jobsResult.data || []);
         setRoots(rootsResult.data || []);
+        if (accountsResult?.ok) {
+          setAccounts(accountsResult.accounts || []);
+        }
+        if (settingsResult?.ok && settingsResult.authPolicy) {
+          setAuthPolicy(settingsResult.authPolicy);
+        }
       });
     }
 
@@ -582,7 +930,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!session) {
+    if (!session || !profile || guestDeviceId) {
       return undefined;
     }
 
@@ -605,13 +953,22 @@ export default function App() {
       window.clearInterval(refreshId);
       supabase.removeChannel(channel);
     };
-  }, [session]);
+  }, [session, profile, guestDeviceId]);
 
   useEffect(() => {
     if (selectedDeviceId !== "all" && !services.some((row) => row.device_id === selectedDeviceId)) {
       setSelectedDeviceId("all");
     }
   }, [services, selectedDeviceId]);
+
+  useEffect(() => {
+    if (!profile) {
+      return;
+    }
+    if (profile.role !== "super_admin" && ["files", "accounts"].includes(selectedTab)) {
+      setSelectedTab("overview");
+    }
+  }, [profile, selectedTab]);
 
   const deviceEntries = useMemo(() => {
     const grouped = new Map();
@@ -656,6 +1013,18 @@ export default function App() {
     selectedDeviceId === "all"
       ? deviceEntries[0] || null
       : deviceEntries.find((entry) => entry.deviceId === selectedDeviceId) || null;
+
+  const visibleServices = useMemo(() => {
+    if (!selectedDevice) {
+      return [];
+    }
+
+    if (profile?.role === "user") {
+      return selectedDevice.services.filter((service) => service.service_name === "rapor");
+    }
+
+    return selectedDevice.services;
+  }, [selectedDevice, profile]);
 
   const selectedDeviceJobs = useMemo(
     () =>
@@ -758,13 +1127,33 @@ export default function App() {
   async function signIn() {
     setAuthLoading(true);
     setAuthError("");
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
-      password: loginPassword,
-    });
+    if (authMode === "register") {
+      const { data, error: registerError } = await supabase.functions.invoke("account-access", {
+        body: {
+          action: "register",
+          email: loginEmail,
+          password: loginPassword,
+          displayName: registerDisplayName,
+          role: registerRole,
+        },
+      });
+      if (registerError || !data?.ok) {
+        setAuthError(registerError?.message || data?.error || "Registration failed.");
+      } else {
+        setAuthError(
+          "Registration received. Sign in with the same credentials to view approval status."
+        );
+        setAuthMode("login");
+      }
+    } else {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: loginPassword,
+      });
 
-    if (signInError) {
-      setAuthError(signInError.message);
+      if (signInError) {
+        setAuthError(signInError.message);
+      }
     }
 
     setAuthLoading(false);
@@ -772,6 +1161,8 @@ export default function App() {
 
   async function signOut() {
     await supabase.auth.signOut();
+    setProfile(null);
+    setAccounts([]);
     setServices([]);
     setLogs([]);
     setFileJobs([]);
@@ -839,6 +1230,53 @@ export default function App() {
     }
   }
 
+  async function copyGuestLink(deviceId) {
+    try {
+      setBusyAction(`guest:${deviceId}`);
+      const data = await invokeAdmin("syncGuestLink", { deviceId });
+      await navigator.clipboard.writeText(data.guestUrl);
+      loadAll(true);
+    } catch (copyError) {
+      setError(copyError.message);
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleAccountAction(action, payload = {}) {
+    try {
+      setBusyAction(`account:${action}`);
+      await invokeAdmin(action, payload);
+      await loadAll(true);
+    } catch (accountError) {
+      setError(accountError.message);
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function createManagedAccount() {
+    if (!createEmail || !createPassword) {
+      setError("Email dan password account wajib diisi.");
+      return;
+    }
+
+    await handleAccountAction("createAccount", {
+      email: createEmail,
+      password: createPassword,
+      displayName: createDisplayName,
+      role: createRole,
+      autoApprove: createAutoApprove,
+      approvalWindowHours: authPolicy.approvalWindowHours,
+    });
+
+    setCreateEmail("");
+    setCreatePassword("");
+    setCreateDisplayName("");
+    setCreateRole("operator");
+    setCreateAutoApprove(false);
+  }
+
   async function openPath(nextPath) {
     setCurrentPath(nextPath);
     const job = await createFileJob("list_directory", { sourcePath: nextPath });
@@ -904,28 +1342,60 @@ export default function App() {
   }
 
   async function handleArtifactDownload(job) {
-    try {
-      setBusyAction(`download:${job.id}`);
-      let signedUrl = "";
+    async function signArtifact(part, fallbackName) {
       try {
         const data = await invokeAdmin("signArtifact", {
-          bucket: job.artifact_bucket,
-          objectKey: job.artifact_object_key,
-          downloadFileName: job.result?.fileName || job.artifact_object_key.split("/").pop(),
+          bucket: part.bucket,
+          objectKey: part.objectKey,
+          downloadFileName: fallbackName,
         });
-        signedUrl = data.signedUrl;
+        return data.signedUrl;
       } catch (_functionError) {
         const { data, error: signError } = await supabase.storage
-          .from(job.artifact_bucket)
-          .createSignedUrl(job.artifact_object_key, 60 * 15, {
-            download: job.result?.fileName || job.artifact_object_key.split("/").pop(),
+          .from(part.bucket)
+          .createSignedUrl(part.objectKey, 60 * 15, {
+            download: fallbackName,
           });
         if (signError) {
           throw signError;
         }
-        signedUrl = data.signedUrl;
+        return data.signedUrl;
       }
-      window.open(signedUrl, "_blank", "noopener,noreferrer");
+    }
+
+    function triggerBrowserDownload(url) {
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    }
+
+    try {
+      setBusyAction(`download:${job.id}`);
+
+      const parts =
+        Array.isArray(job.result?.parts) && job.result.parts.length > 0
+          ? job.result.parts
+          : [
+              {
+                bucket: job.artifact_bucket,
+                objectKey: job.artifact_object_key,
+                fileName: job.result?.fileName || job.artifact_object_key.split("/").pop(),
+              },
+            ];
+
+      for (const part of parts) {
+        const downloadFileName = part.fileName || part.objectKey.split("/").pop();
+        const signedUrl = await signArtifact(part, downloadFileName);
+        triggerBrowserDownload(signedUrl);
+        if (parts.length > 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 150));
+        }
+      }
     } catch (downloadError) {
       setError(downloadError.message);
     } finally {
@@ -1008,17 +1478,47 @@ export default function App() {
     }
   }
 
+  if (guestDeviceId) {
+    return <GuestConsole deviceId={guestDeviceId} />;
+  }
+
+  if (resetPasswordMode) {
+    return <PasswordResetScreen />;
+  }
+
   if (authLoading && !session) {
-    return <LoginScreen email="" password="" setEmail={() => {}} setPassword={() => {}} onSubmit={() => {}} error="" loading />;
+    return (
+      <LoginScreen
+        mode="login"
+        email=""
+        password=""
+        displayName=""
+        role="operator"
+        setEmail={() => {}}
+        setPassword={() => {}}
+        setDisplayName={() => {}}
+        setRole={() => {}}
+        setMode={() => {}}
+        onSubmit={() => {}}
+        error=""
+        loading
+      />
+    );
   }
 
   if (!session) {
     return (
       <LoginScreen
+        mode={authMode}
         email={loginEmail}
         password={loginPassword}
+        displayName={registerDisplayName}
+        role={registerRole}
         setEmail={setLoginEmail}
         setPassword={setLoginPassword}
+        setDisplayName={setRegisterDisplayName}
+        setRole={setRegisterRole}
+        setMode={setAuthMode}
         onSubmit={signIn}
         error={authError}
         loading={authLoading}
@@ -1026,15 +1526,36 @@ export default function App() {
     );
   }
 
+  if (profileLoading) {
+    return <div className="empty-state">Loading account profile...</div>;
+  }
+
+  if (!profile) {
+    return <AccountStatusScreen profile={{ status: "pending", email: session.user.email }} onSignOut={signOut} />;
+  }
+
+  if (profile.status !== "approved") {
+    return <AccountStatusScreen profile={profile} onSignOut={signOut} />;
+  }
+
+  const isSuperAdmin = profile.role === "super_admin";
+  const isOperator = profile.role === "operator";
+  const isUser = profile.role === "user";
+
   return (
     <main className="console-shell">
       <header className="topbar">
         <div>
-          <div className="section-eyebrow">Authenticated Admin Console</div>
+          <div className="section-eyebrow">
+            {isSuperAdmin ? "Authenticated Admin Console" : isOperator ? "Operator Console" : "User Console"}
+          </div>
           <h1>School Services Remote Control</h1>
           <p>
-            Kontrol service, akses file user, backup data, preview artefak, dan
-            pantau error agent dalam satu console realtime.
+            {isSuperAdmin
+              ? "Kontrol service, akses file user, backup data, approval account, dan pantau error agent dalam satu console realtime."
+              : isOperator
+                ? "Pantau device dan kontrol service dari device yang tersedia."
+                : "Pantau E-Rapor dan status device secara realtime."}
           </p>
         </div>
         <div className="topbar-actions">
@@ -1070,8 +1591,9 @@ export default function App() {
           <nav className="tabbar">
             {[
               ["overview", "Overview"],
-              ["files", "Remote Files"],
+              ...(isSuperAdmin ? [["files", "Remote Files"]] : []),
               ["activity", "Activity"],
+              ...(isSuperAdmin ? [["accounts", "Accounts"]] : []),
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -1120,32 +1642,48 @@ export default function App() {
                     <div className="panel-heading-row">
                       <h3>Service Control</h3>
                       <div className="panel-actions">
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          disabled={busyAction !== ""}
-                          onClick={() => queueCommand(selectedDevice.deviceId, null, "kill")}
-                        >
-                          Stop agent
-                        </button>
-                        <button
-                          type="button"
-                          className={selectedDevice.deviceStatus === "blocked" ? "primary-button" : "danger-button"}
-                          disabled={busyAction !== ""}
-                          onClick={() =>
-                            updateDeviceStatus(
-                              selectedDevice.deviceId,
-                              selectedDevice.deviceStatus === "blocked" ? "active" : "blocked"
-                            )
-                          }
-                        >
-                          {selectedDevice.deviceStatus === "blocked" ? "Unblock device" : "Block device"}
-                        </button>
+                        {isSuperAdmin ? (
+                          <>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={busyAction !== ""}
+                              onClick={() => queueCommand(selectedDevice.deviceId, null, "kill")}
+                            >
+                              Stop agent
+                            </button>
+                            <button
+                              type="button"
+                              className={selectedDevice.deviceStatus === "blocked" ? "primary-button" : "danger-button"}
+                              disabled={busyAction !== ""}
+                              onClick={() =>
+                                updateDeviceStatus(
+                                  selectedDevice.deviceId,
+                                  selectedDevice.deviceStatus === "blocked" ? "active" : "blocked"
+                                )
+                              }
+                            >
+                              {selectedDevice.deviceStatus === "blocked" ? "Unblock device" : "Block device"}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={busyAction !== ""}
+                              onClick={() => copyGuestLink(selectedDevice.deviceId)}
+                            >
+                              Copy guest link
+                            </button>
+                          </>
+                        ) : null}
                       </div>
                     </div>
 
                     <div className="service-stack">
-                      {selectedDevice.services.map((service) => (
+                      {visibleServices.map((service) => {
+                        const runningNow =
+                          service.serviceStatus === "running" &&
+                          service.desired_state !== "stopped";
+                        return (
                         <article key={service.id} className={`service-card tone-${statusTone(service.serviceStatus)}`}>
                           <div className="service-card-header">
                             <div>
@@ -1187,7 +1725,7 @@ export default function App() {
                             <button
                               type="button"
                               className="primary-button"
-                              disabled={busyAction !== ""}
+                              disabled={busyAction !== "" || runningNow}
                               onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "start")}
                             >
                               Start
@@ -1195,20 +1733,20 @@ export default function App() {
                             <button
                               type="button"
                               className="secondary-button"
-                              disabled={busyAction !== ""}
+                              disabled={busyAction !== "" || !runningNow}
                               onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "stop")}
                             >
                               Stop
                             </button>
                           </div>
                         </article>
-                      ))}
+                      )})}
                     </div>
                   </article>
                 </section>
               ) : null}
 
-              {selectedTab === "files" ? (
+              {selectedTab === "files" && isSuperAdmin ? (
                 <section className="files-shell">
                   <article className="files-toolbar">
                     <div>
@@ -1318,10 +1856,18 @@ export default function App() {
                     <div className="panel-heading-row">
                       <h3>Operational Activity</h3>
                       <StatusChip status={channelState} />
+                      <select value={logLevelFilter} onChange={(event) => setLogLevelFilter(event.target.value)}>
+                        <option value="all">all levels</option>
+                        <option value="error">error only</option>
+                        <option value="warn">warn only</option>
+                        <option value="info">info only</option>
+                      </select>
                     </div>
                     <div className="log-stack">
                       {logs
+                        .filter((log) => logLevelFilter === "all" || log.level === logLevelFilter)
                         .filter((log) => selectedDeviceId === "all" || log.device_id === selectedDeviceId)
+                        .filter((log) => !isUser || !log.service_name || log.service_name === "rapor")
                         .map((log) => (
                           <article key={log.id} className={`log-card tone-${statusTone(log.level)}`}>
                             <div className="log-card-top">
@@ -1336,6 +1882,170 @@ export default function App() {
                             ) : null}
                           </article>
                         ))}
+                    </div>
+                  </article>
+                </section>
+              ) : null}
+
+              {selectedTab === "accounts" && isSuperAdmin ? (
+                <section className="panel-stack">
+                  <article className="service-panel">
+                    <div className="panel-heading-row">
+                      <h3>Approval Policy</h3>
+                      <StatusChip status={authPolicy.autoApproveEnabled ? "running" : "warn"} label={authPolicy.autoApproveEnabled ? "auto approve on" : "manual approval"} />
+                    </div>
+                    <div className="service-detail-grid">
+                      <label>
+                        <span>Approval window</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={authPolicy.approvalWindowHours}
+                          onChange={(event) =>
+                            setAuthPolicy((current) => ({
+                              ...current,
+                              approvalWindowHours: Number(event.target.value || 24),
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>Maintenance interval</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={authPolicy.maintenanceIntervalMinutes}
+                          onChange={(event) =>
+                            setAuthPolicy((current) => ({
+                              ...current,
+                              maintenanceIntervalMinutes: Number(event.target.value || 15),
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>Reset redirect</span>
+                        <input
+                          value={authPolicy.passwordResetRedirectUrl}
+                          onChange={(event) =>
+                            setAuthPolicy((current) => ({
+                              ...current,
+                              passwordResetRedirectUrl: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>Auto approve</span>
+                        <select
+                          value={authPolicy.autoApproveEnabled ? "enabled" : "disabled"}
+                          onChange={(event) =>
+                            setAuthPolicy((current) => ({
+                              ...current,
+                              autoApproveEnabled: event.target.value === "enabled",
+                            }))
+                          }
+                        >
+                          <option value="enabled">Enabled</option>
+                          <option value="disabled">Disabled</option>
+                        </select>
+                      </label>
+                      <div className="panel-actions" style={{ alignItems: "end" }}>
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() => handleAccountAction("updateAuthPolicy", authPolicy)}
+                        >
+                          Save policy
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                  <article className="jobs-panel">
+                    <div className="panel-heading-row">
+                      <h3>Accounts</h3>
+                      <StatusChip status="ready" label={`${accounts.length} accounts`} />
+                    </div>
+                    <div className="service-detail-grid" style={{ marginBottom: 16 }}>
+                      <label>
+                        <span>Email</span>
+                        <input value={createEmail} onChange={(event) => setCreateEmail(event.target.value)} placeholder="user@example.com" />
+                      </label>
+                      <label>
+                        <span>Display name</span>
+                        <input value={createDisplayName} onChange={(event) => setCreateDisplayName(event.target.value)} placeholder="Nama pengguna" />
+                      </label>
+                      <label>
+                        <span>Password</span>
+                        <input value={createPassword} onChange={(event) => setCreatePassword(event.target.value)} placeholder="Password sementara" />
+                      </label>
+                      <label>
+                        <span>Role</span>
+                        <select value={createRole} onChange={(event) => setCreateRole(event.target.value)}>
+                          <option value="operator">Operator</option>
+                          <option value="user">User</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Create as</span>
+                        <select value={createAutoApprove ? "pending" : "approved"} onChange={(event) => setCreateAutoApprove(event.target.value === "pending")}>
+                          <option value="approved">Approved now</option>
+                          <option value="pending">Pending approval</option>
+                        </select>
+                      </label>
+                      <div className="panel-actions" style={{ alignItems: "end" }}>
+                        <button type="button" className="primary-button" onClick={createManagedAccount}>
+                          Create account
+                        </button>
+                      </div>
+                    </div>
+                    <div className="job-stack">
+                      {accounts.map((account) => (
+                        <article key={account.user_id} className={`job-card tone-${statusTone(account.status)}`}>
+                          <div className="job-card-top">
+                            <div>
+                              <strong>{account.display_name || account.email}</strong>
+                              <div className="mono">{account.email}</div>
+                            </div>
+                            <div className="service-status-group">
+                              <StatusChip status={account.role} />
+                              <StatusChip status={account.status} />
+                            </div>
+                          </div>
+                          <div className="job-card-meta">
+                            <span>created {formatDate(account.created_at)}</span>
+                            {account.approval_due_at ? (
+                              <span>approval {formatRelativeTime(account.approval_due_at)}</span>
+                            ) : null}
+                          </div>
+                          {account.rejection_reason ? <div className="job-error">{account.rejection_reason}</div> : null}
+                          <div className="job-actions">
+                            {account.status !== "approved" ? (
+                              <button type="button" className="primary-button" onClick={() => handleAccountAction("approveAccount", { userId: account.user_id })}>
+                                Approve
+                              </button>
+                            ) : null}
+                            {account.status === "pending" ? (
+                              <>
+                                <button type="button" className="secondary-button" onClick={() => handleAccountAction("extendApproval", { userId: account.user_id, hours: authPolicy.approvalWindowHours })}>
+                                  Extend
+                                </button>
+                                <button type="button" className="danger-button" onClick={() => handleAccountAction("rejectAccount", { userId: account.user_id, reason: "Rejected by administrator." })}>
+                                  Reject
+                                </button>
+                              </>
+                            ) : null}
+                            {account.status !== "disabled" ? (
+                              <button type="button" className="secondary-button" onClick={() => handleAccountAction("disableAccount", { userId: account.user_id })}>
+                                Disable
+                              </button>
+                            ) : null}
+                            <button type="button" className="secondary-button" onClick={() => handleAccountAction("resetPassword", { email: account.email })}>
+                              Reset password
+                            </button>
+                          </div>
+                        </article>
+                      ))}
                     </div>
                   </article>
                 </section>

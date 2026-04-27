@@ -160,6 +160,7 @@ class FileWorker {
       const result = await this.handleJob(job);
 
       if (result?.pendingUpload) {
+        const primaryArtifact = this.getPrimaryArtifact(result);
         await this.bestEffortUpdateFileJob(job.id, {
           status: "running",
           result,
@@ -168,9 +169,9 @@ class FileWorker {
             "Artifact is ready locally and will upload automatically when connectivity returns.",
           progress_current: result.progressCurrent || 1,
           progress_total: result.progressTotal || 1,
-          artifact_bucket: result.bucket || null,
-          artifact_object_key: result.objectKey || null,
-          artifact_expires_at: result.expiresAt || null,
+          artifact_bucket: primaryArtifact?.bucket || null,
+          artifact_object_key: primaryArtifact?.objectKey || null,
+          artifact_expires_at: primaryArtifact?.expiresAt || null,
           locked_by_device: this.device.deviceId,
         });
         await this.writeAuditLogSafe({
@@ -189,13 +190,14 @@ class FileWorker {
         return true;
       }
 
+      const primaryArtifact = this.getPrimaryArtifact(result);
       await this.supabaseApi.updateFileJob(job.id, {
         status: "completed",
         result,
         error: null,
-        artifact_bucket: result?.bucket || null,
-        artifact_object_key: result?.objectKey || null,
-        artifact_expires_at: result?.expiresAt || null,
+        artifact_bucket: primaryArtifact?.bucket || null,
+        artifact_object_key: primaryArtifact?.objectKey || null,
+        artifact_expires_at: primaryArtifact?.expiresAt || null,
         progress_current: result?.progressCurrent || 1,
         progress_total: result?.progressTotal || 1,
         locked_by_device: null,
@@ -250,6 +252,14 @@ class FileWorker {
         action: entry.action,
       });
     }
+  }
+
+  getPrimaryArtifact(result) {
+    if (Array.isArray(result?.parts) && result.parts.length > 0) {
+      return result.parts[0];
+    }
+
+    return result || null;
   }
 
   getPendingUploadRecordPath(jobId) {
@@ -308,23 +318,36 @@ class FileWorker {
   }
 
   async queuePendingArtifactUpload(job, artifact) {
+    const artifacts = Array.isArray(artifact)
+      ? artifact
+      : Array.isArray(artifact?.parts)
+        ? artifact.parts
+        : [artifact];
     const record = {
       jobId: job.id,
       jobType: job.job_type,
       requestedBy: job.requested_by || null,
       sourcePath: job.source_path || null,
       destinationPath: job.destination_path || null,
-      bucket: artifact.bucket,
-      objectKey: artifact.objectKey,
-      localPath: artifact.localPath,
-      result: artifact,
+      artifacts,
+      result: Array.isArray(artifact)
+        ? {
+            parts: artifact,
+            partCount: artifact.length,
+            fileName:
+              artifact.length === 1 ? artifact[0].fileName : `${job.job_type}-${job.id}`,
+            progressCurrent: artifact.length,
+            progressTotal: artifact.length,
+          }
+        : artifact,
       queuedAt: new Date().toISOString(),
     };
 
     this.writePendingUploadRecord(record);
 
     return {
-      ...artifact,
+      ...(Array.isArray(artifact) ? record.result : artifact),
+      parts: record.result.parts || undefined,
       pendingUpload: true,
       localReady: true,
       message:
@@ -337,10 +360,26 @@ class FileWorker {
 
     for (const record of records) {
       try {
-        if (!fs.existsSync(record.localPath)) {
+        const artifacts = Array.isArray(record.artifacts)
+          ? record.artifacts
+          : record.localPath && record.bucket && record.objectKey
+            ? [
+                {
+                  bucket: record.bucket,
+                  objectKey: record.objectKey,
+                  localPath: record.localPath,
+                  fileName: record.result?.fileName || path.basename(record.localPath),
+                  mimeType: record.result?.mimeType || detectMimeType(record.localPath),
+                  size: record.result?.size || null,
+                  expiresAt: record.result?.expiresAt || null,
+                },
+              ]
+            : [];
+
+        if (artifacts.length === 0) {
           await this.bestEffortUpdateFileJob(record.jobId, {
             status: "failed",
-            error: `Pending artifact not found: ${record.localPath}`,
+            error: "Pending artifact metadata is missing.",
             locked_by_device: null,
             completed_at: new Date().toISOString(),
           });
@@ -348,22 +387,50 @@ class FileWorker {
           continue;
         }
 
-        await this.uploadFileToBucket(record.bucket, record.objectKey, record.localPath);
+        const uploadedArtifacts = [];
+        for (const artifact of artifacts) {
+          if (!fs.existsSync(artifact.localPath)) {
+            throw new Error(`Pending artifact not found: ${artifact.localPath}`);
+          }
+
+          await this.uploadFileToBucket(
+            artifact.bucket,
+            artifact.objectKey,
+            artifact.localPath
+          );
+          uploadedArtifacts.push(artifact);
+        }
+
+        const result =
+          uploadedArtifacts.length > 1
+            ? {
+                parts: uploadedArtifacts,
+                partCount: uploadedArtifacts.length,
+                fileName: record.result?.fileName || uploadedArtifacts[0]?.fileName || null,
+                localReady: true,
+                pendingUpload: false,
+                uploadedAt: new Date().toISOString(),
+                progressCurrent: uploadedArtifacts.length,
+                progressTotal: uploadedArtifacts.length,
+              }
+            : {
+                ...(record.result || uploadedArtifacts[0]),
+                ...uploadedArtifacts[0],
+                pendingUpload: false,
+                localReady: true,
+                uploadedAt: new Date().toISOString(),
+              };
+        const primaryArtifact = this.getPrimaryArtifact(result);
 
         await this.supabaseApi.updateFileJob(record.jobId, {
           status: "completed",
-          result: {
-            ...record.result,
-            pendingUpload: false,
-            localReady: true,
-            uploadedAt: new Date().toISOString(),
-          },
+          result,
           error: null,
-          artifact_bucket: record.bucket,
-          artifact_object_key: record.objectKey,
-          artifact_expires_at: record.result?.expiresAt || null,
-          progress_current: record.result?.progressCurrent || 1,
-          progress_total: record.result?.progressTotal || 1,
+          artifact_bucket: primaryArtifact?.bucket || null,
+          artifact_object_key: primaryArtifact?.objectKey || null,
+          artifact_expires_at: primaryArtifact?.expiresAt || null,
+          progress_current: result?.progressCurrent || 1,
+          progress_total: result?.progressTotal || 1,
           locked_by_device: null,
           completed_at: new Date().toISOString(),
         });
@@ -376,8 +443,9 @@ class FileWorker {
           targetPath: record.sourcePath || record.destinationPath,
           details: {
             status: "completed",
-            fileName: record.result?.fileName || null,
-            objectKey: record.objectKey,
+            fileName: result?.fileName || null,
+            objectKey: primaryArtifact?.objectKey || null,
+            partCount: Array.isArray(result?.parts) ? result.parts.length : 1,
           },
         });
 
@@ -386,6 +454,7 @@ class FileWorker {
           serviceName: null,
           jobId: record.jobId,
           jobType: record.jobType,
+          partCount: Array.isArray(result?.parts) ? result.parts.length : 1,
         });
       } catch (error) {
         if (isConnectivityError(error)) {
@@ -534,6 +603,291 @@ class FileWorker {
     return normalized;
   }
 
+  appendArchiveEntriesFromPath(targetPath, archiveRootName, entries, warnings) {
+    let stats;
+    try {
+      stats = fs.statSync(targetPath);
+    } catch (error) {
+      warnings.push({ path: targetPath, message: error.message });
+      return;
+    }
+
+    if (stats.isDirectory()) {
+      const pending = [{ sourcePath: targetPath, rootPath: targetPath }];
+
+      while (pending.length > 0) {
+        const current = pending.pop();
+        let children;
+        try {
+          children = fs.readdirSync(current.sourcePath);
+        } catch (error) {
+          warnings.push({ path: current.sourcePath, message: error.message });
+          continue;
+        }
+
+        for (const childName of children) {
+          const childPath = path.join(current.sourcePath, childName);
+          try {
+            const childStats = fs.statSync(childPath);
+            if (childStats.isDirectory()) {
+              pending.push({ sourcePath: childPath, rootPath: current.rootPath });
+              continue;
+            }
+
+            const relativePath = path.relative(current.rootPath, childPath);
+            entries.push({
+              sourcePath: childPath,
+              entryName: path.join(archiveRootName, relativePath),
+              size: childStats.size,
+            });
+          } catch (error) {
+            warnings.push({ path: childPath, message: error.message });
+          }
+        }
+      }
+
+      return;
+    }
+
+    entries.push({
+      sourcePath: targetPath,
+      entryName: path.basename(targetPath),
+      size: stats.size,
+    });
+  }
+
+  collectArchiveEntries(resolvedSelection) {
+    const entries = [];
+    const warnings = [];
+
+    for (const targetPath of resolvedSelection) {
+      const rootName = safeBasename(targetPath, "backup");
+      this.appendArchiveEntriesFromPath(targetPath, rootName, entries, warnings);
+    }
+
+    return { entries, warnings };
+  }
+
+  splitArchiveEntries(entries) {
+    const maxBytes = Math.max(1024 * 1024, Math.floor(this.maxArtifactBytes * 0.92));
+    const parts = [];
+    let currentEntries = [];
+    let currentSize = 0;
+
+    for (const entry of entries) {
+      const entrySize = Number(entry.size || 0);
+      if (
+        currentEntries.length > 0 &&
+        currentSize + entrySize > maxBytes
+      ) {
+        parts.push(currentEntries);
+        currentEntries = [];
+        currentSize = 0;
+      }
+
+      currentEntries.push(entry);
+      currentSize += entrySize;
+    }
+
+    if (currentEntries.length > 0) {
+      parts.push(currentEntries);
+    }
+
+    return parts;
+  }
+
+  splitEntriesInHalf(entries) {
+    if (!Array.isArray(entries) || entries.length <= 1) {
+      return [entries];
+    }
+
+    const midpoint = Math.ceil(entries.length / 2);
+    return [entries.slice(0, midpoint), entries.slice(midpoint)];
+  }
+
+  createArchivePartFileName(baseName, jobId, partIndex, totalParts) {
+    const safeBase = safeBasename(baseName, "backup");
+    if (totalParts <= 1) {
+      return `${safeBase}-${jobId}.zip`;
+    }
+
+    const paddedIndex = String(partIndex + 1).padStart(String(totalParts).length, "0");
+    return `${safeBase}-${jobId}.part-${paddedIndex}-of-${totalParts}.zip`;
+  }
+
+  async buildArchiveArtifacts(job, resolvedSelection, deliveryMode) {
+    const { entries, warnings } = this.collectArchiveEntries(resolvedSelection);
+    if (!entries.length) {
+      const firstWarning = warnings[0]?.message || `No readable files found in ${resolvedSelection[0]}`;
+      throw new Error(firstWarning);
+    }
+
+    const entryGroups = this.splitArchiveEntries(entries);
+    const bucket = deliveryMode === "persistent" ? "agent-archives" : "agent-temp-artifacts";
+    const expiresAt =
+      deliveryMode === "persistent"
+        ? null
+        : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const archiveBaseName = safeBasename(resolvedSelection[0], "backup");
+    const groupsToProcess = entryGroups.map((partEntries) => ({ partEntries }));
+    const artifacts = [];
+    const skippedItems = [...warnings];
+    let totalAdded = 0;
+
+    while (groupsToProcess.length > 0) {
+      const current = groupsToProcess.shift();
+      const archiveFileName = `${archiveBaseName}-${job.id}-${Date.now()}-${artifacts.length + groupsToProcess.length + 1}.zip`;
+      const archivePath = path.join(this.stagingRoot, archiveFileName);
+
+      if (fs.existsSync(archivePath)) {
+        fs.unlinkSync(archivePath);
+      }
+
+      const metadata = await this.createArchiveFromEntries(current.partEntries, archivePath);
+
+      if (!fs.existsSync(archivePath)) {
+        throw new Error(`Archive was not created at ${archivePath}`);
+      }
+
+      const archiveSize = fs.statSync(archivePath).size;
+
+      if (archiveSize > this.maxArtifactBytes) {
+        fs.unlinkSync(archivePath);
+
+        if (current.partEntries.length <= 1) {
+          throw new Error(
+            `One archive segment exceeded the maximum upload size (${Math.round(
+              this.maxArtifactBytes / (1024 * 1024)
+            )} MB). Narrow the selection or reduce very large files before downloading.`
+          );
+        }
+
+        const [left, right] = this.splitEntriesInHalf(current.partEntries);
+        groupsToProcess.unshift(
+          { partEntries: right },
+          { partEntries: left }
+        );
+        continue;
+      }
+
+      totalAdded += Number(metadata.added || 0);
+      if (Array.isArray(metadata.skippedItems) && metadata.skippedItems.length > 0) {
+        skippedItems.push(
+          ...metadata.skippedItems.map((message) => ({
+            path: archivePath,
+            message,
+          }))
+        );
+      }
+
+      artifacts.push({
+        bucket,
+        objectKey: `${this.device.deviceId}/${job.id}/${archiveFileName}`,
+        localPath: archivePath,
+        fileName: archiveFileName,
+        mimeType: "application/zip",
+        size: archiveSize,
+        expiresAt,
+      });
+    }
+
+    if (!totalAdded) {
+      throw new Error(
+        skippedItems[0]?.message
+          ? `Archive could not include any readable files. First error: ${skippedItems[0].message}`
+          : `Archive could not include any readable files from ${resolvedSelection[0]}`
+      );
+    }
+
+    artifacts.sort((left, right) => left.localPath.localeCompare(right.localPath));
+
+    const finalPartCount = artifacts.length;
+    for (const [index, artifact] of artifacts.entries()) {
+      const finalFileName = this.createArchivePartFileName(
+        archiveBaseName,
+        job.id,
+        index,
+        finalPartCount
+      );
+      const finalPath = path.join(this.stagingRoot, finalFileName);
+
+      if (artifact.localPath !== finalPath) {
+        if (fs.existsSync(finalPath)) {
+          fs.unlinkSync(finalPath);
+        }
+        fs.renameSync(artifact.localPath, finalPath);
+      }
+
+      artifact.localPath = finalPath;
+      artifact.fileName = finalFileName;
+      artifact.objectKey = `${this.device.deviceId}/${job.id}/${finalFileName}`;
+    }
+
+    return {
+      artifacts,
+      progressCurrent: artifacts.length,
+      progressTotal: artifacts.length,
+      warnings:
+        skippedItems.length > 0
+          ? {
+              skippedCount: skippedItems.length,
+              skippedItems: skippedItems.slice(0, 20),
+            }
+          : null,
+      totalAdded,
+    };
+  }
+
+  async createArchiveFromEntries(entries, archivePath) {
+    const manifestPath = path.join(
+      this.stagingRoot,
+      `${path.basename(archivePath)}.manifest.json`
+    );
+    fs.writeFileSync(manifestPath, JSON.stringify(entries, null, 2), "utf8");
+
+    const command = [
+      "$ErrorActionPreference = 'Stop'",
+      "Add-Type -AssemblyName System.IO.Compression",
+      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+      `$destination = '${escapePowerShellSingleQuotedString(archivePath)}'`,
+      `$manifestPath = '${escapePowerShellSingleQuotedString(manifestPath)}'`,
+      "if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }",
+      "$entries = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json",
+      "$zip = [System.IO.Compression.ZipFile]::Open($destination, [System.IO.Compression.ZipArchiveMode]::Create)",
+      "$added = 0",
+      "$skipped = New-Object System.Collections.Generic.List[string]",
+      "function Add-Entry($sourcePath, $entryName) {",
+      "  try {",
+      "    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $sourcePath, ($entryName -replace '\\\\','/'), [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null",
+      "    $script:added += 1",
+      "  } catch {",
+      "    [void]$skipped.Add(($sourcePath + ': ' + $_.Exception.Message))",
+      "  }",
+      "}",
+      "try {",
+      "  foreach ($entry in $entries) {",
+      "    if (-not (Test-Path -LiteralPath $entry.sourcePath)) {",
+      "      [void]$skipped.Add(($entry.sourcePath + ': path not found'))",
+      "      continue",
+      "    }",
+      "    Add-Entry $entry.sourcePath $entry.entryName",
+      "  }",
+      "} finally {",
+      "  $zip.Dispose()",
+      "}",
+      "Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue",
+      "$result = @{ added = $added; skipped = $skipped.Count; skippedItems = @($skipped | Select-Object -First 20) }",
+      "$result | ConvertTo-Json -Compress",
+    ].join("; ");
+
+    const { stdout } = await this.serviceManager.runCapture(
+      this.serviceManager.getPowerShellPath(),
+      ["-NoProfile", "-Command", command]
+    );
+
+    return stdout ? JSON.parse(stdout) : { added: 0, skipped: 0, skippedItems: [] };
+  }
+
   buildDirectoryEntry(parentPath, entryName) {
     const fullPath = path.join(parentPath, entryName);
     const stats = fs.statSync(fullPath);
@@ -669,7 +1023,7 @@ class FileWorker {
     };
 
     try {
-      await this.uploadFileToBucket(bucket, objectKey, targetPath);
+      await this.uploadFileToBucket(bucket, objectKey, stagedFilePath);
       return artifact;
     } catch (error) {
       if (isConnectivityError(error)) {
@@ -690,117 +1044,48 @@ class FileWorker {
     }
 
     const resolvedSelection = selection.map((targetPath) => this.resolveExistingPath(targetPath));
-    const archiveFileName = `${safeBasename(resolvedSelection[0], "backup")}-${job.id}.zip`;
     ensureDirectory(this.stagingRoot);
-    const archivePath = path.join(this.stagingRoot, archiveFileName);
-    if (fs.existsSync(archivePath)) {
-      fs.unlinkSync(archivePath);
-    }
-
-    const literalPaths = resolvedSelection
-      .map((targetPath) => `'${escapePowerShellSingleQuotedString(targetPath)}'`)
-      .join(", ");
-    const archiveRootName = safeBasename(resolvedSelection[0], "backup");
-    const command = [
-      "$ErrorActionPreference = 'Stop'",
-      "Add-Type -AssemblyName System.IO.Compression",
-      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
-      `$destination = '${escapePowerShellSingleQuotedString(archivePath)}'`,
-      "if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }",
-      `$paths = @(${literalPaths})`,
-      "$zip = [System.IO.Compression.ZipFile]::Open($destination, [System.IO.Compression.ZipArchiveMode]::Create)",
-      "$added = 0",
-      "$skipped = New-Object System.Collections.Generic.List[string]",
-      "function Add-Entry($sourcePath, $entryName) {",
-      "  try {",
-      "    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $sourcePath, ($entryName -replace '\\\\','/'), [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null",
-      "    $script:added += 1",
-      "  } catch {",
-      "    [void]$skipped.Add(($sourcePath + ': ' + $_.Exception.Message))",
-      "  }",
-      "}",
-      "try {",
-      "  foreach ($item in $paths) {",
-      "    if (-not (Test-Path -LiteralPath $item)) {",
-      "      [void]$skipped.Add(($item + ': path not found'))",
-      "      continue",
-      "    }",
-      "    $itemInfo = Get-Item -LiteralPath $item -Force -ErrorAction SilentlyContinue",
-      "    if (-not $itemInfo) {",
-      "      [void]$skipped.Add(($item + ': access denied'))",
-      "      continue",
-      "    }",
-      "    if ($itemInfo.PSIsContainer) {",
-      "      $rootName = Split-Path -Path $item -Leaf",
-      `      if (-not $rootName) { $rootName = '${escapePowerShellSingleQuotedString(archiveRootName)}' }`,
-      "      Get-ChildItem -LiteralPath $item -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object {",
-      "        $file = $_",
-      "        $relative = $file.FullName.Substring($item.Length).TrimStart('\\')",
-      "        if (-not $relative) { $relative = $file.Name }",
-      "        $entryName = Join-Path $rootName $relative",
-      "        Add-Entry $file.FullName $entryName",
-      "      }",
-      "    } else {",
-      "      Add-Entry $itemInfo.FullName $itemInfo.Name",
-      "    }",
-      "  }",
-      "} finally {",
-      "  $zip.Dispose()",
-      "}",
-      "$result = @{ added = $added; skipped = $skipped.Count; skippedItems = @($skipped | Select-Object -First 20) }",
-      "$result | ConvertTo-Json -Compress",
-    ].join("; ");
-
-    const { stdout } = await this.serviceManager.runCapture(this.serviceManager.getPowerShellPath(), [
-      "-NoProfile",
-      "-Command",
-      command,
-    ]);
-
-    if (!fs.existsSync(archivePath)) {
-      throw new Error(`Archive was not created at ${archivePath}`);
-    }
-
-    const archiveMetadata = stdout ? JSON.parse(stdout) : { added: 0, skipped: 0, skippedItems: [] };
-    if (!Number(archiveMetadata.added || 0)) {
-      throw new Error(
-        archiveMetadata.skippedItems?.[0]
-          ? `Archive could not include any readable files. First error: ${archiveMetadata.skippedItems[0]}`
-          : `Archive could not include any readable files from ${resolvedSelection[0]}`
-      );
-    }
-
-    const bucket = job.delivery_mode === "persistent" ? "agent-archives" : "agent-temp-artifacts";
-    const objectKey = `${this.device.deviceId}/${job.id}/${archiveFileName}`;
-    const size = fs.statSync(archivePath).size;
-    const artifact = {
-      bucket,
-      objectKey,
-      localPath: archivePath,
-      fileName: archiveFileName,
-      mimeType: "application/zip",
-      size,
-      progressCurrent: selection.length,
-      progressTotal: selection.length,
-      warnings:
-        Number(archiveMetadata.skipped || 0) > 0
-          ? {
-              skippedCount: Number(archiveMetadata.skipped || 0),
-              skippedItems: archiveMetadata.skippedItems || [],
-            }
-          : null,
-      expiresAt:
-        job.delivery_mode === "persistent"
-          ? null
-          : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    };
+    const archive = await this.buildArchiveArtifacts(
+      job,
+      resolvedSelection,
+      job.delivery_mode
+    );
+    logger.info(`Prepared archive artifacts for file job #${job.id}`, {
+      serviceName: null,
+      jobId: job.id,
+      jobType: job.job_type,
+      selectedPaths: resolvedSelection,
+      partCount: archive.artifacts.length,
+      totalBytes: archive.artifacts.reduce((sum, artifact) => sum + Number(artifact.size || 0), 0),
+      skippedCount: archive.warnings?.skippedCount || 0,
+    });
+    const singleArtifact = archive.artifacts.length === 1 ? archive.artifacts[0] : null;
+    const result = singleArtifact
+      ? {
+          ...singleArtifact,
+          progressCurrent: archive.progressCurrent,
+          progressTotal: archive.progressTotal,
+          warnings: archive.warnings,
+        }
+      : {
+          fileName: `${safeBasename(resolvedSelection[0], "backup")}-${job.id}.zip`,
+          parts: archive.artifacts,
+          partCount: archive.artifacts.length,
+          size: archive.artifacts.reduce((sum, artifact) => sum + Number(artifact.size || 0), 0),
+          progressCurrent: archive.progressCurrent,
+          progressTotal: archive.progressTotal,
+          warnings: archive.warnings,
+          expiresAt: archive.artifacts[0]?.expiresAt || null,
+        };
 
     try {
-      await this.uploadFileToBucket(bucket, objectKey, archivePath);
-      return artifact;
+      for (const artifact of archive.artifacts) {
+        await this.uploadFileToBucket(artifact.bucket, artifact.objectKey, artifact.localPath);
+      }
+      return result;
     } catch (error) {
       if (isConnectivityError(error)) {
-        return this.queuePendingArtifactUpload(job, artifact);
+        return this.queuePendingArtifactUpload(job, result);
       }
 
       throw error;

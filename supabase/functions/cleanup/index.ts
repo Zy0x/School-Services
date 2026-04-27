@@ -11,6 +11,24 @@ Deno.serve(async (request) => {
 
   try {
     const { service } = await requireSuperAdmin(request);
+    const { data: authPolicy } = await service
+      .from("app_settings")
+      .select("value")
+      .eq("key", "auth_policy")
+      .maybeSingle();
+    const autoApproveEnabled = authPolicy?.value?.autoApproveEnabled !== false;
+    let approvedAccounts = 0;
+
+    if (autoApproveEnabled) {
+      const { data: approvalResult, error: approvalError } = await service.rpc(
+        "process_account_maintenance"
+      );
+      if (approvalError) {
+        throw approvalError;
+      }
+      approvedAccounts = Number(approvalResult?.approvedCount || 0);
+    }
+
     const cutoffIso = new Date(Date.now() - TEMP_RETENTION_MS).toISOString();
 
     const { data: expiredJobs, error: jobsError } = await service
@@ -50,6 +68,7 @@ Deno.serve(async (request) => {
 
     return json({
       ok: true,
+      approvedAccounts,
       processedJobs: expiredJobs?.length || 0,
       removedArtifacts,
     });

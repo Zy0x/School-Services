@@ -134,6 +134,8 @@ class ShortcutManager {
   constructor(options = {}) {
     this.cachePath = options.cachePath || null;
     this.shortcuts = options.shortcuts || {};
+    this.guestPortal = options.guestPortal || null;
+    this.baseDir = options.baseDir || process.cwd();
     this.cache = this.readCache();
   }
 
@@ -210,7 +212,7 @@ class ShortcutManager {
     return discovered;
   }
 
-  resolveManagedShortcutPaths(serviceName) {
+  resolveManagedShortcutPaths(serviceName, options = {}) {
     const shortcut = this.getShortcutConfig(serviceName);
     if (!shortcut || shortcut.enabled === false) {
       return { managedPaths: [], duplicatePaths: [] };
@@ -219,11 +221,24 @@ class ShortcutManager {
     const explicitPaths = Array.isArray(shortcut.filePaths)
       ? shortcut.filePaths.filter(Boolean)
       : [];
-    const discoveredPaths = this.listDiscoveredShortcutPaths(shortcut);
+    const priorityPaths = Array.isArray(shortcut.priorityPaths)
+      ? shortcut.priorityPaths.filter(Boolean)
+      : [];
+    const existingPriorityPaths = priorityPaths.filter((filePath) => {
+      try {
+        return fs.existsSync(filePath);
+      } catch (_error) {
+        return false;
+      }
+    });
+    const discoveredPaths =
+      existingPriorityPaths.length > 0 || options.skipDiscoveryIfPriorityMissing
+        ? []
+        : this.listDiscoveredShortcutPaths(shortcut);
     const combined = [];
     const seen = new Set();
 
-    for (const filePath of [...discoveredPaths, ...explicitPaths]) {
+    for (const filePath of [...priorityPaths, ...existingPriorityPaths, ...discoveredPaths, ...explicitPaths]) {
       const token = String(filePath || "").toLowerCase();
       if (!filePath || seen.has(token)) {
         continue;
@@ -286,7 +301,7 @@ class ShortcutManager {
     }
   }
 
-  syncServiceUrl(serviceName, publicUrl) {
+  syncServiceUrl(serviceName, publicUrl, options = {}) {
     const shortcut = this.getShortcutConfig(serviceName);
     if (!shortcut || shortcut.enabled === false) {
       return;
@@ -301,7 +316,7 @@ class ShortcutManager {
       return;
     }
 
-    const { managedPaths, duplicatePaths } = this.resolveManagedShortcutPaths(serviceName);
+    const { managedPaths, duplicatePaths } = this.resolveManagedShortcutPaths(serviceName, options);
     this.removeDuplicateShortcuts(duplicatePaths);
 
     if (managedPaths.length === 0) {
@@ -343,6 +358,46 @@ class ShortcutManager {
       updatedAt: new Date().toISOString(),
     };
     this.writeCache();
+    logger.info(`Synchronized shortcut targets for ${serviceName}`, {
+      serviceName,
+      effectiveUrl,
+      pathCount: syncedPaths.length > 0 ? syncedPaths.length : managedPaths.length,
+      filePaths: syncedPaths.length > 0 ? syncedPaths : managedPaths,
+    });
+  }
+
+  syncGuestPortalUrl(deviceId, publicUrl) {
+    if (!this.guestPortal?.baseUrl || !this.guestPortal?.fileName || !deviceId) {
+      return;
+    }
+
+    const baseUrl = String(this.guestPortal.baseUrl).replace(/\/+$/, "");
+    const guestUrl = `${baseUrl}/guest/${encodeURIComponent(deviceId)}`;
+    const filePath = path.join(this.baseDir, this.guestPortal.fileName);
+
+    try {
+      ensureParentDirectory(filePath);
+      const existingFields = readShortcutFields(filePath);
+      fs.writeFileSync(
+        filePath,
+        buildInternetShortcutContent(guestUrl, existingFields, {}),
+        "ascii"
+      );
+      this.cache.guestPortal = {
+        deviceId,
+        guestUrl,
+        effectiveUrl: publicUrl || null,
+        filePath,
+        updatedAt: new Date().toISOString(),
+      };
+      this.writeCache();
+    } catch (error) {
+      logger.warn(`Failed to update guest portal shortcut: ${error.message}`, {
+        serviceName: "rapor",
+        deviceId,
+        guestUrl,
+      });
+    }
   }
 }
 

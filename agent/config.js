@@ -152,6 +152,8 @@ function loadConfig() {
     null;
   const defaultShortcutSearchRoots = [
     "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs",
+    "C:\\ProgramData\\Microsoft\\Windows\\Start Menu",
+    "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Aplikasi e-Rapor SD",
     process.env.APPDATA
       ? path.join(process.env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs")
       : null,
@@ -214,6 +216,11 @@ function loadConfig() {
           path.join(getBaseDir(), "runtime", "file-jobs"),
         runtimeConfigPath
       ),
+      maxArtifactBytes: Number(
+        overrides.fileAccess?.maxArtifactBytes ||
+          process.env.AGENT_FILE_MAX_ARTIFACT_BYTES ||
+          45 * 1024 * 1024
+      ),
       previewInlineBytes: Number(
         overrides.fileAccess?.previewInlineBytes ||
           process.env.AGENT_FILE_PREVIEW_INLINE_BYTES ||
@@ -255,6 +262,16 @@ function loadConfig() {
       ),
     },
     deviceName: overrides.deviceName || process.env.DEVICE_NAME || null,
+    guestPortal: {
+      baseUrl:
+        overrides.guestPortal?.baseUrl ||
+        process.env.GUEST_PORTAL_BASE_URL ||
+        "https://school-services.netlify.app",
+      fileName:
+        overrides.guestPortal?.fileName ||
+        process.env.GUEST_PORTAL_FILE_NAME ||
+        "Guest E-Rapor.url",
+    },
     shortcuts: {
       rapor: {
         enabled: overrides.shortcuts?.rapor?.enabled !== false,
@@ -277,6 +294,20 @@ function loadConfig() {
           `http://localhost:${raporPort}`,
         filePaths: resolveConfigRelativePaths(
           overrides.shortcuts?.rapor?.filePaths || [],
+          runtimeConfigPath
+        ),
+        priorityPaths: resolveConfigRelativePaths(
+          overrides.shortcuts?.rapor?.priorityPaths || [
+            oneDriveRoot ? path.join(oneDriveRoot, "Desktop", "e-Rapor SD.url") : null,
+            process.env.USERPROFILE
+              ? path.join(process.env.USERPROFILE, "OneDrive", "Desktop", "e-Rapor SD.url")
+              : null,
+            process.env.USERPROFILE
+              ? path.join(process.env.USERPROFILE, "Desktop", "e-Rapor SD.url")
+              : null,
+            "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\e-Rapor SD.url",
+            "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Aplikasi e-Rapor SD\\e-Rapor SD.url",
+          ].filter(Boolean),
           runtimeConfigPath
         ),
         searchRoots: resolveConfigRelativePaths(

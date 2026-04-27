@@ -191,30 +191,13 @@ async function ensureAdminUser(env) {
 function deployFunctions(env) {
   const projectRef = getProjectRef(env);
   try {
-    run(
-      "npx",
-      [
-        "supabase",
-        "functions",
-        "deploy",
-        "admin-ops",
-        "--project-ref",
-        projectRef,
-      ],
-      { captureOutput: true }
-    );
-    run(
-      "npx",
-      [
-        "supabase",
-        "functions",
-        "deploy",
-        "cleanup",
-        "--project-ref",
-        projectRef,
-      ],
-      { captureOutput: true }
-    );
+    for (const fn of ["admin-ops", "cleanup", "guest-access", "account-access"]) {
+      run(
+        "npx",
+        ["supabase", "functions", "deploy", fn, "--project-ref", projectRef],
+        { captureOutput: true }
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/necessary privileges|access control|403/i.test(message)) {
@@ -241,16 +224,20 @@ async function verify(env) {
     service.from("admin_profiles").select("user_id", { count: "exact", head: true }),
     service.from("file_jobs").select("id", { count: "exact", head: true }),
     service.from("file_roots").select("id", { count: "exact", head: true }),
+    service.from("guest_shortcuts").select("device_id", { count: "exact", head: true }),
+    service.from("app_settings").select("value").eq("key", "auth_policy").maybeSingle(),
     service.storage.listBuckets(),
   ]);
 
-  const bucketIds = (checks[3].data || []).map((bucket) => bucket.id);
+  const bucketIds = (checks[5].data || []).map((bucket) => bucket.id);
   console.log(
     JSON.stringify(
       {
         adminProfiles: checks[0].count || 0,
         fileJobs: checks[1].count || 0,
         fileRoots: checks[2].count || 0,
+        guestShortcuts: checks[3].count || 0,
+        authPolicy: checks[4].data?.value || null,
         buckets: bucketIds,
       },
       null,

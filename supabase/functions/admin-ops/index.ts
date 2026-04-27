@@ -1,8 +1,10 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { requireSuperAdmin } from "../_shared/admin.ts";
+import { createAnonClient, requireSuperAdmin } from "../_shared/admin.ts";
 
 const TEMP_BUCKET = "agent-temp-artifacts";
 const ARCHIVE_BUCKET = "agent-archives";
+const DASHBOARD_PUBLIC_URL =
+  (Deno.env.get("DASHBOARD_PUBLIC_URL") || "https://school-services.netlify.app").replace(/\/+$/, "");
 
 function sanitizeSelection(selection: unknown) {
   if (!Array.isArray(selection)) {
@@ -12,6 +14,34 @@ function sanitizeSelection(selection: unknown) {
   return selection
     .map((item) => String(item || "").trim())
     .filter(Boolean);
+}
+
+function sanitizeRole(value: unknown) {
+  const role = String(value || "").trim().toLowerCase();
+  if (role === "operator" || role === "user") {
+    return role;
+  }
+  throw new Error("Unsupported account role.");
+}
+
+function sanitizeStatus(value: unknown) {
+  const status = String(value || "").trim().toLowerCase();
+  if (["pending", "approved", "rejected", "disabled"].includes(status)) {
+    return status;
+  }
+  throw new Error("Unsupported account status.");
+}
+
+function sanitizeApprovalHours(value: unknown, fallback = 24) {
+  const next = Number(value);
+  if (!Number.isFinite(next) || next < 1) {
+    return fallback;
+  }
+  return Math.max(1, Math.min(720, Math.round(next)));
+}
+
+function buildGuestPath(deviceId: string) {
+  return `/guest/${encodeURIComponent(deviceId)}`;
 }
 
 Deno.serve(async (request) => {
@@ -60,6 +90,215 @@ Deno.serve(async (request) => {
       });
 
       return json({ ok: true, job: data });
+    }
+
+    if (action === "listAccounts") {
+      const { data, error } = await service
+        .from("admin_profiles")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, accounts: data || [] });
+    }
+
+    if (action === "createAccount") {
+      const email = String(body.email || "").trim().toLowerCase();
+      const password = String(body.password || "").trim();
+      const role = sanitizeRole(body.role);
+      const displayName = String(body.displayName || "").trim() || null;
+      const approvalHours = sanitizeApprovalHours(body.approvalWindowHours, 24);
+      const autoApprove = Boolean(body.autoApprove);
+      const status = autoApprove ? "pending" : "approved";
+      const approvalDueAt =
+        status === "pending"
+          ? new Date(Date.now() + approvalHours * 60 * 60 * 1000).toISOString()
+          : null;
+
+      if (!email || !password) {
+        throw new Error("Email and password are required.");
+      }
+
+      const { data: created, error: createError } = await service.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+      });
+
+      if (createError || !created.user) {
+        throw createError || new Error("Failed to create user.");
+      }
+
+      const { error: profileError } = await service.from("admin_profiles").upsert({
+        user_id: created.user.id,
+        email,
+        display_name: displayName,
+        role,
+        status,
+        approval_due_at: approvalDueAt,
+        approved_at: status === "approved" ? new Date().toISOString() : null,
+        approved_by: status === "approved" ? user.id : null,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      return json({ ok: true, userId: created.user.id, status, approvalDueAt });
+    }
+
+    if (action === "approveAccount" || action === "rejectAccount" || action === "disableAccount") {
+      const userId = String(body.userId || "").trim();
+      if (!userId) {
+        throw new Error("userId is required.");
+      }
+
+      const patch: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (action === "approveAccount") {
+        patch.status = "approved";
+        patch.approved_at = new Date().toISOString();
+        patch.approved_by = user.id;
+        patch.approval_due_at = null;
+        patch.rejected_at = null;
+        patch.rejected_by = null;
+        patch.rejection_reason = null;
+        patch.disabled_at = null;
+        patch.disabled_by = null;
+      } else if (action === "rejectAccount") {
+        patch.status = "rejected";
+        patch.rejected_at = new Date().toISOString();
+        patch.rejected_by = user.id;
+        patch.rejection_reason = String(body.reason || "").trim() || "Rejected by administrator.";
+      } else {
+        patch.status = "disabled";
+        patch.disabled_at = new Date().toISOString();
+        patch.disabled_by = user.id;
+      }
+
+      const { data, error } = await service
+        .from("admin_profiles")
+        .update(patch)
+        .eq("user_id", userId)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, account: data });
+    }
+
+    if (action === "extendApproval") {
+      const userId = String(body.userId || "").trim();
+      const hours = sanitizeApprovalHours(body.hours, 24);
+      const dueAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+
+      const { data, error } = await service
+        .from("admin_profiles")
+        .update({
+          status: "pending",
+          approval_due_at: dueAt,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, account: data });
+    }
+
+    if (action === "updateAuthPolicy") {
+      const approvalWindowHours = sanitizeApprovalHours(body.approvalWindowHours, 24);
+      const autoApproveEnabled = body.autoApproveEnabled !== false;
+      const passwordResetRedirectUrl =
+        String(body.passwordResetRedirectUrl || "").trim() ||
+        `${DASHBOARD_PUBLIC_URL}/reset-password`;
+
+      const value = {
+        autoApproveEnabled,
+        approvalWindowHours,
+        maintenanceIntervalMinutes: sanitizeApprovalHours(body.maintenanceIntervalMinutes, 15),
+        passwordResetRedirectUrl,
+      };
+
+      const { error } = await service.from("app_settings").upsert({
+        key: "auth_policy",
+        value,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, settings: value });
+    }
+
+    if (action === "resetPassword") {
+      const email = String(body.email || "").trim().toLowerCase();
+      if (!email) {
+        throw new Error("Email is required.");
+      }
+
+      const { data: authPolicy } = await service
+        .from("app_settings")
+        .select("value")
+        .eq("key", "auth_policy")
+        .maybeSingle();
+
+      const redirectTo =
+        String(authPolicy?.value?.passwordResetRedirectUrl || "").trim() ||
+        `${DASHBOARD_PUBLIC_URL}/reset-password`;
+      const anon = createAnonClient();
+      const { error } = await anon.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) {
+        throw error;
+      }
+
+      await service.from("file_audit_logs").insert({
+        device_id: body.deviceId ? String(body.deviceId) : "auth",
+        requested_by: user.id,
+        action: "reset_password",
+        target_path: email,
+        details: { redirectTo },
+      });
+
+      return json({ ok: true, email, redirectTo });
+    }
+
+    if (action === "syncGuestLink") {
+      const deviceId = String(body.deviceId || "").trim();
+      if (!deviceId) {
+        throw new Error("deviceId is required.");
+      }
+
+      const guestPath = buildGuestPath(deviceId);
+      const guestUrl = `${DASHBOARD_PUBLIC_URL}${guestPath}`;
+      const { error } = await service.from("guest_shortcuts").upsert({
+        device_id: deviceId,
+        guest_path: guestPath,
+        guest_url: guestUrl,
+        service_name: "rapor",
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, deviceId, guestPath, guestUrl });
     }
 
     if (action === "cancelJob") {
@@ -176,10 +415,12 @@ Deno.serve(async (request) => {
     }
 
     if (action === "setupStatus") {
-      const [adminProfiles, fileJobs, fileRoots] = await Promise.all([
+      const [adminProfiles, fileJobs, fileRoots, authPolicy, guestShortcuts] = await Promise.all([
         service.from("admin_profiles").select("user_id", { count: "exact", head: true }),
         service.from("file_jobs").select("id", { count: "exact", head: true }),
         service.from("file_roots").select("id", { count: "exact", head: true }),
+        service.from("app_settings").select("value").eq("key", "auth_policy").maybeSingle(),
+        service.from("guest_shortcuts").select("device_id", { count: "exact", head: true }),
       ]);
 
       return json({
@@ -188,7 +429,9 @@ Deno.serve(async (request) => {
           adminProfiles: adminProfiles.count || 0,
           fileJobs: fileJobs.count || 0,
           fileRoots: fileRoots.count || 0,
+          guestShortcuts: guestShortcuts.count || 0,
         },
+        authPolicy: authPolicy.data?.value || null,
       });
     }
 

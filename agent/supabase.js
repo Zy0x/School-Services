@@ -5,6 +5,28 @@ function createSupabaseApi(config) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   let logWriteChain = Promise.resolve();
+  let supportsExtendedServiceFields = true;
+
+  function buildServicePayload(service, includeExtendedFields = true) {
+    const payload = {
+      device_id: service.deviceId,
+      service_name: service.serviceName,
+      port: service.port,
+      status: service.status,
+      desired_state: service.desiredState || null,
+      last_error: service.lastError || null,
+      public_url: service.publicUrl || null,
+      last_ping: new Date().toISOString(),
+    };
+
+    if (includeExtendedFields) {
+      payload.location_status = service.locationStatus || "unknown";
+      payload.resolved_path = service.resolvedPath || null;
+      payload.location_details = service.locationDetails || null;
+    }
+
+    return payload;
+  }
 
   async function registerDevice(device) {
     const now = new Date().toISOString();
@@ -72,20 +94,23 @@ function createSupabaseApi(config) {
   }
 
   async function upsertServiceStatus(service) {
-    const payload = {
-      device_id: service.deviceId,
-      service_name: service.serviceName,
-      port: service.port,
-      status: service.status,
-      desired_state: service.desiredState || null,
-      last_error: service.lastError || null,
-      public_url: service.publicUrl || null,
-      last_ping: new Date().toISOString(),
-    };
-
-    const { error } = await client
+    const payload = buildServicePayload(service, supportsExtendedServiceFields);
+    let { error } = await client
       .from("services")
       .upsert(payload, { onConflict: "device_id,service_name" });
+
+    if (
+      error &&
+      supportsExtendedServiceFields &&
+      /column .* does not exist/i.test(error.message || "")
+    ) {
+      supportsExtendedServiceFields = false;
+      ({ error } = await client
+        .from("services")
+        .upsert(buildServicePayload(service, false), {
+          onConflict: "device_id,service_name",
+        }));
+    }
 
     if (error) {
       throw error;
@@ -95,9 +120,7 @@ function createSupabaseApi(config) {
   async function fetchServiceStates(deviceId) {
     const { data, error } = await client
       .from("services")
-      .select(
-        "device_id, service_name, status, desired_state, last_error, public_url, last_ping"
-      )
+      .select("*")
       .eq("device_id", deviceId);
 
     if (error) {
@@ -120,6 +143,101 @@ function createSupabaseApi(config) {
     }
 
     return data || [];
+  }
+
+  async function fetchNextFileJob(deviceId) {
+    const { data, error } = await client
+      .from("file_jobs")
+      .select("*")
+      .eq("device_id", deviceId)
+      .in("status", ["pending", "running"])
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data || null;
+  }
+
+  async function claimFileJob(jobId, deviceId) {
+    const { data, error } = await client
+      .from("file_jobs")
+      .update({
+        status: "running",
+        locked_by_device: deviceId,
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", jobId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async function updateFileJob(jobId, patch) {
+    const { data, error } = await client
+      .from("file_jobs")
+      .update({
+        ...patch,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", jobId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  async function replaceFileRoots(deviceId, roots) {
+    if (!Array.isArray(roots) || roots.length === 0) {
+      return;
+    }
+
+    const { error } = await client.from("file_roots").upsert(
+      roots.map((root) => ({
+        device_id: deviceId,
+        root_key: root.root_key,
+        label: root.label,
+        path: root.path,
+        root_type: root.root_type,
+        metadata: root.metadata || {},
+        updated_at: new Date().toISOString(),
+      })),
+      {
+        onConflict: "device_id,root_key",
+      }
+    );
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  async function insertFileAuditLog(entry) {
+    const { error } = await client.from("file_audit_logs").insert({
+      device_id: entry.deviceId,
+      requested_by: entry.requestedBy || null,
+      job_id: entry.jobId || null,
+      action: entry.action,
+      target_path: entry.targetPath || null,
+      details: entry.details || {},
+    });
+
+    if (error) {
+      throw error;
+    }
   }
 
   async function markCommandDone(commandId) {
@@ -160,13 +278,18 @@ function createSupabaseApi(config) {
 
   return {
     client,
+    claimFileJob,
     fetchDevice,
+    fetchNextFileJob,
     fetchServiceStates,
     fetchPendingCommands,
     heartbeatDevice,
     insertAgentLog,
+    insertFileAuditLog,
     markCommandDone,
+    replaceFileRoots,
     registerDevice,
+    updateFileJob,
     upsertServiceStatus,
   };
 }

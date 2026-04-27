@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const logger = require("./logger");
 
 function ensureParentDirectory(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -11,6 +12,14 @@ function normalizeShortcutUrl(value) {
 
 function normalizeShortcutName(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizeShortcutStem(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\.url$/i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 function hasSamePathIgnoringCase(left, right) {
@@ -26,7 +35,20 @@ function readShortcutFields(filePath) {
   return content.split(/\r?\n/).filter((line) => line.trim() !== "");
 }
 
-function collectShortcutFiles(root, targetName, discovered, seen) {
+function extractShortcutField(existingFields, fieldName) {
+  const prefix = `${String(fieldName || "").trim().toLowerCase()}=`;
+
+  for (const line of existingFields) {
+    const trimmed = String(line || "").trim();
+    if (trimmed.toLowerCase().startsWith(prefix)) {
+      return trimmed.slice(prefix.length).trim();
+    }
+  }
+
+  return null;
+}
+
+function collectShortcutFiles(root, matcher, discovered, seen) {
   let entries = [];
   try {
     entries = fs.readdirSync(root, { withFileTypes: true });
@@ -37,7 +59,7 @@ function collectShortcutFiles(root, targetName, discovered, seen) {
   for (const entry of entries) {
     const fullPath = path.join(root, entry.name);
     if (entry.isDirectory()) {
-      collectShortcutFiles(fullPath, targetName, discovered, seen);
+      collectShortcutFiles(fullPath, matcher, discovered, seen);
       continue;
     }
 
@@ -45,7 +67,7 @@ function collectShortcutFiles(root, targetName, discovered, seen) {
       continue;
     }
 
-    if (normalizeShortcutName(entry.name) !== targetName) {
+    if (!matcher(fullPath, entry.name)) {
       continue;
     }
 
@@ -143,13 +165,46 @@ class ShortcutManager {
   listDiscoveredShortcutPaths(shortcut) {
     const discovered = [];
     const targetName = normalizeShortcutName(shortcut.fileName || "e-Rapor SD.url");
+    const targetStem = normalizeShortcutStem(shortcut.fileName || "e-Rapor SD.url");
+    const fallbackUrl = normalizeShortcutUrl(shortcut.fallbackUrl || "");
+    const iconFile = normalizeShortcutUrl(shortcut.iconFile || "");
     const seen = new Set();
+    const matcher = (fullPath, entryName) => {
+      if (normalizeShortcutName(entryName) === targetName) {
+        return true;
+      }
+
+      const stem = normalizeShortcutStem(entryName);
+      if (stem && stem === targetStem) {
+        return true;
+      }
+
+      if (path.extname(entryName).toLowerCase() !== ".url") {
+        return false;
+      }
+
+      const fields = readShortcutFields(fullPath);
+      const urlField = normalizeShortcutUrl(extractShortcutField(fields, "URL") || "");
+      const iconField = normalizeShortcutUrl(
+        extractShortcutField(fields, "IconFile") || ""
+      );
+
+      if (fallbackUrl && urlField && urlField === fallbackUrl) {
+        return true;
+      }
+
+      if (iconFile && iconField && iconField.toLowerCase() === iconFile.toLowerCase()) {
+        return true;
+      }
+
+      return false;
+    };
 
     for (const root of shortcut.searchRoots || []) {
       if (!root || !fs.existsSync(root)) {
         continue;
       }
-      collectShortcutFiles(root, targetName, discovered, seen);
+      collectShortcutFiles(root, matcher, discovered, seen);
     }
 
     return discovered;
@@ -249,6 +304,13 @@ class ShortcutManager {
     const { managedPaths, duplicatePaths } = this.resolveManagedShortcutPaths(serviceName);
     this.removeDuplicateShortcuts(duplicatePaths);
 
+    if (managedPaths.length === 0) {
+      logger.warn(
+        `Shortcut target for ${serviceName} could not be found. No .url file was updated.`,
+        { serviceName, effectiveUrl }
+      );
+    }
+
     const syncedPaths = [];
     for (const originalPath of managedPaths) {
       const filePath = this.ensureCanonicalShortcutPath(originalPath, shortcut);
@@ -266,7 +328,11 @@ class ShortcutManager {
         }
         syncedPaths.push(filePath);
       } catch (error) {
-        // Continue syncing other known shortcut locations.
+        logger.warn(`Failed to update shortcut for ${serviceName}: ${error.message}`, {
+          serviceName,
+          filePath,
+          effectiveUrl,
+        });
       }
     }
 

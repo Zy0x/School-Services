@@ -100,19 +100,93 @@ function parseGitHubRemote(remoteUrl) {
   };
 }
 
+function parseVersionTag(tag) {
+  const match = String(tag || "").trim().match(/^v(\d+)\.(\d+)\.(\d+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    raw: `v${match[1]}.${match[2]}.${match[3]}`,
+    version: `${match[1]}.${match[2]}.${match[3]}`,
+    parts: match.slice(1).map((value) => Number.parseInt(value, 10)),
+  };
+}
+
+function compareVersionParts(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    const delta = (left[index] || 0) - (right[index] || 0);
+    if (delta !== 0) {
+      return delta;
+    }
+  }
+
+  return 0;
+}
+
+function resolveBuildVersionInfo(currentCommit) {
+  const fallback = {
+    version: packageJson.version,
+    releaseTag: `v${packageJson.version}`,
+  };
+  const packageTag = parseVersionTag(fallback.releaseTag);
+  const remoteTagsOutput = safeExec("git ls-remote --tags --refs origin");
+
+  if (!remoteTagsOutput || !currentCommit) {
+    return fallback;
+  }
+
+  const matchingTags = remoteTagsOutput
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, ref] = line.split(/\s+/);
+      const tagName = ref?.replace(/^refs\/tags\//, "");
+      const parsed = parseVersionTag(tagName);
+
+      if (!parsed || sha !== currentCommit) {
+        return null;
+      }
+
+      return parsed;
+    })
+    .filter(Boolean)
+    .sort((left, right) => compareVersionParts(right.parts, left.parts));
+
+  const selected = matchingTags[0];
+
+  if (!selected) {
+    return fallback;
+  }
+
+  if (
+    packageTag &&
+    compareVersionParts(packageTag.parts, selected.parts) > 0
+  ) {
+    return fallback;
+  }
+
+  return {
+    version: selected.version,
+    releaseTag: selected.raw,
+  };
+}
+
 const remoteUrl = safeExec("git remote get-url origin");
 const gitCommit = safeExec("git rev-parse HEAD");
 const gitBranch = safeExec("git rev-parse --abbrev-ref HEAD") || "main";
 const githubRemote = parseGitHubRemote(remoteUrl);
+const buildVersionInfo = resolveBuildVersionInfo(gitCommit);
 const buildInfo = {
   owner: githubRemote.owner,
   repo: githubRemote.repo,
   branch: gitBranch === "HEAD" ? "main" : gitBranch || "main",
-  version: packageJson.version,
+  version: buildVersionInfo.version,
   commit: gitCommit || null,
   releaseChannel: "latest",
   assetName: "e-rapor-agent-win-x64.zip",
-  releaseTag: `v${packageJson.version}`,
+  releaseTag: buildVersionInfo.releaseTag,
   builtAt: new Date().toISOString(),
 };
 

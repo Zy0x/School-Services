@@ -9,7 +9,11 @@
     "agent:dev": "npm --workspace agent run dev",
     "agent:build": "npm --workspace agent run build",
     "dashboard:dev": "npm --workspace dashboard run dev",
-    "dashboard:build": "npm --workspace dashboard run build"
+    "dashboard:build": "npm --workspace dashboard run build",
+    "supabase:apply": "node scripts/supabase-orchestrator.mjs apply",
+    "supabase:verify": "node scripts/supabase-orchestrator.mjs verify",
+    "supabase:seed-admin": "node scripts/supabase-orchestrator.mjs seed-admin",
+    "supabase:deploy-functions": "node scripts/supabase-orchestrator.mjs deploy-functions"
   },
   "devDependencies": {
     "supabase": "^2.95.3"

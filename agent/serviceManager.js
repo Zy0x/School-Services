@@ -1,7 +1,8 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const logger = require("./logger");
-const { isPortOpen, sleep, waitForPort } = require("./utils");
+const { getConfigTargetsForService } = require("./serviceConfigs");
+const { fileExists, isPortOpen, sleep, waitForPort } = require("./utils");
 
 function escapePowerShellSingleQuotedString(value) {
   return String(value || "").replace(/'/g, "''");
@@ -12,6 +13,7 @@ class ServiceManager {
     this.services = services;
     this.state = new Map();
     this.elevationState = null;
+    this.locationCache = new Map();
   }
 
   list() {
@@ -80,6 +82,15 @@ class ServiceManager {
 
   clearLastError(serviceName) {
     this.getState(serviceName).lastError = null;
+  }
+
+  clearLocationCache(serviceName) {
+    if (serviceName) {
+      this.locationCache.delete(serviceName);
+      return;
+    }
+
+    this.locationCache.clear();
   }
 
   setLastError(serviceName, error) {
@@ -239,6 +250,7 @@ class ServiceManager {
     const state = this.getState(serviceName);
 
     if (await isPortOpen(definition.port, definition.host)) {
+      this.clearLocationCache(serviceName);
       this.clearLastError(serviceName);
       return this.refreshService(serviceName);
     }
@@ -311,6 +323,7 @@ class ServiceManager {
         });
       }
 
+      this.clearLocationCache(serviceName);
       this.clearLastError(serviceName);
       return this.refreshService(serviceName);
     } catch (error) {
@@ -435,6 +448,261 @@ class ServiceManager {
     return status === "__missing__" ? "missing" : status;
   }
 
+  async getWindowsServiceMetadata(serviceName) {
+    const script = [
+      `$service = Get-CimInstance Win32_Service -Filter "Name='${escapePowerShellSingleQuotedString(serviceName)}'" -ErrorAction SilentlyContinue`,
+      "if (-not $service) { ([ordered]@{ installed = $false } | ConvertTo-Json -Compress); exit 0 }",
+      "([ordered]@{ installed = $true; name = $service.Name; displayName = $service.DisplayName; state = $service.State; pathName = $service.PathName } | ConvertTo-Json -Compress)",
+    ].join("; ");
+    const { stdout } = await this.runCapture(this.getPowerShellPath(), [
+      "-NoProfile",
+      "-Command",
+      script,
+    ]);
+
+    try {
+      return JSON.parse(String(stdout || "").trim());
+    } catch (error) {
+      throw new Error(
+        `Failed to parse Windows service metadata for ${serviceName}: ${error.message}`
+      );
+    }
+  }
+
+  extractExecutablePath(pathName) {
+    const value = String(pathName || "").trim();
+
+    if (!value) {
+      return null;
+    }
+
+    if (value.startsWith('"')) {
+      const closingIndex = value.indexOf('"', 1);
+      return closingIndex > 1 ? value.slice(1, closingIndex) : null;
+    }
+
+    const exeIndex = value.toLowerCase().indexOf(".exe");
+    if (exeIndex === -1) {
+      return value;
+    }
+
+    return value.slice(0, exeIndex + 4);
+  }
+
+  getConfigTargets(definition) {
+    return getConfigTargetsForService(definition).filter(Boolean);
+  }
+
+  discoverConfigPathFromExecutable(target, executablePath) {
+    if (!target || !executablePath) {
+      return null;
+    }
+
+    const parsedExecutablePath = this.extractExecutablePath(executablePath);
+    if (!parsedExecutablePath) {
+      return null;
+    }
+
+    const pathSegments = String(target.path || "")
+      .split(/[\\/]+/)
+      .filter(Boolean);
+    const suffixes = [];
+
+    if (pathSegments.length >= 2) {
+      suffixes.push(path.join(...pathSegments.slice(-2)));
+    }
+
+    if (pathSegments.length >= 1) {
+      suffixes.push(path.join(...pathSegments.slice(-1)));
+    }
+
+    let cursor = path.dirname(parsedExecutablePath);
+    for (let index = 0; index < 5; index += 1) {
+      for (const suffix of suffixes) {
+        const candidate = path.join(cursor, suffix);
+        if (fileExists(candidate)) {
+          return candidate;
+        }
+      }
+
+      const parentDir = path.dirname(cursor);
+      if (parentDir === cursor) {
+        break;
+      }
+
+      cursor = parentDir;
+    }
+
+    return null;
+  }
+
+  async getLocationDiagnostics(serviceName, options = {}) {
+    const cached = this.locationCache.get(serviceName);
+    const cacheTtlMs = Number(options.cacheTtlMs || 30000);
+
+    if (
+      cached &&
+      options.forceRefresh !== true &&
+      Date.now() - cached.updatedAt < cacheTtlMs
+    ) {
+      return cached.value;
+    }
+
+    const definition = this.getDefinition(serviceName);
+    const windowsServices = this.getWindowsServices(definition);
+    const configTargets = this.getConfigTargets(definition);
+    const windowsServiceDetails = [];
+    const executablePaths = [];
+
+    for (const windowsServiceName of windowsServices) {
+      try {
+        const metadata = await this.getWindowsServiceMetadata(windowsServiceName);
+        const executablePath = this.extractExecutablePath(metadata.pathName);
+        if (metadata.installed && executablePath) {
+          executablePaths.push(executablePath);
+        }
+
+        windowsServiceDetails.push({
+          name: windowsServiceName,
+          installed: Boolean(metadata.installed),
+          state: metadata.state || null,
+          pathName: metadata.pathName || null,
+          executablePath: executablePath || null,
+        });
+      } catch (error) {
+        windowsServiceDetails.push({
+          name: windowsServiceName,
+          installed: false,
+          state: null,
+          pathName: null,
+          executablePath: null,
+          error: error.message,
+        });
+      }
+    }
+
+    const configTargetDetails = configTargets.map((target) => {
+      const configuredPath = target.path || null;
+      let resolvedPath = configuredPath;
+      let exists = configuredPath ? fileExists(configuredPath) : false;
+
+      if (!exists) {
+        for (const executablePath of executablePaths) {
+          const discoveredPath = this.discoverConfigPathFromExecutable(
+            target,
+            executablePath
+          );
+          if (discoveredPath) {
+            resolvedPath = discoveredPath;
+            exists = true;
+            break;
+          }
+        }
+      }
+
+      return {
+        key: target.key || null,
+        type: target.type || null,
+        configuredPath,
+        resolvedPath,
+        exists,
+      };
+    });
+
+    const installedWindowsServices = windowsServiceDetails.filter(
+      (service) => service.installed
+    );
+    const missingWindowsServices = windowsServiceDetails.filter(
+      (service) => !service.installed
+    );
+    const existingConfigTargets = configTargetDetails.filter((target) => target.exists);
+    const missingConfigTargets = configTargetDetails.filter((target) => !target.exists);
+
+    let status = "unknown";
+    let message = "Location could not be resolved yet.";
+    let resolvedPath = null;
+
+    if (existingConfigTargets.length > 0) {
+      status = missingConfigTargets.length > 0 ? "partial" : "ready";
+      resolvedPath =
+        existingConfigTargets[0].resolvedPath || existingConfigTargets[0].configuredPath;
+      message =
+        missingConfigTargets.length > 0
+          ? `Some config targets are missing for ${serviceName}.`
+          : `Config target detected for ${serviceName}.`;
+    } else if (installedWindowsServices.length > 0) {
+      status = configTargets.length > 0 ? "partial" : "ready";
+      resolvedPath =
+        installedWindowsServices[0].executablePath || installedWindowsServices[0].pathName;
+      message =
+        configTargets.length > 0
+          ? `Windows service is installed for ${serviceName}, but config target could not be found.`
+          : `Windows service is installed for ${serviceName}.`;
+    } else if (
+      windowsServices.length > 0 &&
+      missingWindowsServices.length === windowsServices.length
+    ) {
+      status = "missing";
+      message = `Windows service(s) not installed: ${missingWindowsServices
+        .map((service) => service.name)
+        .join(", ")}`;
+    } else if (
+      configTargets.length > 0 &&
+      missingConfigTargets.length === configTargets.length
+    ) {
+      status = "missing";
+      resolvedPath = missingConfigTargets[0].configuredPath || null;
+      message = `Config target not found for ${serviceName}.`;
+    }
+
+    const value = {
+      status,
+      message,
+      resolvedPath,
+      details: {
+        windowsServices: windowsServiceDetails,
+        configTargets: configTargetDetails,
+      },
+    };
+
+    this.locationCache.set(serviceName, {
+      updatedAt: Date.now(),
+      value,
+    });
+
+    return value;
+  }
+
+  async getResolvedConfigTargets(serviceName) {
+    const definition = this.getDefinition(serviceName);
+    const configTargets = this.getConfigTargets(definition);
+
+    if (configTargets.length === 0) {
+      return [];
+    }
+
+    const diagnostics = await this.getLocationDiagnostics(serviceName);
+
+    return configTargets.map((target) => {
+      if (target.path && fileExists(target.path)) {
+        return target;
+      }
+
+      const detail = diagnostics.details?.configTargets?.find(
+        (candidate) => candidate.key === target.key && candidate.exists
+      );
+
+      if (!detail?.resolvedPath) {
+        return target;
+      }
+
+      return {
+        ...target,
+        path: detail.resolvedPath,
+      };
+    });
+  }
+
   async waitForWindowsServiceState(serviceName, expectedState, timeoutMs = 20000) {
     const deadline = Date.now() + timeoutMs;
 
@@ -542,6 +810,7 @@ class ServiceManager {
       }
     }
 
+    this.clearLocationCache(serviceName);
     return { missingServices };
   }
 
@@ -569,6 +838,7 @@ class ServiceManager {
       }
     }
 
+    this.clearLocationCache(serviceName);
     return { missingServices };
   }
 
@@ -628,6 +898,7 @@ class ServiceManager {
       }
 
       await sleep(1500);
+      this.clearLocationCache(serviceName);
       this.clearLastError(serviceName);
       return this.refreshService(serviceName);
     } catch (error) {

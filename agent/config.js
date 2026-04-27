@@ -207,6 +207,38 @@ function loadConfig() {
       url: supabaseUrl,
       anonKey: supabaseAnonKey,
     },
+    fileAccess: {
+      workspaceRoot: resolveConfigRelativePath(
+        overrides.fileAccess?.workspaceRoot ||
+          process.env.AGENT_FILE_WORKSPACE_ROOT ||
+          path.join(getBaseDir(), "runtime", "file-jobs"),
+        runtimeConfigPath
+      ),
+      previewInlineBytes: Number(
+        overrides.fileAccess?.previewInlineBytes ||
+          process.env.AGENT_FILE_PREVIEW_INLINE_BYTES ||
+          262144
+      ),
+      previewTextExtensions:
+        overrides.fileAccess?.previewTextExtensions || [
+          ".txt",
+          ".log",
+          ".json",
+          ".js",
+          ".ts",
+          ".jsx",
+          ".tsx",
+          ".css",
+          ".html",
+          ".xml",
+          ".csv",
+          ".md",
+          ".ini",
+          ".env",
+          ".conf",
+          ".sql",
+        ],
+    },
     deviceName: overrides.deviceName || process.env.DEVICE_NAME || null,
     shortcuts: {
       rapor: {

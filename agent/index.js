@@ -5,6 +5,7 @@ const { loadConfig } = require("./config");
 const { updateMappedConfig } = require("./configManager");
 const { executeCommands } = require("./commands");
 const { createDeviceMetadata } = require("./device");
+const FileWorker = require("./fileWorker");
 const logger = require("./logger");
 const { acquireProcessLock, releaseProcessLock } = require("./processLock");
 const { getConfigTargetsForService } = require("./serviceConfigs");
@@ -78,7 +79,42 @@ async function main() {
     cachePath: path.join(getBaseDir(), ".state", "public-urls.json"),
     shortcuts: config.shortcuts,
   });
+  const fileWorker = new FileWorker({
+    device,
+    supabaseApi,
+    serviceManager,
+    workspaceRoot: config.fileAccess.workspaceRoot,
+    previewInlineBytes: config.fileAccess.previewInlineBytes,
+    previewTextExtensions: config.fileAccess.previewTextExtensions,
+  });
   const publishedServiceState = new Map();
+
+  async function buildLocationPayload(serviceName) {
+    try {
+      const diagnostics = await serviceManager.getLocationDiagnostics(serviceName);
+
+      return {
+        locationStatus: diagnostics.status,
+        resolvedPath: diagnostics.resolvedPath,
+        locationDetails: {
+          message: diagnostics.message,
+          ...(diagnostics.details || {}),
+        },
+      };
+    } catch (error) {
+      logger.warn(
+        `Failed to resolve location diagnostics for ${serviceName}: ${error.message}`,
+        { serviceName }
+      );
+      return {
+        locationStatus: "unknown",
+        resolvedPath: null,
+        locationDetails: {
+          message: error.message,
+        },
+      };
+    }
+  }
 
   function rememberPublishedServiceState(serviceName, payload) {
     const previous = publishedServiceState.get(serviceName);
@@ -119,7 +155,10 @@ async function main() {
       }
 
       logger.info(`Detected new public URL for ${service.serviceName}: ${publicUrl}`);
-      const configTargets = getConfigTargetsForService(service);
+      let configTargets = getConfigTargetsForService(service);
+      if (configTargets.length > 0) {
+        configTargets = await serviceManager.getResolvedConfigTargets(service.serviceName);
+      }
 
       if (configTargets.length === 0) {
         logger.info(
@@ -142,6 +181,7 @@ async function main() {
 
       urlCache.remember(service.serviceName, publicUrl);
       shortcutManager.syncServiceUrl(service.serviceName, publicUrl);
+      const locationPayload = await buildLocationPayload(service.serviceName);
       await supabaseApi.upsertServiceStatus({
         deviceId: device.deviceId,
         serviceName: service.serviceName,
@@ -150,6 +190,7 @@ async function main() {
         publicUrl,
         desiredState: serviceManager.getDesiredState(service.serviceName),
         lastError: null,
+        ...locationPayload,
       });
     },
   });
@@ -270,6 +311,7 @@ async function main() {
   async function publishStartupState(serviceName) {
     const snapshot = await serviceManager.refreshService(serviceName);
     const tunnelSnapshot = tunnelManager.getStatusSnapshot(serviceName);
+    const locationPayload = await buildLocationPayload(serviceName);
     await supabaseApi.upsertServiceStatus({
       deviceId: device.deviceId,
       serviceName,
@@ -278,6 +320,7 @@ async function main() {
       publicUrl: tunnelManager.getPublicUrl(serviceName),
       desiredState: snapshot.desiredState,
       lastError: tunnelSnapshot.lastError || snapshot.lastError,
+      ...locationPayload,
     });
   }
 
@@ -310,6 +353,12 @@ async function main() {
     await bootstrapRemoteDesiredStates();
   } else {
     await prepareCleanOnlineStartup();
+  }
+
+  try {
+    await fileWorker.syncRootsIfNeeded(true);
+  } catch (error) {
+    logger.warn(`Initial file roots sync failed: ${error.message}`);
   }
 
   while (true) {
@@ -351,6 +400,7 @@ async function main() {
           urlCache.clear(service.serviceName);
           shortcutManager.syncServiceUrl(service.serviceName, null);
           const snapshot = await serviceManager.refreshService(service.serviceName);
+          const locationPayload = await buildLocationPayload(service.serviceName);
           publishedStatus = "blocked";
           lastError = snapshot.lastError || null;
           rememberPublishedServiceState(service.serviceName, {
@@ -368,6 +418,7 @@ async function main() {
             publicUrl,
             desiredState: snapshot.desiredState,
             lastError,
+            ...locationPayload,
           });
           continue;
         }
@@ -390,6 +441,7 @@ async function main() {
 
         const refreshedTunnelSnapshot =
           tunnelManager.getStatusSnapshot(service.serviceName);
+        const locationPayload = await buildLocationPayload(service.serviceName);
         publishedStatus = derivePublishedStatus(
           snapshot,
           refreshedTunnelSnapshot
@@ -413,9 +465,11 @@ async function main() {
           publicUrl,
           desiredState: snapshot.desiredState,
           lastError,
+          ...locationPayload,
         });
       } catch (error) {
         logger.error(`Service loop failed for ${service.serviceName}: ${error.message}`);
+        const locationPayload = await buildLocationPayload(service.serviceName);
         await supabaseApi.upsertServiceStatus({
           deviceId: device.deviceId,
           serviceName: service.serviceName,
@@ -424,8 +478,15 @@ async function main() {
           publicUrl: tunnelManager.getPublicUrl(service.serviceName),
           desiredState: serviceManager.getDesiredState(service.serviceName),
           lastError: error.message,
+          ...locationPayload,
         });
       }
+    }
+
+    try {
+      await fileWorker.processNextJob();
+    } catch (error) {
+      logger.error(`File worker loop failed: ${error.message}`);
     }
 
     await sleep(config.loopIntervalMs);

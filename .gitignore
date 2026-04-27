@@ -6,5 +6,6 @@ agent/dist/
 *.log
 agent.runtime.json
 agent/.state/
+agent/runtime/
 supabase/.temp/
 E-Rapor SD.url

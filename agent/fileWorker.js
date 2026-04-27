@@ -68,6 +68,22 @@ function normalizeDirectoryCandidate(targetPath) {
   return normalized;
 }
 
+function isConnectivityError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return [
+    "fetch failed",
+    "network request failed",
+    "timed out",
+    "econnreset",
+    "enotfound",
+    "getaddrinfo",
+    "failed to fetch",
+    "socket hang up",
+    "temporarily unavailable",
+    "network",
+  ].some((token) => message.includes(token));
+}
+
 class FileWorker {
   constructor(options) {
     this.device = options.device;
@@ -86,10 +102,12 @@ class FileWorker {
     this.tempArtifactsRoot = path.join(this.workspaceRoot, "artifacts");
     this.previewRoot = path.join(this.workspaceRoot, "previews");
     this.stagingRoot = path.join(this.workspaceRoot, "staging");
+    this.pendingUploadsRoot = path.join(this.workspaceRoot, "pending-uploads");
 
     ensureDirectory(this.tempArtifactsRoot);
     ensureDirectory(this.previewRoot);
     ensureDirectory(this.stagingRoot);
+    ensureDirectory(this.pendingUploadsRoot);
   }
 
   async syncRootsIfNeeded(force = false) {
@@ -103,6 +121,8 @@ class FileWorker {
   }
 
   async processNextJob() {
+    await this.flushPendingUploads();
+
     try {
       await this.syncRootsIfNeeded();
     } catch (error) {
@@ -128,10 +148,47 @@ class FileWorker {
         jobType: job.job_type,
       });
       const result = await this.handleJob(job);
+
+      if (result?.pendingUpload) {
+        await this.bestEffortUpdateFileJob(job.id, {
+          status: "running",
+          result,
+          error:
+            result.message ||
+            "Artifact is ready locally and will upload automatically when connectivity returns.",
+          progress_current: result.progressCurrent || 1,
+          progress_total: result.progressTotal || 1,
+          artifact_bucket: result.bucket || null,
+          artifact_object_key: result.objectKey || null,
+          artifact_expires_at: result.expiresAt || null,
+          locked_by_device: this.device.deviceId,
+        });
+        await this.writeAuditLogSafe({
+          deviceId: this.device.deviceId,
+          requestedBy: job.requested_by,
+          jobId: job.id,
+          action: `deferred-upload:${job.job_type}`,
+          targetPath: job.source_path || job.destination_path,
+          details: {
+            status: "running",
+            localReady: true,
+            fileName: result.fileName || null,
+            localPath: result.localPath || null,
+          },
+        });
+        return true;
+      }
+
       await this.supabaseApi.updateFileJob(job.id, {
         status: "completed",
         result,
         error: null,
+        artifact_bucket: result?.bucket || null,
+        artifact_object_key: result?.objectKey || null,
+        artifact_expires_at: result?.expiresAt || null,
+        progress_current: result?.progressCurrent || 1,
+        progress_total: result?.progressTotal || 1,
+        locked_by_device: null,
         completed_at: new Date().toISOString(),
       });
       await this.writeAuditLogSafe({
@@ -142,6 +199,8 @@ class FileWorker {
         targetPath: job.source_path || job.destination_path,
         details: {
           status: "completed",
+          fileName: result?.fileName || null,
+          artifactReady: Boolean(result?.bucket && result?.objectKey),
         },
       });
     } catch (error) {
@@ -153,6 +212,7 @@ class FileWorker {
       await this.supabaseApi.updateFileJob(job.id, {
         status: "failed",
         error: error.message,
+        locked_by_device: null,
         completed_at: new Date().toISOString(),
       });
       await this.writeAuditLogSafe({
@@ -179,6 +239,165 @@ class FileWorker {
         jobId: entry.jobId || null,
         action: entry.action,
       });
+    }
+  }
+
+  getPendingUploadRecordPath(jobId) {
+    return path.join(this.pendingUploadsRoot, `${jobId}.json`);
+  }
+
+  writePendingUploadRecord(record) {
+    fs.writeFileSync(
+      this.getPendingUploadRecordPath(record.jobId),
+      `${JSON.stringify(record, null, 2)}\n`,
+      "utf8"
+    );
+  }
+
+  readPendingUploadRecords() {
+    ensureDirectory(this.pendingUploadsRoot);
+    return fs
+      .readdirSync(this.pendingUploadsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => path.join(this.pendingUploadsRoot, entry.name))
+      .map((recordPath) => {
+        try {
+          return JSON.parse(fs.readFileSync(recordPath, "utf8"));
+        } catch (error) {
+          logger.warn(`Skipping unreadable pending upload record ${recordPath}: ${error.message}`, {
+            serviceName: null,
+          });
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((left, right) => Number(left.jobId || 0) - Number(right.jobId || 0));
+  }
+
+  deletePendingUploadRecord(jobId) {
+    const recordPath = this.getPendingUploadRecordPath(jobId);
+    if (fs.existsSync(recordPath)) {
+      fs.unlinkSync(recordPath);
+    }
+  }
+
+  async bestEffortUpdateFileJob(jobId, patch) {
+    try {
+      return await this.supabaseApi.updateFileJob(jobId, patch);
+    } catch (error) {
+      if (isConnectivityError(error)) {
+        logger.warn(
+          `Deferred file job status sync for #${jobId}: ${error.message}`,
+          { serviceName: null, jobId }
+        );
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async queuePendingArtifactUpload(job, artifact) {
+    const record = {
+      jobId: job.id,
+      jobType: job.job_type,
+      requestedBy: job.requested_by || null,
+      sourcePath: job.source_path || null,
+      destinationPath: job.destination_path || null,
+      bucket: artifact.bucket,
+      objectKey: artifact.objectKey,
+      localPath: artifact.localPath,
+      result: artifact,
+      queuedAt: new Date().toISOString(),
+    };
+
+    this.writePendingUploadRecord(record);
+
+    return {
+      ...artifact,
+      pendingUpload: true,
+      localReady: true,
+      message:
+        "Artifact is ready locally and will upload automatically when connectivity returns.",
+    };
+  }
+
+  async flushPendingUploads() {
+    const records = this.readPendingUploadRecords();
+
+    for (const record of records) {
+      try {
+        if (!fs.existsSync(record.localPath)) {
+          await this.bestEffortUpdateFileJob(record.jobId, {
+            status: "failed",
+            error: `Pending artifact not found: ${record.localPath}`,
+            locked_by_device: null,
+            completed_at: new Date().toISOString(),
+          });
+          this.deletePendingUploadRecord(record.jobId);
+          continue;
+        }
+
+        await this.uploadFileToBucket(record.bucket, record.objectKey, record.localPath);
+
+        await this.supabaseApi.updateFileJob(record.jobId, {
+          status: "completed",
+          result: {
+            ...record.result,
+            pendingUpload: false,
+            localReady: true,
+            uploadedAt: new Date().toISOString(),
+          },
+          error: null,
+          artifact_bucket: record.bucket,
+          artifact_object_key: record.objectKey,
+          artifact_expires_at: record.result?.expiresAt || null,
+          progress_current: record.result?.progressCurrent || 1,
+          progress_total: record.result?.progressTotal || 1,
+          locked_by_device: null,
+          completed_at: new Date().toISOString(),
+        });
+
+        await this.writeAuditLogSafe({
+          deviceId: this.device.deviceId,
+          requestedBy: record.requestedBy,
+          jobId: record.jobId,
+          action: `upload-complete:${record.jobType}`,
+          targetPath: record.sourcePath || record.destinationPath,
+          details: {
+            status: "completed",
+            fileName: record.result?.fileName || null,
+            objectKey: record.objectKey,
+          },
+        });
+
+        this.deletePendingUploadRecord(record.jobId);
+        logger.info(`Uploaded deferred artifact for file job #${record.jobId}`, {
+          serviceName: null,
+          jobId: record.jobId,
+          jobType: record.jobType,
+        });
+      } catch (error) {
+        if (isConnectivityError(error)) {
+          logger.warn(
+            `Deferred artifact upload for job #${record.jobId} is still waiting for connectivity: ${error.message}`,
+            { serviceName: null, jobId: record.jobId }
+          );
+          return;
+        }
+
+        logger.error(`Deferred artifact upload for job #${record.jobId} failed: ${error.message}`, {
+          serviceName: null,
+          jobId: record.jobId,
+        });
+        await this.bestEffortUpdateFileJob(record.jobId, {
+          status: "failed",
+          error: error.message,
+          locked_by_device: null,
+          completed_at: new Date().toISOString(),
+        });
+        this.deletePendingUploadRecord(record.jobId);
+      }
     }
   }
 
@@ -416,21 +635,38 @@ class FileWorker {
       throw new Error("download_file expects a file path, not a directory.");
     }
 
+    const stagedFileName = `${job.id}-${safeBasename(targetPath)}`;
+    const stagedFilePath = path.join(this.stagingRoot, stagedFileName);
+    fs.copyFileSync(targetPath, stagedFilePath);
+
     const bucket = job.delivery_mode === "persistent" ? "agent-archives" : "agent-temp-artifacts";
     const objectKey = `${this.device.deviceId}/${job.id}/${safeBasename(targetPath)}`;
-    await this.uploadFileToBucket(bucket, objectKey, targetPath);
 
-    return {
+    const artifact = {
       bucket,
       objectKey,
+      localPath: stagedFilePath,
       fileName: safeBasename(targetPath),
       mimeType: detectMimeType(targetPath),
       size: stats.size,
+      progressCurrent: 1,
+      progressTotal: 1,
       expiresAt:
         job.delivery_mode === "persistent"
           ? null
           : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     };
+
+    try {
+      await this.uploadFileToBucket(bucket, objectKey, targetPath);
+      return artifact;
+    } catch (error) {
+      if (isConnectivityError(error)) {
+        return this.queuePendingArtifactUpload(job, artifact);
+      }
+
+      throw error;
+    }
   }
 
   async handleArchivePaths(job) {
@@ -465,20 +701,32 @@ class FileWorker {
 
     const bucket = job.delivery_mode === "persistent" ? "agent-archives" : "agent-temp-artifacts";
     const objectKey = `${this.device.deviceId}/${job.id}/${archiveFileName}`;
-    await this.uploadFileToBucket(bucket, objectKey, archivePath);
     const size = fs.statSync(archivePath).size;
-
-    return {
+    const artifact = {
       bucket,
       objectKey,
+      localPath: archivePath,
       fileName: archiveFileName,
       mimeType: "application/zip",
       size,
+      progressCurrent: selection.length,
+      progressTotal: selection.length,
       expiresAt:
         job.delivery_mode === "persistent"
           ? null
           : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     };
+
+    try {
+      await this.uploadFileToBucket(bucket, objectKey, archivePath);
+      return artifact;
+    } catch (error) {
+      if (isConnectivityError(error)) {
+        return this.queuePendingArtifactUpload(job, artifact);
+      }
+
+      throw error;
+    }
   }
 
   async handleUploadPlace(job) {

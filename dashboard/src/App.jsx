@@ -27,6 +27,18 @@ function formatBytes(value) {
   return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+function getJobStatusDetail(job) {
+  if (job?.status === "running" && job?.result?.pendingUpload) {
+    return "Local archive is ready. Waiting for internet connection to upload.";
+  }
+
+  if (job?.status === "completed" && job?.artifact_bucket && job?.artifact_object_key) {
+    return "Artifact uploaded and ready to download.";
+  }
+
+  return "";
+}
+
 function formatRelativeTime(value, now = Date.now()) {
   if (!value) {
     return "never";
@@ -432,11 +444,18 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
             <StatusChip status={job.status} />
           </div>
           <div className="job-card-path mono">{job.source_path || job.destination_path || "-"}</div>
+          {job.result?.fileName ? (
+            <div className="job-card-path mono">{job.result.fileName}</div>
+          ) : null}
           <div className="job-card-meta">
             <span>{formatDate(job.created_at)}</span>
             <span>{job.progress_total ? `${job.progress_current}/${job.progress_total}` : "progress n/a"}</span>
             <span>{job.delivery_mode}</span>
+            {job.result?.size ? <span>{formatBytes(job.result.size)}</span> : null}
           </div>
+          {getJobStatusDetail(job) ? (
+            <div className="explorer-warning">{getJobStatusDetail(job)}</div>
+          ) : null}
           {job.error ? <div className="job-error">{job.error}</div> : null}
           <div className="job-actions">
             {job.status === "completed" && job.artifact_bucket && job.artifact_object_key ? (

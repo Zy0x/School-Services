@@ -31,6 +31,28 @@ function formatEdgeFunctionError(error) {
   return message;
 }
 
+function clearStoredAuthArtifacts() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const storages = [window.localStorage, window.sessionStorage];
+  for (const storage of storages) {
+    if (!storage) {
+      continue;
+    }
+    for (let index = storage.length - 1; index >= 0; index -= 1) {
+      const key = storage.key(index);
+      if (!key) {
+        continue;
+      }
+      if (/^sb-.*(auth-token|code-verifier)/i.test(key)) {
+        storage.removeItem(key);
+      }
+    }
+  }
+}
+
 async function invokeEdgeFunction(name, body, session = null) {
   const headers = {
     "Content-Type": "application/json",
@@ -397,6 +419,126 @@ function AccountStatusScreen({ profile, onSignOut }) {
         </div>
       </div>
     </main>
+  );
+}
+
+function ProfilePanel({ profile, session, onSignOut }) {
+  const [nextPassword, setNextPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+
+  async function submitPasswordChange() {
+    const trimmedPassword = nextPassword.trim();
+
+    if (trimmedPassword.length < 8) {
+      setError("Password baru minimal 8 karakter.");
+      setInfo("");
+      return;
+    }
+
+    if (trimmedPassword !== confirmPassword.trim()) {
+      setError("Konfirmasi password tidak cocok.");
+      setInfo("");
+      return;
+    }
+
+    try {
+      setBusy(true);
+      setError("");
+      setInfo("");
+      const { error: updateError } = await supabase.auth.updateUser({ password: trimmedPassword });
+      if (updateError) {
+        throw updateError;
+      }
+      setNextPassword("");
+      setConfirmPassword("");
+      setInfo("Password berhasil diperbarui.");
+    } catch (updateError) {
+      if (isInvalidSessionError(updateError)) {
+        setError("Sesi login telah berakhir. Silakan masuk lagi.");
+        onSignOut();
+        return;
+      }
+      setError(formatEdgeFunctionError(updateError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel-stack">
+      <article className="service-panel">
+        <div className="panel-heading-row">
+          <h3>Profil Akun</h3>
+          <div className="service-status-group">
+            <StatusChip status={profile?.status || "unknown"} />
+            {profile?.role ? <StatusChip status={profile.role} /> : null}
+          </div>
+        </div>
+        <div className="service-detail-grid">
+          <div>
+            <span>Nama</span>
+            <strong>{profile?.display_name || "-"}</strong>
+          </div>
+          <div>
+            <span>Email</span>
+            <strong>{profile?.email || session?.user?.email || "-"}</strong>
+          </div>
+          <div>
+            <span>User ID</span>
+            <strong className="mono">{session?.user?.id || "-"}</strong>
+          </div>
+        </div>
+      </article>
+
+      <article className="service-panel">
+        <div className="panel-heading-row">
+          <h3>Ganti Password</h3>
+        </div>
+        <div className="service-detail-grid">
+          <label>
+            <span>Password baru</span>
+            <input
+              type="password"
+              value={nextPassword}
+              onChange={(event) => setNextPassword(event.target.value)}
+              placeholder="Minimal 8 karakter"
+              autoComplete="new-password"
+            />
+          </label>
+          <label>
+            <span>Konfirmasi password</span>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              placeholder="Ulangi password baru"
+              autoComplete="new-password"
+            />
+          </label>
+          <div>
+            <span>Aksi akun</span>
+            <div className="panel-actions">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={busy || !nextPassword || !confirmPassword}
+                onClick={submitPasswordChange}
+              >
+                {busy ? "Menyimpan..." : "Simpan password"}
+              </button>
+              <button type="button" className="secondary-button" disabled={busy} onClick={onSignOut}>
+                Logout bersih
+              </button>
+            </div>
+          </div>
+        </div>
+        {error ? <div className="job-error">{error}</div> : null}
+        {info ? <div className="service-note">{info}</div> : null}
+      </article>
+    </section>
   );
 }
 
@@ -905,6 +1047,35 @@ export default function App() {
   const [createAutoApprove, setCreateAutoApprove] = useState(false);
   const fileInputRef = useRef(null);
 
+  function resetAuthenticatedState() {
+    setSession(null);
+    setProfile(null);
+    setProfileLoading(false);
+    setAccounts([]);
+    setServices([]);
+    setLogs([]);
+    setFileJobs([]);
+    setRoots([]);
+    setLoading(true);
+    setError("");
+    setSelectedDeviceId("all");
+    setSelectedTab("overview");
+    setBusyAction("");
+    setCurrentPath("");
+    setDirectoryJobId(null);
+    setDirectoryResult(null);
+    setPreviewJobId(null);
+    setPreviewResult(null);
+    setSelectedPaths([]);
+    setChannelState("connecting");
+    setLogLevelFilter("all");
+    setCreateEmail("");
+    setCreatePassword("");
+    setCreateDisplayName("");
+    setCreateRole("operator");
+    setCreateAutoApprove(false);
+  }
+
   useEffect(() => {
     if (guestDeviceId) {
       setAuthLoading(false);
@@ -921,8 +1092,16 @@ export default function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession || null);
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "SIGNED_OUT") {
+        resetAuthenticatedState();
+      } else {
+        setSession(nextSession || null);
+      }
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        setAuthError("");
+      }
+      setAuthInfo("");
       setAuthLoading(false);
     });
 
@@ -959,6 +1138,7 @@ export default function App() {
           setProfileLoading(false);
           setSession(null);
           supabase.auth.signOut().catch(() => {});
+          clearStoredAuthArtifacts();
           return;
         }
         setAuthError(formatEdgeFunctionError(profileError));
@@ -1295,15 +1475,21 @@ export default function App() {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
-    setProfile(null);
-    setAccounts([]);
-    setServices([]);
-    setLogs([]);
-    setFileJobs([]);
-    setRoots([]);
-    setDirectoryResult(null);
-    setPreviewResult(null);
+    setAuthLoading(true);
+    setAuthError("");
+    setAuthInfo("");
+    resetAuthenticatedState();
+    try {
+      const globalResult = await supabase.auth.signOut({ scope: "global" });
+      if (globalResult.error) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
+    } catch (_error) {
+      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    } finally {
+      clearStoredAuthArtifacts();
+      setAuthLoading(false);
+    }
   }
 
   async function queueCommand(deviceId, serviceName, action) {
@@ -1732,6 +1918,7 @@ export default function App() {
               ["overview", "Overview"],
               ...(isSuperAdmin ? [["files", "Remote Files"]] : []),
               ["activity", "Activity"],
+              ["profile", "Profile"],
               ...(isSuperAdmin ? [["accounts", "Accounts"]] : []),
             ].map(([id, label]) => (
               <button
@@ -1745,7 +1932,9 @@ export default function App() {
             ))}
           </nav>
 
-          {selectedDevice ? (
+          {selectedTab === "profile" ? (
+            <ProfilePanel profile={profile} session={session} onSignOut={signOut} />
+          ) : selectedDevice ? (
             <>
               {selectedTab === "overview" ? (
                 <section className="panel-stack">

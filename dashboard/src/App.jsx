@@ -5,13 +5,32 @@ const HEARTBEAT_STALE_MS = Number(import.meta.env.VITE_HEARTBEAT_STALE_MS || 200
 const REFRESH_INTERVAL_MS = Number(import.meta.env.VITE_DASHBOARD_REFRESH_MS || 5000);
 const LOG_LIMIT = 120;
 const JOB_LIMIT = 80;
+const DEFAULT_SUPABASE_URL = "https://fgimyyicixazygairmsa.supabase.co";
+const DEFAULT_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnaW15eWljaXhhenlnYWlybXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxODg1MjIsImV4cCI6MjA5Mjc2NDUyMn0.uZ0Cm_NxxcSXKaYE21wtob6xtY445S0I0y-v5i10NRo";
 const PUBLIC_DASHBOARD_URL = String(
   import.meta.env.VITE_PUBLIC_SITE_URL ||
     (typeof window !== "undefined" ? window.location.origin : "") ||
     "https://school-services.netlify.app"
 ).replace(/\/+$/, "");
-const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
-const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "");
+const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL).replace(
+  /\/+$/,
+  ""
+);
+const SUPABASE_ANON_KEY = String(
+  import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY
+);
+const PAYPAL_URL = "https://paypal.me/theamagenta";
+const TRAKTEER_URL = "https://trakteer.id/zy0x";
+const GITHUB_PROFILE_URL = "https://github.com/Zy0x";
+
+function buildGuestPath(deviceId) {
+  return `/guest/${encodeURIComponent(String(deviceId || "").trim())}`;
+}
+
+function buildGuestUrl(deviceId) {
+  return `${PUBLIC_DASHBOARD_URL}${buildGuestPath(deviceId)}`;
+}
 
 function getFunctionUrl(name) {
   return `${SUPABASE_URL}/functions/v1/${name}`;
@@ -78,11 +97,8 @@ async function invokeEdgeFunction(name, body, session = null) {
   const headers = {
     "Content-Type": "application/json",
     apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${session?.access_token || SUPABASE_ANON_KEY}`,
   };
-
-  if (session?.access_token) {
-    headers.Authorization = `Bearer ${session.access_token}`;
-  }
 
   const response = await fetch(getFunctionUrl(name), {
     method: "POST",
@@ -281,13 +297,49 @@ function getPublicUrlLabel(service) {
 }
 
 function statusTone(status) {
-  if (["running", "completed", "online", "ready", "super_admin"].includes(status)) {
+  if (
+    [
+      "running",
+      "completed",
+      "online",
+      "ready",
+      "super_admin",
+      "approved",
+      "available",
+      "connected",
+    ].includes(status)
+  ) {
     return "good";
   }
-  if (["waiting_retry", "starting", "partial", "pending", "running_job"].includes(status)) {
+  if (
+    [
+      "waiting_retry",
+      "starting",
+      "partial",
+      "pending",
+      "running_job",
+      "reconnecting",
+      "stopped",
+      "idle",
+      "degraded",
+    ].includes(status)
+  ) {
     return "warn";
   }
-  if (["error", "failed", "blocked", "offline", "missing", "cancelled", "expired"].includes(status)) {
+  if (
+    [
+      "error",
+      "failed",
+      "blocked",
+      "offline",
+      "missing",
+      "cancelled",
+      "expired",
+      "disabled",
+      "rejected",
+      "unavailable",
+    ].includes(status)
+  ) {
     return "bad";
   }
   return "neutral";
@@ -298,6 +350,290 @@ function StatusChip({ status, label }) {
     <span className={`status-chip tone-${statusTone(status)}`}>
       {label || String(status || "unknown").replace(/_/g, " ")}
     </span>
+  );
+}
+
+async function copyTextToClipboard(text) {
+  if (!text) {
+    throw new Error("Tidak ada tautan yang bisa disalin.");
+  }
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "readonly");
+  textArea.style.position = "absolute";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand("copy");
+  textArea.remove();
+}
+
+function buildWhatsAppShareUrl(url, label = "Link publik") {
+  const text = `${label}\n${url}`;
+  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+}
+
+function getGuestStatusModel(device, service) {
+  const deviceStatus = device?.deviceStatus || "offline";
+  const serviceStatus =
+    deviceStatus === "blocked"
+      ? "blocked"
+      : deviceStatus === "offline"
+        ? "offline"
+        : service?.status || "unknown";
+  const desiredState = service?.desired_state || "unknown";
+  const hasPublicUrl = Boolean(service?.public_url);
+  const ready =
+    deviceStatus === "online" &&
+    serviceStatus === "running" &&
+    desiredState !== "stopped" &&
+    hasPublicUrl;
+
+  if (deviceStatus === "blocked") {
+    return {
+      overallStatus: "blocked",
+      headline: "Akses perangkat sedang diblokir",
+      description:
+        "Guest monitor tidak bisa membuka E-Rapor sampai perangkat di-unblock oleh administrator.",
+      publicStatus: "disabled",
+      publicLabel: "Akses publik diblokir",
+      runtimeLabel: "Perangkat diblokir",
+      ready,
+    };
+  }
+
+  if (deviceStatus === "offline") {
+    return {
+      overallStatus: "offline",
+      headline: "Perangkat sedang offline",
+      description:
+        "Agent belum mengirim heartbeat terbaru. Jalankan shortcut School Services atau cek koneksi perangkat.",
+      publicStatus: hasPublicUrl ? "unavailable" : "disabled",
+      publicLabel: hasPublicUrl ? "URL terakhir tersimpan" : "Belum ada URL publik",
+      runtimeLabel: "Agent tidak terhubung",
+      ready,
+    };
+  }
+
+  if (ready) {
+    return {
+      overallStatus: "ready",
+      headline: "E-Rapor siap digunakan",
+      description:
+        "Koneksi perangkat aktif, layanan E-Rapor sedang running, dan URL publik sudah siap dibuka.",
+      publicStatus: "ready",
+      publicLabel: "URL publik aktif",
+      runtimeLabel: "Layanan running",
+      ready,
+    };
+  }
+
+  if (serviceStatus === "starting") {
+    return {
+      overallStatus: "starting",
+      headline: "E-Rapor sedang dinyalakan",
+      description:
+        "Perangkat online dan agent sedang memulai service atau menunggu port lokal terbuka.",
+      publicStatus: hasPublicUrl ? "reconnecting" : "starting",
+      publicLabel: hasPublicUrl ? "URL lama masih tersimpan" : "Menunggu URL publik",
+      runtimeLabel: "Sedang starting",
+      ready,
+    };
+  }
+
+  if (serviceStatus === "waiting_retry") {
+    return {
+      overallStatus: "reconnecting",
+      headline: "Koneksi publik sedang dipulihkan",
+      description:
+        "Service lokal merespons, tetapi tunnel publik sedang retry. Tunggu beberapa saat lalu refresh otomatis.",
+      publicStatus: "waiting_retry",
+      publicLabel: "Tunnel sedang retry",
+      runtimeLabel: "Service lokal tersedia",
+      ready,
+    };
+  }
+
+  if (serviceStatus === "running" && !hasPublicUrl) {
+    return {
+      overallStatus: "degraded",
+      headline: "Service aktif, URL publik belum siap",
+      description:
+        "E-Rapor sudah running di perangkat, tetapi URL publik belum dipublikasikan atau masih diproses.",
+      publicStatus: "starting",
+      publicLabel: "Menunggu URL publik",
+      runtimeLabel: "Service running",
+      ready,
+    };
+  }
+
+  if (serviceStatus === "error") {
+    return {
+      overallStatus: "error",
+      headline: "Service E-Rapor mengalami error",
+      description:
+        "Ada error pada service atau tunnel. Lihat pesan error terbaru di bawah untuk tindak lanjut.",
+      publicStatus: hasPublicUrl ? "unavailable" : "disabled",
+      publicLabel: hasPublicUrl ? "URL publik tidak stabil" : "Belum ada URL publik",
+      runtimeLabel: "Service error",
+      ready,
+    };
+  }
+
+  if (desiredState === "stopped" || serviceStatus === "stopped") {
+    return {
+      overallStatus: "stopped",
+      headline: "E-Rapor belum dijalankan",
+      description:
+        "Perangkat online, tetapi service E-Rapor belum running. Tekan Start atau buka shortcut School Services.",
+      publicStatus: hasPublicUrl ? "unavailable" : "disabled",
+      publicLabel: hasPublicUrl ? "URL lama tersimpan" : "Belum ada URL publik",
+      runtimeLabel: "Service berhenti",
+      ready,
+    };
+  }
+
+  return {
+    overallStatus: serviceStatus,
+    headline: "Status E-Rapor sedang diperiksa",
+    description:
+      "Guest monitor terus memantau heartbeat perangkat, status service, dan URL publik secara realtime.",
+    publicStatus: hasPublicUrl ? "available" : "disabled",
+    publicLabel: hasPublicUrl ? "URL publik tersedia" : "Belum ada URL publik",
+    runtimeLabel: "Menunggu pembaruan status",
+    ready,
+  };
+}
+
+function PublicLinkActions({
+  url,
+  label = "Link publik",
+  compact = false,
+  onActionComplete = null,
+}) {
+  const [feedback, setFeedback] = useState("");
+  const disabled = !url;
+
+  async function handleCopy() {
+    if (!url) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(url);
+      setFeedback("Tautan berhasil disalin.");
+      if (typeof onActionComplete === "function") {
+        onActionComplete("");
+      }
+    } catch (error) {
+      const message = error?.message || "Gagal menyalin tautan.";
+      setFeedback("");
+      if (typeof onActionComplete === "function") {
+        onActionComplete(message);
+      }
+    }
+  }
+
+  function handleWhatsAppShare() {
+    if (!url) {
+      return;
+    }
+
+    window.open(buildWhatsAppShareUrl(url, label), "_blank", "noopener,noreferrer");
+    setFeedback("Tautan siap dibagikan lewat WhatsApp.");
+    if (typeof onActionComplete === "function") {
+      onActionComplete("");
+    }
+  }
+
+  return (
+    <div className={`link-action-stack ${compact ? "link-action-stack-compact" : ""}`}>
+      <div className="panel-actions public-link-actions">
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={disabled}
+          onClick={handleCopy}
+        >
+          Salin link
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={disabled}
+          onClick={handleWhatsAppShare}
+        >
+          Bagikan WA
+        </button>
+      </div>
+      {feedback ? <div className="micro-feedback">{feedback}</div> : null}
+    </div>
+  );
+}
+
+function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <div>
+        <strong>School Services v2.0.0</strong>
+        <p>
+          Monitor guest dan dashboard admin untuk E-Rapor dengan fokus pada status realtime,
+          akses publik, dan operasional yang rapi.
+        </p>
+      </div>
+      <div className="site-footer-actions">
+        <a
+          className="secondary-button footer-link-button"
+          href={GITHUB_PROFILE_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Support GitHub
+        </a>
+        <a
+          className="secondary-button footer-link-button"
+          href={PAYPAL_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          PayPal
+        </a>
+        <a
+          className="secondary-button footer-link-button"
+          href={TRAKTEER_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Trakteer
+        </a>
+      </div>
+    </footer>
+  );
+}
+
+function SupportDock() {
+  return (
+    <div className="support-dock">
+      <button type="button" className="support-fab" aria-label="Buka menu traktir">
+        Traktir
+      </button>
+      <div className="support-flyout">
+        <a href={PAYPAL_URL} target="_blank" rel="noreferrer">
+          PayPal
+          <span>paypal.me/theamagenta</span>
+        </a>
+        <a href={TRAKTEER_URL} target="_blank" rel="noreferrer">
+          Trakteer
+          <span>trakteer.id/zy0x</span>
+        </a>
+      </div>
+    </div>
   );
 }
 
@@ -625,8 +961,6 @@ function GuestConsole({ deviceId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [copyStatus, setCopyStatus] = useState("");
-  const [redirecting, setRedirecting] = useState(false);
 
   async function loadGuest() {
     try {
@@ -677,7 +1011,6 @@ function GuestConsole({ deviceId }) {
   async function sendCommand(action) {
     try {
       setBusy(true);
-      setCopyStatus("");
       const { data, error: invokeError } = await supabase.functions.invoke("guest-access", {
         body: { action, deviceId },
       });
@@ -695,143 +1028,197 @@ function GuestConsole({ deviceId }) {
     }
   }
 
-  async function copyPublicUrl() {
-    if (!service?.public_url) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(service.public_url);
-      setCopyStatus("Link publik berhasil disalin.");
-      setError("");
-    } catch (copyError) {
-      setCopyStatus("");
-      setError(copyError?.message || "Gagal menyalin link publik.");
-    }
-  }
-
   const service = state.service;
+  const guestStatus = getGuestStatusModel(state.device, service);
+  const canOpenService = guestStatus.ready;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
-  const canOpenService =
-    state.device?.deviceStatus === "online" &&
-    service?.status === "running" &&
-    service?.desired_state !== "stopped" &&
-    Boolean(service?.public_url);
-  const isPendingConnection =
-    !canOpenService ||
-    service?.status === "starting" ||
-    service?.status === "waiting_retry" ||
-    state.device?.deviceStatus !== "online";
-
-  useEffect(() => {
-    if (!canOpenService || redirecting) {
-      return;
-    }
-
-    setRedirecting(true);
-    const redirectId = window.setTimeout(() => {
-      window.location.replace(service.public_url);
-    }, 1200);
-
-    return () => window.clearTimeout(redirectId);
-  }, [canOpenService, redirecting, service?.public_url]);
+  const loginUrl = `${PUBLIC_DASHBOARD_URL}/?mode=login`;
+  const registerUrl = `${PUBLIC_DASHBOARD_URL}/?mode=register`;
 
   return (
-    <main className="console-shell">
-      <header className="topbar">
-        <div>
+    <main className="console-shell guest-console-shell">
+      <header className="guest-nav">
+        <div className="guest-brand">
+          <div className="guest-brand-mark">SS</div>
+          <div>
+            <div className="section-eyebrow">School Services</div>
+            <strong>Guest Access Monitor</strong>
+          </div>
+        </div>
+        <div className="guest-nav-actions">
+          <a className="secondary-button footer-link-button" href={loginUrl}>
+            Login
+          </a>
+          <a className="primary-button footer-link-button" href={registerUrl}>
+            Register
+          </a>
+        </div>
+      </header>
+
+      <section className="guest-hero">
+        <div className="guest-hero-copy">
           <div className="section-eyebrow">Guest Device Monitor</div>
           <h1>{state.device?.deviceName || deviceId}</h1>
-          <p>
-            Shortcut School Services membuka panel guest web. Gunakan tombol Start atau Stop di
-            sini, dan gunakan tool admin di folder Program Files jika perlu restart penuh service.
-          </p>
+          <p>{guestStatus.description}</p>
+          <div className="guest-hero-badges">
+            <StatusChip
+              status={state.device?.deviceStatus || "offline"}
+              label={`device ${state.device?.deviceStatus || "offline"}`}
+            />
+            <StatusChip
+              status={service?.status || "offline"}
+              label={`service ${service?.status || "offline"}`}
+            />
+            <StatusChip
+              status={guestStatus.publicStatus}
+              label={guestStatus.publicLabel}
+            />
+          </div>
         </div>
-        <div className="topbar-actions">
-          <StatusChip status={state.device?.deviceStatus || "offline"} />
+        <div className="guest-hero-actions">
+          <StatusChip status={guestStatus.overallStatus} label={guestStatus.headline} />
           <button type="button" className="secondary-button" onClick={loadGuest}>
             Refresh
           </button>
         </div>
-      </header>
+      </section>
+
       {error ? <div className="error-banner">{error}</div> : null}
-      <section className="workspace" style={{ marginTop: 18 }}>
+
+      <section className="workspace guest-workspace" style={{ marginTop: 18 }}>
         {loading ? (
           <div className="empty-state">Loading guest device status...</div>
         ) : (
-          <article className="service-panel">
-            <div className="service-card-header">
-              <div>
-                <strong>E-Rapor</strong>
-                <div className="mono">{state.device?.deviceId}</div>
-              </div>
-              <div className="service-status-group">
+          <>
+            <section className="guest-status-grid">
+              <article className="metric-card guest-status-card">
+                <span>Koneksi perangkat</span>
+                <strong>{state.device?.deviceStatus || "offline"}</strong>
+                <StatusChip status={state.device?.deviceStatus || "offline"} />
+              </article>
+              <article className="metric-card guest-status-card">
+                <span>Status service</span>
+                <strong>{guestStatus.runtimeLabel}</strong>
                 <StatusChip status={service?.status || "offline"} />
-                {canOpenService ? (
-                  <a className="primary-button" href={service.public_url} target="_blank" rel="noreferrer">
+              </article>
+              <article className="metric-card guest-status-card">
+                <span>Publikasi link</span>
+                <strong>{guestStatus.publicLabel}</strong>
+                <StatusChip status={guestStatus.publicStatus} />
+              </article>
+              <article className="metric-card guest-status-card">
+                <span>Kesiapan akses</span>
+                <strong>{guestStatus.headline}</strong>
+                <StatusChip status={guestStatus.overallStatus} />
+              </article>
+            </section>
+
+            <article className="service-panel guest-service-panel">
+              <div className="service-card-header">
+                <div>
+                  <strong>E-Rapor</strong>
+                  <div className="mono">{state.device?.deviceId}</div>
+                </div>
+                <div className="service-status-group">
+                  <StatusChip status={state.device?.deviceStatus || "offline"} />
+                  <StatusChip status={service?.status || "offline"} />
+                  <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
+                </div>
+              </div>
+
+              <div className="guest-callout">
+                <div>
+                  <div className="section-eyebrow">Status utama</div>
+                  <strong>{guestStatus.headline}</strong>
+                </div>
+                <p>{guestStatus.description}</p>
+              </div>
+
+              <div className="service-detail-grid guest-detail-grid">
+                <div>
+                  <span>Public URL</span>
+                  <strong className="service-link mono">
+                    {service?.public_url ? (
+                      <a href={service.public_url} target="_blank" rel="noreferrer">
+                        {service.public_url}
+                      </a>
+                    ) : (
+                      "belum tersedia"
+                    )}
+                  </strong>
+                </div>
+                <div>
+                  <span>Desired state</span>
+                  <strong>{service?.desired_state || "-"}</strong>
+                </div>
+                <div>
+                  <span>Last ping</span>
+                  <strong>{formatRelativeTime(service?.last_ping)}</strong>
+                </div>
+                <div>
+                  <span>Last heartbeat</span>
+                  <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
+                </div>
+                <div>
+                  <span>Path status</span>
+                  <strong>{service?.location_status || "unknown"}</strong>
+                </div>
+                <div>
+                  <span>Resolved path</span>
+                  <strong className="mono">{service?.resolved_path || "-"}</strong>
+                </div>
+              </div>
+
+              {service?.location_details?.message ? (
+                <div className="service-note">{service.location_details.message}</div>
+              ) : null}
+              {service?.last_error ? <div className="job-error">{service.last_error}</div> : null}
+
+              <div className="guest-cta-row">
+                <div className="panel-actions">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={busy}
+                    onClick={() => sendCommand("start")}
+                  >
+                    {busy ? "Memproses..." : "Start Service"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy || !isRunning}
+                    onClick={() => sendCommand("stop")}
+                  >
+                    Stop Service
+                  </button>
+                  <a
+                    className={`primary-button footer-link-button ${canOpenService ? "" : "button-disabled-link"}`}
+                    href={canOpenService ? service.public_url : undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-disabled={!canOpenService}
+                    onClick={(event) => {
+                      if (!canOpenService) {
+                        event.preventDefault();
+                      }
+                    }}
+                  >
                     Buka E-Rapor
                   </a>
-                ) : null}
+                </div>
+                <PublicLinkActions
+                  url={service?.public_url || ""}
+                  label={`Akses publik E-Rapor untuk ${state.device?.deviceName || deviceId}`}
+                  onActionComplete={setError}
+                />
               </div>
-            </div>
-            {redirecting ? (
-              <div className="explorer-warning">
-                Koneksi sudah siap. Mengalihkan ke E-Rapor...
-              </div>
-            ) : null}
-            {!redirecting && isPendingConnection ? (
-              <div className="explorer-warning">
-                Memeriksa status agent dan layanan E-Rapor. Halaman ini akan otomatis masuk saat
-                public URL sudah siap.
-              </div>
-            ) : null}
-            <div className="service-detail-grid">
-              <div>
-                <span>Public URL</span>
-                <strong className="service-link mono">
-                  {canOpenService ? service.public_url : "waiting for connection"}
-                </strong>
-              </div>
-              <div>
-                <span>Desired state</span>
-                <strong>{service?.desired_state || "-"}</strong>
-              </div>
-              <div>
-                <span>Last ping</span>
-                <strong>{formatRelativeTime(service?.last_ping)}</strong>
-              </div>
-            </div>
-            {service?.last_error ? <div className="job-error">{service.last_error}</div> : null}
-            {copyStatus ? <div className="service-note">{copyStatus}</div> : null}
-            <div className="panel-actions">
-              <button
-                type="button"
-                className="primary-button"
-                disabled={busy || redirecting}
-                onClick={() => sendCommand("start")}
-              >
-                {busy ? "Memproses..." : "Start"}
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={busy || !isRunning}
-                onClick={() => sendCommand("stop")}
-              >
-                Stop
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={!service?.public_url}
-                onClick={copyPublicUrl}
-              >
-                Salin Link
-              </button>
-            </div>
-          </article>
+            </article>
+          </>
         )}
       </section>
+      <SiteFooter />
+      <SupportDock />
     </main>
   );
 }
@@ -846,28 +1233,40 @@ function PasswordResetScreen() {
 
   useEffect(() => {
     async function bootstrapRecovery() {
+      const search = typeof window !== "undefined" ? window.location.search : "";
       const hash = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+      const searchParams = new URLSearchParams(search);
       const params = new URLSearchParams(hash);
+      const code = searchParams.get("code");
       const accessToken = params.get("access_token");
       const refreshToken = params.get("refresh_token");
 
-      if (!accessToken || !refreshToken) {
+      let recoveryError = null;
+
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        recoveryError = error;
+      } else if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        recoveryError = error;
+      } else {
         setError("Tautan verifikasi reset password tidak valid atau sudah kedaluwarsa.");
         setInfo("");
         return;
       }
 
-      const { error } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-
-      if (error) {
+      if (recoveryError) {
         setError("Tautan verifikasi reset password tidak valid atau sudah kedaluwarsa.");
         setInfo("");
         return;
       }
 
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, document.title, "/reset-password");
+      }
       setReady(true);
       setError("");
       setInfo("Verifikasi email berhasil. Silakan buat password baru untuk akun Anda.");
@@ -1201,6 +1600,7 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
 
 export default function App() {
   const currentPathname = typeof window !== "undefined" ? window.location.pathname : "/";
+  const currentSearch = typeof window !== "undefined" ? window.location.search : "";
   const currentHash = typeof window !== "undefined" ? window.location.hash : "";
   const guestDeviceId =
     typeof window !== "undefined"
@@ -1209,9 +1609,15 @@ export default function App() {
   const resetPasswordMode =
     currentPathname === "/reset-password" ||
     /(^|[&#])type=recovery(?:[&#]|$)/.test(currentHash);
+  const requestedAuthMode =
+    typeof window !== "undefined"
+      ? new URLSearchParams(currentSearch).get("mode")
+      : "";
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [authMode, setAuthMode] = useState("login");
+  const [authMode, setAuthMode] = useState(
+    requestedAuthMode === "register" ? "register" : "login"
+  );
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [registerDisplayName, setRegisterDisplayName] = useState("");
@@ -1514,6 +1920,7 @@ export default function App() {
     selectedDeviceId === "all"
       ? deviceEntries[0] || null
       : deviceEntries.find((entry) => entry.deviceId === selectedDeviceId) || null;
+  const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
 
   const visibleServices = useMemo(() => {
     if (!selectedDevice) {
@@ -1760,7 +2167,8 @@ export default function App() {
     try {
       setBusyAction(`guest:${deviceId}`);
       const data = await invokeAdmin("syncGuestLink", { deviceId });
-      await navigator.clipboard.writeText(data.guestUrl);
+      await copyTextToClipboard(data.guestUrl);
+      setError("");
       loadAll(true);
     } catch (copyError) {
       setError(copyError.message);
@@ -2204,12 +2612,29 @@ export default function App() {
                               disabled={busyAction !== ""}
                               onClick={() => copyGuestLink(selectedDevice.deviceId)}
                             >
-                              Copy guest link
+                              Sync guest shortcut
                             </button>
                           </>
                         ) : null}
                       </div>
                     </div>
+
+                    {isSuperAdmin ? (
+                      <div className="metric-card guest-monitor-card">
+                        <span>Guest monitor link</span>
+                        <strong className="service-link mono">
+                          <a href={selectedGuestUrl} target="_blank" rel="noreferrer">
+                            {selectedGuestUrl}
+                          </a>
+                        </strong>
+                        <PublicLinkActions
+                          url={selectedGuestUrl}
+                          label={`Guest monitor untuk ${selectedDevice.deviceName}`}
+                          compact
+                          onActionComplete={setError}
+                        />
+                      </div>
+                    ) : null}
 
                     <div className="service-stack">
                       {visibleServices.map((service) => {
@@ -2254,6 +2679,12 @@ export default function App() {
                             <div className="service-note">{service.location_details.message}</div>
                           ) : null}
                           {service.last_error ? <div className="job-error">{service.last_error}</div> : null}
+                          <PublicLinkActions
+                            url={service.public_url || ""}
+                            label={`${service.service_name} public URL untuk ${selectedDevice.deviceName}`}
+                            compact
+                            onActionComplete={setError}
+                          />
                           <div className="panel-actions">
                             <button
                               type="button"

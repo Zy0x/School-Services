@@ -94,6 +94,7 @@ class FileWorker {
     this.supabaseApi = options.supabaseApi;
     this.serviceManager = options.serviceManager;
     this.workspaceRoot = options.workspaceRoot;
+    this.maxArtifactBytes = Number(options.maxArtifactBytes || 45 * 1024 * 1024);
     this.previewInlineBytes = Number(options.previewInlineBytes || 262144);
     this.previewTextExtensions = new Set(
       (options.previewTextExtensions || []).map((value) =>

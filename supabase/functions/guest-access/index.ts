@@ -42,7 +42,9 @@ Deno.serve(async (request) => {
     if (action === "status") {
       const { data: serviceRow, error: serviceError } = await service
         .from("services")
-        .select("device_id, service_name, status, desired_state, public_url, last_error, last_ping")
+        .select(
+          "device_id, service_name, port, status, desired_state, public_url, last_error, last_ping, location_status, resolved_path, location_details"
+        )
         .eq("device_id", deviceId)
         .eq("service_name", "rapor")
         .maybeSingle();

@@ -30,9 +30,6 @@ SetupIconFile={#PayloadDir}\favicon.ico
 UninstallDisplayIcon={app}\favicon.ico
 UsePreviousTasks=yes
 
-[Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
-
 [Dirs]
 Name: "{commonappdata}\School Services"; Permissions: users-modify
 
@@ -41,7 +38,6 @@ Source: "{#PayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\School Services"; Filename: "{app}\School Services.exe"; WorkingDir: "{app}"; IconFilename: "{app}\favicon.ico"
-Name: "{autodesktop}\School Services"; Filename: "{app}\School Services.exe"; WorkingDir: "{app}"; IconFilename: "{app}\favicon.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\post-install.ps1"""; Flags: runhidden waituntilterminated

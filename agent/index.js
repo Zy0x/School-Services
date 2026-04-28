@@ -114,7 +114,7 @@ async function main() {
     guestPortal: config.guestPortal,
     baseDir: stateDir,
   });
-  shortcutManager.cleanupLegacyGuestPortalShortcuts(device.deviceId, null);
+  shortcutManager.syncGuestPortalUrl(device.deviceId, null);
   const guestPortalUrl = shortcutManager.getGuestPortalUrl(device.deviceId);
   const guestPortalPath = guestPortalUrl
     ? `/guest/${encodeURIComponent(device.deviceId)}`

@@ -181,6 +181,22 @@ function buildInternetShortcutContent(url, existingFields = [], shortcutConfig =
   return ["[InternetShortcut]", `URL=${url}`, ...preservedFields, ""].join("\r\n");
 }
 
+function writeInternetShortcut(filePath, url, shortcutConfig = {}) {
+  const existingFields = readShortcutFields(filePath);
+  const nextContent = buildInternetShortcutContent(url, existingFields, shortcutConfig);
+  const currentContent = fs.existsSync(filePath)
+    ? fs.readFileSync(filePath, "utf8")
+    : null;
+
+  if (currentContent === nextContent) {
+    return false;
+  }
+
+  ensureParentDirectory(filePath);
+  fs.writeFileSync(filePath, nextContent, "utf8");
+  return true;
+}
+
 class ShortcutManager {
   constructor(options = {}) {
     this.cachePath = options.cachePath || null;
@@ -424,22 +440,47 @@ class ShortcutManager {
 
     const guestUrl = this.getGuestPortalUrl(deviceId);
     const { canonicalPath, duplicatePaths } = this.resolveGuestPortalManagedPaths();
-    const toRemove = canonicalPath ? [canonicalPath, ...duplicatePaths] : duplicatePaths;
-
-    this.removeDuplicateShortcuts(toRemove);
+    this.removeDuplicateShortcuts(duplicatePaths);
 
     this.cache.guestPortal = {
       deviceId,
       guestUrl,
       effectiveUrl: publicUrl || null,
-      filePaths: [],
+      filePaths: canonicalPath ? [canonicalPath] : [],
       updatedAt: new Date().toISOString(),
     };
     this.writeCache();
   }
 
   syncGuestPortalUrl(deviceId, publicUrl) {
-    this.cleanupLegacyGuestPortalShortcuts(deviceId, publicUrl);
+    if (!this.guestPortal?.fileName) {
+      return;
+    }
+
+    const guestUrl = this.getGuestPortalUrl(deviceId);
+    const { canonicalPath, duplicatePaths } = this.resolveGuestPortalManagedPaths();
+
+    this.removeDuplicateShortcuts(duplicatePaths);
+
+    if (canonicalPath && guestUrl) {
+      try {
+        writeInternetShortcut(canonicalPath, guestUrl, this.guestPortal);
+      } catch (error) {
+        logger.warn(`Failed to sync guest portal shortcut ${canonicalPath}: ${error.message}`, {
+          canonicalPath,
+          guestUrl,
+        });
+      }
+    }
+
+    this.cache.guestPortal = {
+      deviceId,
+      guestUrl,
+      effectiveUrl: publicUrl || null,
+      filePaths: canonicalPath ? [canonicalPath] : [],
+      updatedAt: new Date().toISOString(),
+    };
+    this.writeCache();
   }
 }
 

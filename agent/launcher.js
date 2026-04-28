@@ -57,6 +57,7 @@ function main() {
     throw new Error("Guest portal URL is not configured.");
   }
 
+  shortcutManager.syncGuestPortalUrl(device.deviceId, null);
   ensureStartupTaskOrStartAgent(getAgentExePath());
   startUrlInBrowser(guestPortalUrl);
 }

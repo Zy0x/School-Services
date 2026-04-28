@@ -43,6 +43,49 @@ function hasExistingShortcut(filePath) {
   }
 }
 
+function listUserDesktopShortcutCandidates(fileName) {
+  const normalizedName = String(fileName || "").trim();
+  if (!normalizedName) {
+    return [];
+  }
+
+  const usersRoot = "C:\\Users";
+  const discovered = [];
+  const seen = new Set();
+  const appendCandidate = (filePath) => {
+    const token = String(filePath || "").toLowerCase();
+    if (!filePath || seen.has(token)) {
+      return;
+    }
+
+    seen.add(token);
+    discovered.push(filePath);
+  };
+
+  if (!fs.existsSync(usersRoot)) {
+    return discovered;
+  }
+
+  let entries = [];
+  try {
+    entries = fs.readdirSync(usersRoot, { withFileTypes: true });
+  } catch (_error) {
+    return discovered;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const profileRoot = path.join(usersRoot, entry.name);
+    appendCandidate(path.join(profileRoot, "Desktop", normalizedName));
+    appendCandidate(path.join(profileRoot, "OneDrive", "Desktop", normalizedName));
+  }
+
+  return discovered;
+}
+
 function extractShortcutField(existingFields, fieldName) {
   const prefix = `${String(fieldName || "").trim().toLowerCase()}=`;
 
@@ -190,10 +233,13 @@ class ShortcutManager {
 
   resolveGuestPortalManagedPaths() {
     const candidatePaths = this.resolveGuestPortalPaths();
+    const discoveredDesktopPaths = listUserDesktopShortcutCandidates(
+      this.guestPortal?.fileName
+    );
     const normalizedCandidates = [];
     const seen = new Set();
 
-    for (const filePath of candidatePaths) {
+    for (const filePath of [...candidatePaths, ...discoveredDesktopPaths]) {
       const token = String(filePath || "").toLowerCase();
       if (!filePath || seen.has(token)) {
         continue;

@@ -47,11 +47,17 @@ function safeExec(command) {
 function loadPackagedRuntimeConfig() {
   const envPath = path.join(repoRoot, ".env");
   const runtimeConfigPath = path.join(repoRoot, "agent.runtime.json");
+  const runtimeTemplatePath = path.join(repoRoot, "agent.runtime.example.json");
   const envValues = fs.existsSync(envPath)
     ? dotenv.parse(fs.readFileSync(envPath, "utf8"))
     : {};
-  const runtimeConfig = fs.existsSync(runtimeConfigPath)
-    ? JSON.parse(fs.readFileSync(runtimeConfigPath, "utf8"))
+  const runtimeConfigSource = fs.existsSync(runtimeConfigPath)
+    ? runtimeConfigPath
+    : fs.existsSync(runtimeTemplatePath)
+      ? runtimeTemplatePath
+      : null;
+  const runtimeConfig = runtimeConfigSource
+    ? JSON.parse(fs.readFileSync(runtimeConfigSource, "utf8"))
     : {};
 
   const packaged = JSON.parse(JSON.stringify(runtimeConfig));
@@ -66,7 +72,7 @@ function loadPackagedRuntimeConfig() {
       envValues.SUPABASE_ANON_KEY ||
       process.env.SUPABASE_ANON_KEY ||
       packaged.supabase?.anonKey ||
-      "",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnaW15eWljaXhhenlnYWlybXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxODg1MjIsImV4cCI6MjA5Mjc2NDUyMn0.uZ0Cm_NxxcSXKaYE21wtob6xtY445S0I0y-v5i10NRo",
   };
 
   const eraporEnvPath =
@@ -76,7 +82,7 @@ function loadPackagedRuntimeConfig() {
       ? path.join(envValues.ERAPOR_ROOT, "wwwroot", ".env")
       : process.env.ERAPOR_ROOT
         ? path.join(process.env.ERAPOR_ROOT, "wwwroot", ".env")
-        : "C:\\newappraporsd2025\\wwwroot\\.env");
+        : "C:\\E-Rapor\\wwwroot\\.env");
 
   if (!packaged.services) {
     packaged.services = {};
@@ -103,8 +109,8 @@ function parseGitHubRemote(remoteUrl) {
   }
 
   return {
-    owner: "Zy0x",
-    repo: "School-Services",
+    owner: null,
+    repo: null,
   };
 }
 
@@ -441,9 +447,12 @@ const updateAndRunPs1Content = [
   '}',
   'function Get-LatestRelease {',
   '  $buildInfo = Get-BuildInfo',
-  `  $owner = "${buildInfo.owner}"`,
-  `  $repo = "${buildInfo.repo}"`,
-  `  $releaseChannel = "${buildInfo.releaseChannel}"`,
+  '  if (-not $buildInfo -or -not $buildInfo.owner -or -not $buildInfo.repo) {',
+  '    throw "GitHub owner/repo is missing from agent-build.json."',
+  '  }',
+  '  $owner = [string]$buildInfo.owner',
+  '  $repo = [string]$buildInfo.repo',
+  '  $releaseChannel = [string]$buildInfo.releaseChannel',
   '  $headers = Get-RequestHeaders',
   '  if ($releaseChannel -eq "latest") {',
   '    return Invoke-RestMethod -Uri ("https://api.github.com/repos/$owner/$repo/releases/latest") -Headers $headers',
@@ -460,8 +469,17 @@ const updateAndRunPs1Content = [
   '  if (-not $currentReleaseTag -and $buildInfo.version) { $currentReleaseTag = "v" + [string]$buildInfo.version }',
   '  $currentVersion = Normalize-VersionToken([string]$buildInfo.version)',
   '  $currentReleaseVersion = Normalize-VersionToken($currentReleaseTag)',
+  '  $latestVersionObject = $null',
+  '  $currentVersionObject = $null',
+  '  if ($releaseVersion) { try { $latestVersionObject = [version]$releaseVersion } catch {} }',
+  '  if ($currentVersion) { try { $currentVersionObject = [version]$currentVersion } catch {} }',
+  '  if (-not $currentVersionObject -and $currentReleaseVersion) { try { $currentVersionObject = [version]$currentReleaseVersion } catch {} }',
   '  if (($currentReleaseTag -and $currentReleaseTag -eq $releaseTag) -or ($currentVersion -and $releaseVersion -and $currentVersion -eq $releaseVersion) -or ($currentReleaseVersion -and $releaseVersion -and $currentReleaseVersion -eq $releaseVersion)) {',
   '    Write-UpdaterLog ("Agent already latest. currentVersion={0}; currentReleaseTag={1}; latestReleaseTag={2}" -f $currentVersion, $currentReleaseTag, $releaseTag)',
+  '    return $false',
+  '  }',
+  '  if ($latestVersionObject -and $currentVersionObject -and $latestVersionObject -le $currentVersionObject) {',
+  '    Write-UpdaterLog ("Skipping update because current version is newer or equal. currentVersion={0}; latestReleaseTag={1}" -f $currentVersion, $releaseTag)',
   '    return $false',
   '  }',
   '  $assetName = [string]$buildInfo.assetName',

@@ -1,0 +1,74 @@
+{
+  "cloudflaredPath": "${CLOUDFLARED_PATH}",
+  "loopIntervalMs": 5000,
+  "localLogPath": ".\\logs\\agent.log",
+  "startup": {
+    "mode": "clean-online"
+  },
+  "tunnel": {
+    "mode": "quick",
+    "startSpacingMs": 5000,
+    "globalCooldownMs": 60000,
+    "startupTimeoutMs": 30000,
+    "retryDelaysMs": [10000, 30000, 60000, 120000, 300000]
+  },
+  "shortcuts": {
+    "rapor": {
+      "enabled": true,
+      "fileName": "e-Rapor SD.url",
+      "iconFile": "",
+      "iconIndex": 0,
+      "fallbackUrl": "http://localhost:8535",
+      "searchRoots": [
+        "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs",
+        "${APPDATA}\\Microsoft\\Windows\\Start Menu\\Programs",
+        "${OneDrive}\\Desktop",
+        "${USERPROFILE}\\OneDrive\\Desktop",
+        "${USERPROFILE}\\Desktop",
+        "C:\\Users\\Public\\Desktop"
+      ]
+    }
+  },
+  "services": {
+    "rapor": {
+      "startOrder": 10,
+      "autoStart": true,
+      "startStrategy": "windows-service",
+      "stopStrategy": "windows-service",
+      "windowsServices": [],
+      "windowsServiceDiscovery": {
+        "includeAny": ["rapor"],
+        "excludeAny": ["dapodik"],
+        "preferAny": ["db", "srv", "service"],
+        "expectedCount": 2
+      },
+      "needsConfigUpdate": true,
+      "type": "env",
+      "path": "${ERAPOR_ROOT}\\wwwroot\\.env",
+      "pathCandidates": [
+        "${ERAPOR_ENV_PATH}",
+        "${ERAPOR_ROOT}\\wwwroot\\.env",
+        "C:\\newappraporsd2025\\wwwroot\\.env",
+        "C:\\E-Rapor\\wwwroot\\.env"
+      ],
+      "key": "app.baseURL"
+    },
+    "dapodik": {
+      "startOrder": 20,
+      "autoStart": true,
+      "startStrategy": "windows-service",
+      "stopStrategy": "windows-service",
+      "windowsServices": [],
+      "windowsServiceDiscovery": {
+        "includeAny": ["dapodik"],
+        "preferAny": ["db", "web", "srv", "service"],
+        "expectedCount": 2
+      },
+      "needsConfigUpdate": false
+    }
+  },
+  "supabase": {
+    "url": "${SUPABASE_URL}",
+    "anonKey": "${SUPABASE_ANON_KEY}"
+  }
+}

@@ -14,6 +14,8 @@ class ServiceManager {
     this.state = new Map();
     this.elevationState = null;
     this.locationCache = new Map();
+    this.windowsServiceInventory = null;
+    this.resolvedWindowsServices = new Map();
   }
 
   list() {
@@ -52,6 +54,7 @@ class ServiceManager {
         desiredState: definition.autoStart ? "running" : "stopped",
         lastError: null,
         warnedMissingStart: false,
+        warnings: Object.create(null),
       });
     }
 
@@ -87,15 +90,35 @@ class ServiceManager {
   clearLocationCache(serviceName) {
     if (serviceName) {
       this.locationCache.delete(serviceName);
+      this.resolvedWindowsServices.delete(serviceName);
       return;
     }
 
     this.locationCache.clear();
+    this.resolvedWindowsServices.clear();
   }
 
   setLastError(serviceName, error) {
     const state = this.getState(serviceName);
     state.lastError = error instanceof Error ? error.message : String(error);
+  }
+
+  warnOnce(serviceName, warningKey, message, details = {}) {
+    const state = this.getState(serviceName);
+    if (state.warnings[warningKey]) {
+      return;
+    }
+
+    state.warnings[warningKey] = true;
+    logger.warn(message, {
+      serviceName,
+      ...details,
+    });
+  }
+
+  clearWarning(serviceName, warningKey) {
+    const state = this.getState(serviceName);
+    delete state.warnings[warningKey];
   }
 
   normalizeCommand(commandConfig) {
@@ -180,6 +203,159 @@ class ServiceManager {
       : [];
   }
 
+  async listInstalledWindowsServices() {
+    if (this.windowsServiceInventory) {
+      return this.windowsServiceInventory;
+    }
+
+    const script = [
+      "$services = @(Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Select-Object Name, DisplayName, State, PathName)",
+      "$services | ConvertTo-Json -Depth 3 -Compress",
+    ].join("; ");
+    const { stdout } = await this.runCapture(this.getPowerShellPath(), [
+      "-NoProfile",
+      "-Command",
+      script,
+    ]);
+
+    const raw = String(stdout || "").trim();
+    if (!raw) {
+      this.windowsServiceInventory = [];
+      return this.windowsServiceInventory;
+    }
+
+    let parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      parsed = [parsed];
+    }
+
+    this.windowsServiceInventory = parsed.map((entry) => ({
+      name: entry.Name || "",
+      displayName: entry.DisplayName || "",
+      state: entry.State || "",
+      pathName: entry.PathName || "",
+    }));
+    return this.windowsServiceInventory;
+  }
+
+  scoreDiscoveredWindowsService(candidate, discovery = {}, explicitNames = []) {
+    const haystack = `${candidate.name} ${candidate.displayName}`.toLowerCase();
+    let score = 0;
+
+    if (explicitNames.some((name) => name.toLowerCase() === candidate.name.toLowerCase())) {
+      score += 1000;
+    }
+
+    for (const token of discovery.includeAny || []) {
+      if (haystack.includes(String(token).toLowerCase())) {
+        score += 50;
+      }
+    }
+
+    for (const token of discovery.preferAny || []) {
+      if (haystack.includes(String(token).toLowerCase())) {
+        score += 20;
+      }
+    }
+
+    if (/\bdb\b|database/i.test(haystack)) {
+      score += 5;
+    }
+
+    if (/\bsrv\b|\bweb\b|service/i.test(haystack)) {
+      score += 5;
+    }
+
+    return score;
+  }
+
+  matchesDiscoveredWindowsService(candidate, discovery = {}) {
+    const haystack = `${candidate.name} ${candidate.displayName}`.toLowerCase();
+    const includeAny = Array.isArray(discovery.includeAny)
+      ? discovery.includeAny.filter(Boolean)
+      : [];
+    const excludeAny = Array.isArray(discovery.excludeAny)
+      ? discovery.excludeAny.filter(Boolean)
+      : [];
+
+    if (
+      includeAny.length > 0 &&
+      !includeAny.some((token) => haystack.includes(String(token).toLowerCase()))
+    ) {
+      return false;
+    }
+
+    if (
+      excludeAny.some((token) => haystack.includes(String(token).toLowerCase()))
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  async resolveWindowsServices(serviceName) {
+    if (this.resolvedWindowsServices.has(serviceName)) {
+      return this.resolvedWindowsServices.get(serviceName);
+    }
+
+    const definition = this.getDefinition(serviceName);
+    const explicit = this.getWindowsServices(definition);
+    let resolved = [];
+
+    if (definition.windowsServiceDiscovery) {
+      const inventory = await this.listInstalledWindowsServices();
+      const installedNames = new Set(
+        inventory.map((entry) => String(entry.name || "").toLowerCase())
+      );
+      const explicitInstalled = explicit.filter((name) =>
+        installedNames.has(String(name).toLowerCase())
+      );
+      const matched = inventory
+        .filter((candidate) =>
+          this.matchesDiscoveredWindowsService(candidate, definition.windowsServiceDiscovery)
+        )
+        .sort((left, right) => {
+          const leftScore = this.scoreDiscoveredWindowsService(
+            left,
+            definition.windowsServiceDiscovery,
+            explicit
+          );
+          const rightScore = this.scoreDiscoveredWindowsService(
+            right,
+            definition.windowsServiceDiscovery,
+            explicit
+          );
+          if (leftScore !== rightScore) {
+            return rightScore - leftScore;
+          }
+
+          return String(left.name).localeCompare(String(right.name));
+        });
+
+      const expectedCount = Number(
+        definition.windowsServiceDiscovery.expectedCount || matched.length
+      );
+      const discovered = matched
+        .slice(0, expectedCount > 0 ? expectedCount : matched.length)
+        .map((entry) => entry.name)
+        .filter(Boolean);
+
+      if (explicitInstalled.length > 0) {
+        resolved = Array.from(new Set([...explicitInstalled, ...discovered]));
+      } else if (discovered.length > 0) {
+        resolved = discovered;
+      } else if (explicit.length > 0) {
+        resolved = explicit.slice();
+      }
+    } else {
+      resolved = explicit.slice();
+    }
+
+    this.resolvedWindowsServices.set(serviceName, resolved);
+    return resolved;
+  }
+
   async isProcessElevated() {
     if (this.elevationState !== null) {
       return this.elevationState;
@@ -257,13 +433,39 @@ class ServiceManager {
 
     try {
       if (definition.startStrategy === "windows-service") {
-        const { missingServices } = await this.startWindowsServices(serviceName);
+        const { missingServices, skippedForElevation, discoveryFailed } =
+          await this.startWindowsServices(serviceName);
+        if (discoveryFailed) {
+          const message = `No matching Windows service could be discovered for ${serviceName} on this device.`;
+          this.setLastError(serviceName, message);
+          this.setDesiredState(serviceName, "stopped", "missing-windows-service");
+          this.warnOnce(serviceName, "missing-windows-service-discovery", message);
+          return this.refreshService(serviceName);
+        }
         if (missingServices.length > 0) {
           const message = `Windows service(s) not installed for ${serviceName}: ${missingServices.join(", ")}`;
           this.setLastError(serviceName, message);
           this.setDesiredState(serviceName, "stopped", "missing-windows-service");
+          this.warnOnce(
+            serviceName,
+            `missing-windows-service:${missingServices.join(",")}`,
+            message,
+            { missingServices }
+          );
           return this.refreshService(serviceName);
         }
+
+        if (skippedForElevation) {
+          const message = `Windows service start requires Administrator privileges for ${serviceName}. Run the admin launcher or start the target software manually once.`;
+          this.setLastError(serviceName, message);
+          this.setDesiredState(serviceName, "stopped", "requires-elevation");
+          this.warnOnce(serviceName, "requires-elevation-start", message, {
+            serviceName,
+          });
+          return this.refreshService(serviceName);
+        }
+
+        this.clearWarning(serviceName, "requires-elevation-start");
         state.warnedMissingStart = false;
       } else {
         const command = this.normalizeCommand(definition.startCommand);
@@ -493,6 +695,20 @@ class ServiceManager {
     return getConfigTargetsForService(definition).filter(Boolean);
   }
 
+  getConfigTargetCandidatePaths(target) {
+    const candidates = [];
+
+    if (target?.path) {
+      candidates.push(target.path);
+    }
+
+    if (Array.isArray(target?.pathCandidates)) {
+      candidates.push(...target.pathCandidates);
+    }
+
+    return candidates.filter(Boolean);
+  }
+
   discoverConfigPathFromExecutable(target, executablePath) {
     if (!target || !executablePath) {
       return null;
@@ -503,18 +719,23 @@ class ServiceManager {
       return null;
     }
 
-    const pathSegments = String(target.path || "")
-      .split(/[\\/]+/)
+    const suffixes = this.getConfigTargetCandidatePaths(target)
+      .map((candidatePath) =>
+        String(candidatePath || "")
+          .split(/[\\/]+/)
+          .filter(Boolean)
+      )
+      .flatMap((segments) => {
+        const nextSuffixes = [];
+        if (segments.length >= 2) {
+          nextSuffixes.push(path.join(...segments.slice(-2)));
+        }
+        if (segments.length >= 1) {
+          nextSuffixes.push(path.join(...segments.slice(-1)));
+        }
+        return nextSuffixes;
+      })
       .filter(Boolean);
-    const suffixes = [];
-
-    if (pathSegments.length >= 2) {
-      suffixes.push(path.join(...pathSegments.slice(-2)));
-    }
-
-    if (pathSegments.length >= 1) {
-      suffixes.push(path.join(...pathSegments.slice(-1)));
-    }
 
     let cursor = path.dirname(parsedExecutablePath);
     for (let index = 0; index < 5; index += 1) {
@@ -549,7 +770,7 @@ class ServiceManager {
     }
 
     const definition = this.getDefinition(serviceName);
-    const windowsServices = this.getWindowsServices(definition);
+    const windowsServices = await this.resolveWindowsServices(serviceName);
     const configTargets = this.getConfigTargets(definition);
     const windowsServiceDetails = [];
     const executablePaths = [];
@@ -582,9 +803,10 @@ class ServiceManager {
     }
 
     const configTargetDetails = configTargets.map((target) => {
-      const configuredPath = target.path || null;
-      let resolvedPath = configuredPath;
-      let exists = configuredPath ? fileExists(configuredPath) : false;
+      const candidatePaths = this.getConfigTargetCandidatePaths(target);
+      const configuredPath = candidatePaths[0] || null;
+      let resolvedPath = candidatePaths.find((candidatePath) => fileExists(candidatePath)) || configuredPath;
+      let exists = Boolean(resolvedPath && fileExists(resolvedPath));
 
       if (!exists) {
         for (const executablePath of executablePaths) {
@@ -604,6 +826,7 @@ class ServiceManager {
         key: target.key || null,
         type: target.type || null,
         configuredPath,
+        candidatePaths,
         resolvedPath,
         exists,
       };
@@ -686,6 +909,16 @@ class ServiceManager {
     return configTargets.map((target) => {
       if (target.path && fileExists(target.path)) {
         return target;
+      }
+
+      const existingCandidate = this.getConfigTargetCandidatePaths(target).find((candidatePath) =>
+        fileExists(candidatePath)
+      );
+      if (existingCandidate) {
+        return {
+          ...target,
+          path: existingCandidate,
+        };
       }
 
       const detail = diagnostics.details?.configTargets?.find(
@@ -788,12 +1021,22 @@ class ServiceManager {
 
   async startWindowsServices(serviceName) {
     const definition = this.getDefinition(serviceName);
-    const windowsServices = this.getWindowsServices(definition);
+    const windowsServices = await this.resolveWindowsServices(serviceName);
 
     if (windowsServices.length === 0) {
-      throw new Error(
-        `Service ${serviceName} is configured with startStrategy "windows-service" but windowsServices is empty`
-      );
+      return {
+        missingServices: [],
+        discoveryFailed: true,
+        skippedForElevation: false,
+      };
+    }
+
+    const elevated = await this.isProcessElevated();
+    if (!elevated) {
+      return {
+        missingServices: [],
+        skippedForElevation: true,
+      };
     }
 
     logger.info(`Starting Windows services for ${serviceName}`, {
@@ -811,17 +1054,27 @@ class ServiceManager {
     }
 
     this.clearLocationCache(serviceName);
-    return { missingServices };
+    return { missingServices, skippedForElevation: false, discoveryFailed: false };
   }
 
   async stopWindowsServices(serviceName) {
     const definition = this.getDefinition(serviceName);
-    const windowsServices = this.getWindowsServices(definition);
+    const windowsServices = await this.resolveWindowsServices(serviceName);
 
     if (windowsServices.length === 0) {
-      throw new Error(
-        `Service ${serviceName} is configured with stopStrategy "windows-service" but windowsServices is empty`
-      );
+      return {
+        missingServices: [],
+        discoveryFailed: true,
+        skippedForElevation: false,
+      };
+    }
+
+    const elevated = await this.isProcessElevated();
+    if (!elevated) {
+      return {
+        missingServices: [],
+        skippedForElevation: true,
+      };
     }
 
     logger.info(`Stopping Windows services for ${serviceName}`, {
@@ -839,7 +1092,7 @@ class ServiceManager {
     }
 
     this.clearLocationCache(serviceName);
-    return { missingServices };
+    return { missingServices, skippedForElevation: false, discoveryFailed: false };
   }
 
   async stopByPort(serviceName) {
@@ -871,7 +1124,31 @@ class ServiceManager {
 
     try {
       if (definition.stopStrategy === "windows-service") {
-        await this.stopWindowsServices(serviceName);
+        const { missingServices, skippedForElevation, discoveryFailed } =
+          await this.stopWindowsServices(serviceName);
+        if (discoveryFailed) {
+          const message = `No matching Windows service could be discovered for ${serviceName} on this device.`;
+          this.setLastError(serviceName, message);
+          this.warnOnce(serviceName, "missing-windows-service-stop-discovery", message);
+          return this.refreshService(serviceName);
+        }
+        if (missingServices.length > 0) {
+          const message = `Windows service(s) not installed for ${serviceName}: ${missingServices.join(", ")}`;
+          this.setLastError(serviceName, message);
+          this.warnOnce(
+            serviceName,
+            `missing-windows-service-stop:${missingServices.join(",")}`,
+            message,
+            { missingServices }
+          );
+          return this.refreshService(serviceName);
+        }
+        if (skippedForElevation) {
+          const message = `Windows service stop requires Administrator privileges for ${serviceName}.`;
+          this.setLastError(serviceName, message);
+          this.warnOnce(serviceName, "requires-elevation-stop", message);
+          return this.refreshService(serviceName);
+        }
       } else if (definition.stopStrategy === "port") {
         try {
           await this.stopByPort(serviceName);

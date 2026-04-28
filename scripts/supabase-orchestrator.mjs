@@ -92,10 +92,6 @@ function getDbUrl(env) {
 async function ensureAdminCredentials(env) {
   const next = {};
 
-  if (!env.ADMIN_EMAIL) {
-    next.ADMIN_EMAIL = "zy0x.noir@gmail.com";
-  }
-
   if (!env.ADMIN_PASSWORD) {
     next.ADMIN_PASSWORD = crypto.randomBytes(18).toString("base64url");
   }
@@ -142,6 +138,10 @@ async function ensureAdminUser(env) {
   const service = createServiceClient(env);
   const adminEmail = env.ADMIN_EMAIL;
   const adminPassword = env.ADMIN_PASSWORD;
+
+  if (!adminEmail) {
+    throw new Error("ADMIN_EMAIL is required in .env for admin seeding.");
+  }
 
   const { data: listData, error: listError } = await service.auth.admin.listUsers({
     page: 1,

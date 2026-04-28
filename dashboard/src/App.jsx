@@ -6,7 +6,9 @@ const REFRESH_INTERVAL_MS = Number(import.meta.env.VITE_DASHBOARD_REFRESH_MS || 
 const LOG_LIMIT = 120;
 const JOB_LIMIT = 80;
 const PUBLIC_DASHBOARD_URL = String(
-  import.meta.env.VITE_PUBLIC_SITE_URL || "https://school-services.netlify.app"
+  import.meta.env.VITE_PUBLIC_SITE_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "") ||
+    "https://school-services.netlify.app"
 ).replace(/\/+$/, "");
 const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
 const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "");
@@ -1137,7 +1139,7 @@ export default function App() {
     autoApproveEnabled: true,
     approvalWindowHours: 24,
     maintenanceIntervalMinutes: 15,
-    passwordResetRedirectUrl: "https://school-services.netlify.app/reset-password",
+    passwordResetRedirectUrl: `${PUBLIC_DASHBOARD_URL}/reset-password`,
   });
   const [services, setServices] = useState([]);
   const [logs, setLogs] = useState([]);

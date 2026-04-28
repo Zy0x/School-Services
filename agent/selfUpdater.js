@@ -12,6 +12,26 @@ function normalizeVersionToken(value) {
   return normalized.replace(/^v/i, "").toLowerCase();
 }
 
+function parseVersionParts(value) {
+  const match = normalizeVersionToken(value).match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return match.slice(1).map((part) => Number.parseInt(part, 10));
+}
+
+function compareVersionParts(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    const delta = (left[index] || 0) - (right[index] || 0);
+    if (delta !== 0) {
+      return delta;
+    }
+  }
+
+  return 0;
+}
+
 class SelfUpdater {
   constructor(options = {}) {
     this.enabled = options.enabled !== false;
@@ -136,18 +156,25 @@ class SelfUpdater {
     const currentReleaseTag = String(buildInfo.releaseTag || "").trim();
     const currentVersion = normalizeVersionToken(buildInfo.version);
     const currentReleaseVersion = normalizeVersionToken(currentReleaseTag);
+    const latestVersionParts = parseVersionParts(latestReleaseVersion);
+    const currentVersionParts =
+      parseVersionParts(currentVersion) || parseVersionParts(currentReleaseVersion);
 
     this.lastKnownReleaseTag = latestReleaseTag || null;
     this.lastKnownReleaseVersion = latestReleaseVersion || null;
 
-    const updateAvailable = Boolean(
-      latestReleaseTag &&
-        !(
-          (currentReleaseTag && currentReleaseTag === latestReleaseTag) ||
-          (currentVersion && currentVersion === latestReleaseVersion) ||
-          (currentReleaseVersion && currentReleaseVersion === latestReleaseVersion)
-        )
-    );
+    let updateAvailable = false;
+    if (latestReleaseTag) {
+      if (
+        (currentReleaseTag && currentReleaseTag === latestReleaseTag) ||
+        (currentVersion && currentVersion === latestReleaseVersion) ||
+        (currentReleaseVersion && currentReleaseVersion === latestReleaseVersion)
+      ) {
+        updateAvailable = false;
+      } else if (latestVersionParts && currentVersionParts) {
+        updateAvailable = compareVersionParts(latestVersionParts, currentVersionParts) > 0;
+      }
+    }
 
     return {
       checked: true,

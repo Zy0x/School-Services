@@ -51,8 +51,8 @@ function loadRuntimeOverrides() {
   if (runtimeConfigPath) {
     logger.info(`Loaded runtime configuration from ${runtimeConfigPath}`);
   } else {
-    logger.warn(
-      "agent.runtime.json was not found. The agent will run with defaults and environment variables only."
+    logger.info(
+      "agent.runtime.json was not found. Using built-in defaults and environment variables."
     );
   }
 
@@ -109,7 +109,9 @@ function loadConfig() {
     overrides.supabase?.url ||
     "https://fgimyyicixazygairmsa.supabase.co";
   const supabaseAnonKey =
-    process.env.SUPABASE_ANON_KEY || overrides.supabase?.anonKey || "";
+    process.env.SUPABASE_ANON_KEY ||
+    overrides.supabase?.anonKey ||
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnaW15eWljaXhhenlnYWlybXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxODg1MjIsImV4cCI6MjA5Mjc2NDUyMn0.uZ0Cm_NxxcSXKaYE21wtob6xtY445S0I0y-v5i10NRo";
   const cloudflaredPath = resolveCloudflaredPath(overrides.cloudflaredPath);
   const loopIntervalMs = Number(
     overrides.loopIntervalMs || process.env.AGENT_LOOP_INTERVAL_MS || 5000
@@ -282,7 +284,7 @@ function loadConfig() {
         iconFile:
           overrides.shortcuts?.rapor?.iconFile ||
           process.env.ERAPOR_SHORTCUT_ICON_FILE ||
-          "C:\\newappraporsd2025\\ico\\logo128.ico",
+          "",
         iconIndex: Number(
           overrides.shortcuts?.rapor?.iconIndex ||
             process.env.ERAPOR_SHORTCUT_ICON_INDEX ||

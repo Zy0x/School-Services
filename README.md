@@ -1,127 +1,99 @@
-# E-Rapor Local Agent and Dashboard
+# E-Rapor Agent and Dashboard
 
-## Existing batch script analysis
+Repository ini berisi source yang aman untuk dipublikasikan dan dibuild sendiri.
 
-`Automation E-Rapor.bat` is a single-purpose tunnel launcher for one local service:
+Supabase schema dan Edge Function tetap dipertahankan di repo. File env, kredensial admin, token deploy, password database, dan konfigurasi mesin pribadi tetap tidak dipublikasikan.
 
-1. It prompts for a hardcoded access key.
-2. It kills any running `cloudflared.exe`.
-3. It starts `cloudflared tunnel --url http://localhost:8535`.
-4. It scrapes the first `https://*.trycloudflare.com` URL from the log output.
-5. It rewrites `app.baseURL` inside `C:\newappraporsd2025\wwwroot\.env`.
-6. It waits until the operator presses `X`, then kills the tunnel.
+Untuk instalasi Windows yang umum, agent sekarang mencoba langsung:
 
-That script does not model devices, multiple services, central commands, URL change detection, or durable status sync. The new implementation in this workspace replaces that with a modular Node agent plus a Supabase-backed dashboard.
+- konek ke Supabase publik bawaan repo
+- mendeteksi service Windows E-Rapor dan Dapodik secara otomatis
+- mendeteksi file config lokal E-Rapor yang perlu diubah untuk `app.baseURL`
+- tetap jalan walau software target belum terpasang atau agent belum dijalankan sebagai Administrator
 
-## Workspace layout
+## Isi Repo
 
-- [agent](/E:/Data/GitHub/E-Rapor/agent)
-- [dashboard](/E:/Data/GitHub/E-Rapor/dashboard)
-- [supabase/setup.sql](/E:/Data/GitHub/E-Rapor/supabase/setup.sql)
-- [agent.runtime.json](/E:/Data/GitHub/E-Rapor/agent.runtime.json)
+- `agent/`: source agent Windows
+- `dashboard/`: source dashboard React/Vite
+- `supabase/`: migrations dan Edge Functions
+- `agent.runtime.example.json`: template konfigurasi agent
+- `.env.example`: template environment variable
 
-## Setup
+## Yang Tidak Lagi Dipublikasikan
 
-1. Edit [agent.runtime.json](/E:/Data/GitHub/E-Rapor/agent.runtime.json).
-2. Edit [.env](/E:/Data/GitHub/E-Rapor/.env).
-3. Put the real Supabase anon key into `.env`.
-4. Set `ERAPOR_ROOT` and `DAPODIK_ROOT` in `.env`.
-5. Adjust service `startCommand`, `stopCommand`, and any per-service config settings for the local machine.
-6. If a service is managed by Windows Service Control Manager, prefer `startStrategy: "windows-service"` and `stopStrategy: "windows-service"` with a `windowsServices` array instead of killing image names or ports.
-7. For machines that should automatically publish Dapodik and E-Rapor when the agent starts, keep `autoStart: true`. The agent also auto-attaches tunnels to services that are already running locally at startup.
-8. Install dependencies:
+- `Automation E-Rapor.bat`
+- `.codex/`
+- `agent.runtime.json`
+
+Repo publik ini tetap diarahkan ke control plane Supabase yang dipakai aplikasi, sehingga build publik bisa langsung terkoneksi tanpa harus mem-publish file `.env`. Konfigurasi sensitif untuk administrasi dan deploy tetap hanya dibaca dari file env lokal maintainer.
+
+## Build Dari Source
+
+1. Install dependency root:
 
 ```powershell
 npm install
 ```
 
-5. Apply the SQL in [supabase/setup.sql](/E:/Data/GitHub/E-Rapor/supabase/setup.sql).
-
-## Run locally
-
-Agent:
+2. Jika ingin override konfigurasi lokal, salin template:
 
 ```powershell
-npm run agent:dev
+Copy-Item .env.example .env
+Copy-Item agent.runtime.example.json agent.runtime.json
 ```
 
-Dashboard:
+3. Untuk instalasi yang umum, Anda bisa langsung build tanpa mengedit apa pun. `agent.runtime.json` dan `.env` hanya diperlukan jika Anda ingin override deteksi default, memakai path custom, atau menjalankan operasi admin/deploy Supabase.
+
+4. Build dashboard:
 
 ```powershell
-npm run dashboard:dev
+npm run dashboard:build
 ```
 
-## Build the Windows agent
+5. Build agent Windows:
 
 ```powershell
 npm run agent:build
 ```
 
-The executable is written to `agent\dist\e-rapor-agent.exe`.
+Output agent akan berada di `agent/dist/e-rapor-agent.exe`.
 
-Keep `cloudflared.exe` next to the built executable, or set `cloudflaredPath` in `agent.runtime.json` to an absolute path.
+Untuk menjalankan:
 
-The agent now writes a persistent local log file. By default it uses `agent\logs\agent-YYYY-MM-DD.log`, or `localLogPath` if that is set in `agent.runtime.json`.
+- `agent/dist/run-agent-hidden.vbs`: mode biasa
+- `agent/dist/run-agent-admin-hidden.vbs`: mode Administrator, dipakai jika agent perlu start/stop Windows service yang belum berjalan
 
-For background execution on Windows without leaving a console window open, use:
+## Konfigurasi Minimum
 
-- `agent\dist\run-agent-hidden.vbs`
-- or `agent\dist\run-agent-hidden.ps1`
-
-If the agent needs to start or stop Windows services such as `DapodikWebSrv`, launch it from an elevated terminal or use an elevated launcher so `sc.exe start` and `sc.exe stop` are allowed.
-
-## Quick tunnel behavior
-
-The agent uses Cloudflare Quick Tunnel only.
-
-- It starts `cloudflared tunnel --url ...`.
-- It discovers the public `trycloudflare.com` URL from the local tunnel log.
-- If Cloudflare rate-limits the machine, the agent moves the service to `waiting_retry`, applies exponential backoff, and keeps running without crashing.
-- Tunnel startup is queued so services do not create tunnels at the exact same moment.
-
-## Supabase connection
-
-Both the agent and the dashboard read Supabase credentials from the root `.env` file:
+`.env` opsional untuk override lokal:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-`supabase` is already installed as a root `devDependency`, and the runtime client code continues to use `@supabase/supabase-js`.
+Opsional:
 
-`agent.runtime.json` also supports environment placeholders in string values, for example:
+- `VITE_PUBLIC_SITE_URL`
+- `GUEST_PORTAL_BASE_URL`
+- `CLOUDFLARED_PATH`
+- `ERAPOR_ROOT`
+- `ERAPOR_ENV_PATH`
+- `ERAPOR_DB_SERVICE_NAME`
+- `ERAPOR_APP_SERVICE_NAME`
+- `DAPODIK_DB_SERVICE_NAME`
+- `DAPODIK_WEB_SERVICE_NAME`
 
-- `${ERAPOR_ROOT}\\wwwroot\\.env`
-- `${DAPODIK_ROOT}\\start-dapodik.bat`
-- `%ERAPOR_ROOT%\\wwwroot\\.env`
+`agent.runtime.json`:
 
-## Per-service config behavior
+- atur service lokal yang ingin dijalankan
+- atur `cloudflaredPath` jika `cloudflared.exe` tidak ada di PATH Windows
+- atur file config target lokal jika agent perlu menulis URL publik ke file aplikasi Anda
 
-- `rapor` defaults to `needsConfigUpdate: true`, so the agent will rewrite its configured public URL target when the Cloudflare URL changes.
-- `dapodik` defaults to `needsConfigUpdate: false`, so the agent will still start the service, expose it, and sync the public URL to Supabase, but it will skip local config edits.
-- A future service can enable config updates by setting:
-  - `needsConfigUpdate`
-  - `type`
-  - `path`
-  - `key`
-  - optional `formatter`
+Kalau `agent.runtime.json` tidak ada, agent tetap akan memakai built-in defaults dan autodiscovery.
 
-The agent also continues to accept `configTargets` arrays for services that need more than one file update.
+## Catatan Publikasi
 
-To avoid stopping unrelated services on the same machine:
-
-- use `stopStrategy: "windows-service"` for software that is installed as Windows services, such as Dapodik
-- use `stopStrategy: "port"` for standalone apps when the service port maps cleanly to the correct process
-- avoid broad `taskkill /IM ...` rules unless there is only one safe target process on the machine
-
-## Netlify dashboard deployment
-
-1. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-2. Build with:
-
-```powershell
-npm run dashboard:build
-```
-
-3. Deploy `dashboard/dist` to Netlify.
+- Jangan commit `.env`, `agent.runtime.json`, log runtime, atau file automation lokal.
+- Jangan masukkan service role key, secret key, access token, password database, atau token admin lain ke repo.
+- Updater agent hanya akan mengambil rilis GitHub jika versi rilis memang lebih baru daripada versi agent yang sedang berjalan.

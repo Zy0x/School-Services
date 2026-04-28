@@ -1,15 +1,55 @@
+const path = require("path");
+
+function compact(values) {
+  return values.filter(Boolean);
+}
+
 const serviceConfigs = {
   rapor: {
+    startStrategy: "windows-service",
+    stopStrategy: "windows-service",
     needsConfigUpdate: true,
     type: "env",
-    path:
-      process.env.ERAPOR_ENV_PATH ||
+    path: process.env.ERAPOR_ENV_PATH || null,
+    pathCandidates: compact([
+      process.env.ERAPOR_ENV_PATH || null,
+      process.env.ERAPOR_ROOT
+        ? path.join(process.env.ERAPOR_ROOT, "wwwroot", ".env")
+        : null,
       "C:\\newappraporsd2025\\wwwroot\\.env",
+      "C:\\E-Rapor\\wwwroot\\.env",
+      "C:\\erapor\\wwwroot\\.env",
+    ]),
+    windowsServices: compact([
+      process.env.ERAPOR_DB_SERVICE_NAME || null,
+      process.env.ERAPOR_APP_SERVICE_NAME || null,
+      "NU25_ERAPORSD_DB",
+      "NU25_ERAPORSD_SRV",
+    ]),
+    windowsServiceDiscovery: {
+      includeAny: ["rapor"],
+      excludeAny: ["dapodik"],
+      preferAny: ["db", "srv", "service"],
+      expectedCount: 2,
+    },
     key: "app.baseURL",
     formatter: (url) => `app.baseURL = '${url}/'`,
   },
   dapodik: {
+    startStrategy: "windows-service",
+    stopStrategy: "windows-service",
     needsConfigUpdate: false,
+    windowsServices: compact([
+      process.env.DAPODIK_DB_SERVICE_NAME || null,
+      process.env.DAPODIK_WEB_SERVICE_NAME || null,
+      "DapodikDB",
+      "DapodikWebSrv",
+    ]),
+    windowsServiceDiscovery: {
+      includeAny: ["dapodik"],
+      preferAny: ["db", "web", "srv", "service"],
+      expectedCount: 2,
+    },
   },
 };
 

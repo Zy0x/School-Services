@@ -3,8 +3,11 @@ dist/
 dashboard/dist/
 agent/dist/
 .env
+.env.local
 *.log
 agent.runtime.json
+Automation E-Rapor.bat
+.codex/
 agent/.state/
 agent/runtime/
 supabase/.temp/

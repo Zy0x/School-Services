@@ -38,13 +38,32 @@
         "expectedCount": 2
       },
       "needsConfigUpdate": true,
-      "type": "env",
-      "path": "${ERAPOR_ROOT}\\wwwroot\\.env",
-      "pathCandidates": [
-        "${ERAPOR_ENV_PATH}",
-        "${ERAPOR_ROOT}\\wwwroot\\.env",
-        "C:\\newappraporsd2025\\wwwroot\\.env",
-        "C:\\E-Rapor\\wwwroot\\.env"
+      "configTargets": [
+        {
+          "targetId": "rapor-root-env",
+          "type": "env",
+          "path": "${ERAPOR_ROOT}\\.env",
+          "pathCandidates": [
+            "${ERAPOR_ROOT}\\.env",
+            "C:\\newappraporsd2025\\.env",
+            "C:\\E-Rapor\\.env",
+            "C:\\erapor\\.env"
+          ],
+          "key": "app.baseURL"
+        },
+        {
+          "targetId": "rapor-wwwroot-env",
+          "type": "env",
+          "path": "${ERAPOR_ROOT}\\wwwroot\\.env",
+          "pathCandidates": [
+            "${ERAPOR_ENV_PATH}",
+            "${ERAPOR_ROOT}\\wwwroot\\.env",
+            "C:\\newappraporsd2025\\wwwroot\\.env",
+            "C:\\E-Rapor\\wwwroot\\.env",
+            "C:\\erapor\\wwwroot\\.env"
+          ],
+          "key": "app.baseURL"
+        }
       ],
       "key": "app.baseURL"
     },

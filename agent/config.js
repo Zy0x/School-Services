@@ -100,6 +100,16 @@ function resolveConfigRelativePath(filePath, runtimeConfigPath) {
   return path.resolve(getBaseDir(), filePath);
 }
 
+function isSystemAccountEnvironment() {
+  const username = String(process.env.USERNAME || "").trim().toLowerCase();
+  const userProfile = String(process.env.USERPROFILE || "").trim().toLowerCase();
+
+  return (
+    username === "system" ||
+    userProfile.includes("\\system32\\config\\systemprofile")
+  );
+}
+
 function loadConfig() {
   loadEnvironmentFiles();
   const { runtimeConfigPath, overrides } = loadRuntimeOverrides();
@@ -171,18 +181,21 @@ function loadConfig() {
       ? path.join(process.env.PUBLIC, "Desktop")
       : "C:\\Users\\Public\\Desktop",
   ].filter(Boolean);
-  const defaultGuestShortcutPaths = [
-    oneDriveRoot ? path.join(oneDriveRoot, "Desktop", "School Services.url") : null,
-    process.env.USERPROFILE
-      ? path.join(process.env.USERPROFILE, "OneDrive", "Desktop", "School Services.url")
-      : null,
-    process.env.USERPROFILE
-      ? path.join(process.env.USERPROFILE, "Desktop", "School Services.url")
-      : null,
-    process.env.PUBLIC
-      ? path.join(process.env.PUBLIC, "Desktop", "School Services.url")
-      : "C:\\Users\\Public\\Desktop\\School Services.url",
-  ].filter(Boolean);
+  const publicDesktopShortcutPath = process.env.PUBLIC
+    ? path.join(process.env.PUBLIC, "Desktop", "School Services.url")
+    : "C:\\Users\\Public\\Desktop\\School Services.url";
+  const defaultGuestShortcutPaths = isSystemAccountEnvironment()
+    ? [publicDesktopShortcutPath]
+    : [
+        oneDriveRoot ? path.join(oneDriveRoot, "Desktop", "School Services.url") : null,
+        process.env.USERPROFILE
+          ? path.join(process.env.USERPROFILE, "OneDrive", "Desktop", "School Services.url")
+          : null,
+        process.env.USERPROFILE
+          ? path.join(process.env.USERPROFILE, "Desktop", "School Services.url")
+          : null,
+        publicDesktopShortcutPath,
+      ].filter(Boolean);
   const defaultFaviconPath = resolveExistingPath([
     ...buildAncestorCandidates(process.cwd(), "favicon.ico"),
     ...buildAncestorCandidates(getBaseDir(), "favicon.ico"),

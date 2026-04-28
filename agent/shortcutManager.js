@@ -35,6 +35,14 @@ function readShortcutFields(filePath) {
   return content.split(/\r?\n/).filter((line) => line.trim() !== "");
 }
 
+function hasExistingShortcut(filePath) {
+  try {
+    return Boolean(filePath) && fs.existsSync(filePath);
+  } catch (_error) {
+    return false;
+  }
+}
+
 function extractShortcutField(existingFields, fieldName) {
   const prefix = `${String(fieldName || "").trim().toLowerCase()}=`;
 
@@ -178,6 +186,39 @@ class ShortcutManager {
     }
 
     return [];
+  }
+
+  resolveGuestPortalManagedPaths() {
+    const candidatePaths = this.resolveGuestPortalPaths();
+    const normalizedCandidates = [];
+    const seen = new Set();
+
+    for (const filePath of candidatePaths) {
+      const token = String(filePath || "").toLowerCase();
+      if (!filePath || seen.has(token)) {
+        continue;
+      }
+
+      seen.add(token);
+      normalizedCandidates.push(filePath);
+    }
+
+    const existingCandidates = normalizedCandidates.filter((filePath) =>
+      hasExistingShortcut(filePath)
+    );
+    const canonicalPath =
+      existingCandidates[0] || normalizedCandidates[0] || null;
+
+    return {
+      canonicalPath,
+      duplicatePaths: normalizedCandidates.filter(
+        (filePath) =>
+          filePath &&
+          canonicalPath &&
+          !hasSamePathIgnoringCase(filePath, canonicalPath) &&
+          hasExistingShortcut(filePath)
+      ),
+    };
   }
 
   listDiscoveredShortcutPaths(shortcut) {
@@ -328,32 +369,34 @@ class ShortcutManager {
 
     const baseUrl = String(this.guestPortal.baseUrl).replace(/\/+$/, "");
     const guestUrl = `${baseUrl}/guest/${encodeURIComponent(deviceId)}`;
-    const filePaths = this.resolveGuestPortalPaths();
+    const { canonicalPath, duplicatePaths } = this.resolveGuestPortalManagedPaths();
     const shortcutOptions = {
       iconFile: this.guestPortal.iconFile || "",
       iconIndex: this.guestPortal.iconIndex ?? 0,
     };
     const syncedPaths = [];
 
-    for (const filePath of filePaths) {
+    if (canonicalPath) {
       try {
-        ensureParentDirectory(filePath);
-        const existingFields = readShortcutFields(filePath);
+        ensureParentDirectory(canonicalPath);
+        const existingFields = readShortcutFields(canonicalPath);
         fs.writeFileSync(
-          filePath,
+          canonicalPath,
           buildInternetShortcutContent(guestUrl, existingFields, shortcutOptions),
           "ascii"
         );
-        syncedPaths.push(filePath);
+        syncedPaths.push(canonicalPath);
       } catch (error) {
         logger.warn(`Failed to update guest portal shortcut: ${error.message}`, {
           serviceName: "rapor",
           deviceId,
           guestUrl,
-          filePath,
+          filePath: canonicalPath,
         });
       }
     }
+
+    this.removeDuplicateShortcuts(duplicatePaths);
 
     this.cache.guestPortal = {
       deviceId,

@@ -695,6 +695,22 @@ class ServiceManager {
     return getConfigTargetsForService(definition).filter(Boolean);
   }
 
+  isUsableConfigTargetCandidatePath(candidatePath) {
+    const normalized = String(candidatePath || "").trim();
+
+    if (!normalized) {
+      return false;
+    }
+
+    // Ignore drive-relative Windows paths such as "\.env" that can appear
+    // when environment placeholders expand to an empty string.
+    if (/^[\\/](?![\\/])/.test(normalized)) {
+      return false;
+    }
+
+    return true;
+  }
+
   getConfigTargetCandidatePaths(target) {
     const candidates = [];
 
@@ -706,14 +722,17 @@ class ServiceManager {
       candidates.push(...target.pathCandidates);
     }
 
-    return candidates.filter(Boolean);
+    return Array.from(
+      new Set(candidates.filter((candidate) => this.isUsableConfigTargetCandidatePath(candidate)))
+    );
   }
 
-  discoverConfigPathFromExecutable(target, executablePath) {
+  discoverConfigPathFromExecutable(target, executablePath, options = {}) {
     if (!target || !executablePath) {
       return null;
     }
 
+    const requireExists = options.requireExists !== false;
     const parsedExecutablePath = this.extractExecutablePath(executablePath);
     if (!parsedExecutablePath) {
       return null;
@@ -737,12 +756,21 @@ class ServiceManager {
       })
       .filter(Boolean);
 
+    let firstCreatableCandidate = null;
     let cursor = path.dirname(parsedExecutablePath);
     for (let index = 0; index < 5; index += 1) {
       for (const suffix of suffixes) {
         const candidate = path.join(cursor, suffix);
         if (fileExists(candidate)) {
           return candidate;
+        }
+
+        if (
+          !requireExists &&
+          !firstCreatableCandidate &&
+          fileExists(path.dirname(candidate))
+        ) {
+          firstCreatableCandidate = candidate;
         }
       }
 
@@ -754,7 +782,22 @@ class ServiceManager {
       cursor = parentDir;
     }
 
-    return null;
+    return requireExists ? null : firstCreatableCandidate;
+  }
+
+  isSameConfigTarget(left, right) {
+    if (!left || !right) {
+      return false;
+    }
+
+    const leftId = left.targetId || null;
+    const rightId = right.targetId || null;
+
+    if (leftId || rightId) {
+      return leftId === rightId;
+    }
+
+    return left.key === right.key && left.type === right.type;
   }
 
   async getLocationDiagnostics(serviceName, options = {}) {
@@ -822,13 +865,29 @@ class ServiceManager {
         }
       }
 
+      if (!resolvedPath) {
+        for (const executablePath of executablePaths) {
+          const creatablePath = this.discoverConfigPathFromExecutable(
+            target,
+            executablePath,
+            { requireExists: false }
+          );
+          if (creatablePath) {
+            resolvedPath = creatablePath;
+            break;
+          }
+        }
+      }
+
       return {
+        targetId: target.targetId || null,
         key: target.key || null,
         type: target.type || null,
         configuredPath,
         candidatePaths,
         resolvedPath,
         exists,
+        creatable: Boolean(resolvedPath && !exists),
       };
     });
 
@@ -907,30 +966,38 @@ class ServiceManager {
     const diagnostics = await this.getLocationDiagnostics(serviceName);
 
     return configTargets.map((target) => {
-      if (target.path && fileExists(target.path)) {
-        return target;
+      const candidatePaths = this.getConfigTargetCandidatePaths(target);
+      const normalizedTarget = {
+        ...target,
+        path: candidatePaths[0] || null,
+      };
+
+      if (normalizedTarget.path && fileExists(normalizedTarget.path)) {
+        return normalizedTarget;
       }
 
-      const existingCandidate = this.getConfigTargetCandidatePaths(target).find((candidatePath) =>
+      const existingCandidate = candidatePaths.find((candidatePath) =>
         fileExists(candidatePath)
       );
       if (existingCandidate) {
         return {
-          ...target,
+          ...normalizedTarget,
           path: existingCandidate,
         };
       }
 
       const detail = diagnostics.details?.configTargets?.find(
-        (candidate) => candidate.key === target.key && candidate.exists
+        (candidate) =>
+          this.isSameConfigTarget(candidate, target) &&
+          Boolean(candidate.resolvedPath)
       );
 
       if (!detail?.resolvedPath) {
-        return target;
+        return normalizedTarget;
       }
 
       return {
-        ...target,
+        ...normalizedTarget,
         path: detail.resolvedPath,
       };
     });

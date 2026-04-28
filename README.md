@@ -8,7 +8,7 @@ Untuk instalasi Windows yang umum, agent sekarang mencoba langsung:
 
 - konek ke Supabase publik bawaan repo
 - mendeteksi service Windows E-Rapor dan Dapodik secara otomatis
-- mendeteksi file config lokal E-Rapor yang perlu diubah untuk `app.baseURL`
+- mendeteksi lalu mensinkronkan file `.env` lokal E-Rapor untuk `app.baseURL` di root install dan `wwwroot`
 - memasang aplikasi `School Services` ke `C:\Program Files\School Services`
 - menyimpan state tulis ke `C:\ProgramData\School Services`
 - membuka halaman guest lewat launcher `School Services` di browser default
@@ -95,8 +95,8 @@ Opsional:
 - `VITE_PUBLIC_SITE_URL`
 - `GUEST_PORTAL_BASE_URL`
 - `CLOUDFLARED_PATH`
-- `ERAPOR_ROOT`
-- `ERAPOR_ENV_PATH`
+- `ERAPOR_ROOT` untuk override root folder E-Rapor agar agent bisa sinkronkan `.env` root dan `wwwroot`
+- `ERAPOR_ENV_PATH` untuk override file `.env` webroot jika lokasi instalasi tidak standar
 - `ERAPOR_DB_SERVICE_NAME`
 - `ERAPOR_APP_SERVICE_NAME`
 - `DAPODIK_DB_SERVICE_NAME`

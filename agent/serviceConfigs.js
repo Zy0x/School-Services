@@ -4,22 +4,46 @@ function compact(values) {
   return values.filter(Boolean);
 }
 
+function createRaporEnvTarget(targetId, candidates) {
+  return {
+    targetId,
+    type: "env",
+    path: candidates[0] || null,
+    pathCandidates: compact(candidates),
+    key: "app.baseURL",
+    formatter: (url) => `app.baseURL = '${url}/'`,
+  };
+}
+
+function buildRaporEnvConfigTargets() {
+  const raporRoot = process.env.ERAPOR_ROOT
+    ? path.resolve(process.env.ERAPOR_ROOT)
+    : null;
+  const explicitWebrootEnvPath = process.env.ERAPOR_ENV_PATH || null;
+
+  return [
+    createRaporEnvTarget("rapor-root-env", [
+      raporRoot ? path.join(raporRoot, ".env") : null,
+      "C:\\newappraporsd2025\\.env",
+      "C:\\E-Rapor\\.env",
+      "C:\\erapor\\.env",
+    ]),
+    createRaporEnvTarget("rapor-wwwroot-env", [
+      explicitWebrootEnvPath,
+      raporRoot ? path.join(raporRoot, "wwwroot", ".env") : null,
+      "C:\\newappraporsd2025\\wwwroot\\.env",
+      "C:\\E-Rapor\\wwwroot\\.env",
+      "C:\\erapor\\wwwroot\\.env",
+    ]),
+  ];
+}
+
 const serviceConfigs = {
   rapor: {
     startStrategy: "windows-service",
     stopStrategy: "windows-service",
     needsConfigUpdate: true,
-    type: "env",
-    path: process.env.ERAPOR_ENV_PATH || null,
-    pathCandidates: compact([
-      process.env.ERAPOR_ENV_PATH || null,
-      process.env.ERAPOR_ROOT
-        ? path.join(process.env.ERAPOR_ROOT, "wwwroot", ".env")
-        : null,
-      "C:\\newappraporsd2025\\wwwroot\\.env",
-      "C:\\E-Rapor\\wwwroot\\.env",
-      "C:\\erapor\\wwwroot\\.env",
-    ]),
+    configTargets: buildRaporEnvConfigTargets(),
     windowsServices: compact([
       process.env.ERAPOR_DB_SERVICE_NAME || null,
       process.env.ERAPOR_APP_SERVICE_NAME || null,
@@ -32,8 +56,6 @@ const serviceConfigs = {
       preferAny: ["db", "srv", "service"],
       expectedCount: 2,
     },
-    key: "app.baseURL",
-    formatter: (url) => `app.baseURL = '${url}/'`,
   },
   dapodik: {
     startStrategy: "windows-service",

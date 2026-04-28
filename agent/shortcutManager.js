@@ -267,6 +267,15 @@ class ShortcutManager {
     };
   }
 
+  getGuestPortalUrl(deviceId) {
+    if (!this.guestPortal?.baseUrl || !deviceId) {
+      return null;
+    }
+
+    const baseUrl = String(this.guestPortal.baseUrl).replace(/\/+$/, "");
+    return `${baseUrl}/guest/${encodeURIComponent(deviceId)}`;
+  }
+
   listDiscoveredShortcutPaths(shortcut) {
     const discovered = [];
     const targetName = normalizeShortcutName(shortcut.fileName || "e-Rapor SD.url");
@@ -408,50 +417,29 @@ class ShortcutManager {
     return;
   }
 
-  syncGuestPortalUrl(deviceId, publicUrl) {
-    if (!this.guestPortal?.baseUrl || !this.guestPortal?.fileName || !deviceId) {
+  cleanupLegacyGuestPortalShortcuts(deviceId = null, publicUrl = null) {
+    if (!this.guestPortal?.fileName) {
       return;
     }
 
-    const baseUrl = String(this.guestPortal.baseUrl).replace(/\/+$/, "");
-    const guestUrl = `${baseUrl}/guest/${encodeURIComponent(deviceId)}`;
+    const guestUrl = this.getGuestPortalUrl(deviceId);
     const { canonicalPath, duplicatePaths } = this.resolveGuestPortalManagedPaths();
-    const shortcutOptions = {
-      iconFile: this.guestPortal.iconFile || "",
-      iconIndex: this.guestPortal.iconIndex ?? 0,
-    };
-    const syncedPaths = [];
+    const toRemove = canonicalPath ? [canonicalPath, ...duplicatePaths] : duplicatePaths;
 
-    if (canonicalPath) {
-      try {
-        ensureParentDirectory(canonicalPath);
-        const existingFields = readShortcutFields(canonicalPath);
-        fs.writeFileSync(
-          canonicalPath,
-          buildInternetShortcutContent(guestUrl, existingFields, shortcutOptions),
-          "ascii"
-        );
-        syncedPaths.push(canonicalPath);
-      } catch (error) {
-        logger.warn(`Failed to update guest portal shortcut: ${error.message}`, {
-          serviceName: "rapor",
-          deviceId,
-          guestUrl,
-          filePath: canonicalPath,
-        });
-      }
-    }
-
-    this.removeDuplicateShortcuts(duplicatePaths);
+    this.removeDuplicateShortcuts(toRemove);
 
     this.cache.guestPortal = {
       deviceId,
       guestUrl,
       effectiveUrl: publicUrl || null,
-      filePaths: syncedPaths,
+      filePaths: [],
       updatedAt: new Date().toISOString(),
     };
     this.writeCache();
+  }
+
+  syncGuestPortalUrl(deviceId, publicUrl) {
+    this.cleanupLegacyGuestPortalShortcuts(deviceId, publicUrl);
   }
 }
 

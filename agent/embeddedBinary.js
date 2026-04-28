@@ -1,13 +1,14 @@
 const fs = require("fs");
 const path = require("path");
-const { fileExists, getBaseDir, sha256 } = require("./utils");
+const { getRuntimeDir } = require("./paths");
+const { fileExists, sha256 } = require("./utils");
 
 function getBundledCloudflaredSnapshotPath() {
   return path.resolve(__dirname, "..", "cloudflared.exe");
 }
 
 function getBundledCloudflaredRuntimePath() {
-  return path.join(getBaseDir(), "runtime", "cloudflared.exe");
+  return path.join(getRuntimeDir(), "cloudflared.exe");
 }
 
 function ensureBundledCloudflared() {

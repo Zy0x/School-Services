@@ -2,6 +2,12 @@ const crypto = require("crypto");
 const fs = require("fs");
 const net = require("net");
 const path = require("path");
+const {
+  getDataDir,
+  getInstallDir,
+  getRepoRoot,
+  getRuntimeConfigPath: getDefaultRuntimeConfigPath,
+} = require("./paths");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -105,7 +111,15 @@ function resolveFirstExistingPath(candidates) {
 }
 
 function getBaseDir() {
-  return process.pkg ? path.dirname(process.execPath) : __dirname;
+  return getInstallDir();
+}
+
+function getWritableDataDir() {
+  return getDataDir();
+}
+
+function getProjectRoot() {
+  return getRepoRoot();
 }
 
 function buildAncestorCandidates(startDir, relativeFile) {
@@ -127,11 +141,10 @@ function buildAncestorCandidates(startDir, relativeFile) {
 }
 
 function getRuntimeConfigPath() {
-  const baseDir = getBaseDir();
   const candidates = [
-    process.env.AGENT_CONFIG_PATH,
+    getDefaultRuntimeConfigPath(),
     ...buildAncestorCandidates(process.cwd(), "agent.runtime.json"),
-    ...buildAncestorCandidates(baseDir, "agent.runtime.json"),
+    ...buildAncestorCandidates(getBaseDir(), "agent.runtime.json"),
   ];
 
   return resolveFirstExistingPath(candidates);
@@ -189,7 +202,9 @@ module.exports = {
   escapeRegex,
   fileExists,
   getBaseDir,
+  getProjectRoot,
   getRuntimeConfigPath,
+  getWritableDataDir,
   isPortOpen,
   normalizePublicUrl,
   readJsonFile,

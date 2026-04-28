@@ -2,8 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const logger = require("./logger");
+const { getStateDir } = require("./paths");
 const RetryManager = require("./retryManager");
-const { getBaseDir } = require("./utils");
 
 const TRY_CLOUDFLARE_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi;
 const RATE_LIMIT_PATTERN = /rate[- ]limited|429|error code:\s*1015|too many requests/i;
@@ -14,8 +14,7 @@ class TunnelManager {
     this.cloudflaredPath = options.cloudflaredPath;
     this.onUrl = options.onUrl;
     this.mode = "quick";
-    this.stateDir =
-      options.stateDir || path.join(getBaseDir(), ".state", "tunnels");
+    this.stateDir = options.stateDir || path.join(getStateDir(), "tunnels");
     this.startSpacingMs = Number(options.startSpacingMs || 5000);
     this.startupTimeoutMs = Number(options.startupTimeoutMs || 30000);
     this.retryManager =

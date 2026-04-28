@@ -8,6 +8,7 @@ const { createDeviceMetadata } = require("./device");
 const { ensureProcessPathEntries } = require("./environment");
 const FileWorker = require("./fileWorker");
 const logger = require("./logger");
+const { getCacheDir, getStateDir } = require("./paths");
 const { acquireProcessLock, releaseProcessLock } = require("./processLock");
 const { getConfigTargetsForService } = require("./serviceConfigs");
 const ServiceManager = require("./serviceManager");
@@ -16,7 +17,7 @@ const { createSupabaseApi } = require("./supabase");
 const ShortcutManager = require("./shortcutManager");
 const TunnelManager = require("./tunnel");
 const UrlCache = require("./urlCache");
-const { getBaseDir, sleep } = require("./utils");
+const { sleep } = require("./utils");
 
 function buildPendingCommandState(commands) {
   const latestByService = new Map();
@@ -90,7 +91,8 @@ async function main() {
   }
 
   const config = loadConfig();
-  const lockPath = path.join(getBaseDir(), ".state", "agent.lock");
+  const stateDir = getStateDir();
+  const lockPath = path.join(stateDir, "agent.lock");
   acquireProcessLock(lockPath);
   logger.setLogFile(config.localLogPath);
   logger.info(`Writing local logs to ${config.localLogPath}`);
@@ -107,16 +109,15 @@ async function main() {
   await serviceManager.initializeDesiredStates();
   const urlCache = new UrlCache();
   const shortcutManager = new ShortcutManager({
-    cachePath: path.join(getBaseDir(), ".state", "public-urls.json"),
+    cachePath: path.join(getCacheDir(), "public-urls.json"),
     shortcuts: config.shortcuts,
     guestPortal: config.guestPortal,
-    baseDir: getBaseDir(),
+    baseDir: stateDir,
   });
-  shortcutManager.syncGuestPortalUrl(device.deviceId, null);
-  const guestPortalBaseUrl = String(config.guestPortal?.baseUrl || "").replace(/\/+$/, "");
-  const guestPortalPath = `/guest/${encodeURIComponent(device.deviceId)}`;
-  const guestPortalUrl = guestPortalBaseUrl
-    ? `${guestPortalBaseUrl}${guestPortalPath}`
+  shortcutManager.cleanupLegacyGuestPortalShortcuts(device.deviceId, null);
+  const guestPortalUrl = shortcutManager.getGuestPortalUrl(device.deviceId);
+  const guestPortalPath = guestPortalUrl
+    ? `/guest/${encodeURIComponent(device.deviceId)}`
     : null;
   const fileWorker = new FileWorker({
     device,
@@ -773,7 +774,7 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  releaseProcessLock(path.join(getBaseDir(), ".state", "agent.lock"));
+  releaseProcessLock(path.join(getStateDir(), "agent.lock"));
   logger.error(error.stack || error.message);
   process.exit(1);
 });

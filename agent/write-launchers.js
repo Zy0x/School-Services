@@ -2,38 +2,27 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 const dotenv = require("dotenv");
+const {
+  AGENT_EXE_NAME,
+  APP_NAME,
+  LAUNCHER_EXE_NAME,
+  LEGACY_GUEST_SHORTCUT_NAME,
+  STARTUP_TASK_DESCRIPTION,
+  STARTUP_TASK_NAME,
+} = require("./appConstants");
 const packageJson = require("./package.json");
 
-const distDir = path.join(__dirname, "dist");
 const repoRoot = path.join(__dirname, "..");
-const runtimeConfigOutputPath = path.join(distDir, "agent.runtime.json");
-const systemRoot = process.env.SystemRoot || "C:\\Windows";
-const system32Path = path.join(systemRoot, "System32");
-const powerShellPath = path.join(
-  system32Path,
-  "WindowsPowerShell",
-  "v1.0",
-  "powershell.exe"
-);
-
-fs.mkdirSync(distDir, { recursive: true });
-
-const vbsPath = path.join(distDir, "run-agent-hidden.vbs");
-const adminVbsPath = path.join(distDir, "run-agent-admin-hidden.vbs");
-const ps1Path = path.join(distDir, "run-agent-hidden.ps1");
-const adminPs1Path = path.join(distDir, "run-agent-admin.ps1");
-const stopPs1Path = path.join(distDir, "stop-agent.ps1");
-const watchLogPs1Path = path.join(distDir, "watch-agent-log.ps1");
-const resetCloudflaredPs1Path = path.join(distDir, "reset-cloudflared.ps1");
-const cleanStartPs1Path = path.join(distDir, "start-agent-clean.ps1");
-const updateAndRunPs1Path = path.join(distDir, "update-and-run.ps1");
-const buildInfoPath = path.join(distDir, "agent-build.json");
+const distDir = path.join(__dirname, "dist");
+const payloadDir = path.join(distDir, "payload");
+const runtimeConfigOutputPath = path.join(payloadDir, "agent.runtime.json");
+const buildInfoPath = path.join(payloadDir, "agent-build.json");
 const faviconSourcePath = path.join(repoRoot, "favicon.ico");
-const faviconOutputPath = path.join(distDir, "favicon.ico");
-const legacyShortcutPaths = [
-  path.join(distDir, "E-Rapor SD.url"),
-  path.join(distDir, "e-Rapor SD.url"),
-];
+const faviconOutputPath = path.join(payloadDir, "favicon.ico");
+
+function ensureDirectory(directoryPath) {
+  fs.mkdirSync(directoryPath, { recursive: true });
+}
 
 function safeExec(command) {
   try {
@@ -42,7 +31,7 @@ function safeExec(command) {
       stdio: ["ignore", "pipe", "ignore"],
       encoding: "utf8",
     }).trim();
-  } catch (error) {
+  } catch (_error) {
     return "";
   }
 }
@@ -78,25 +67,6 @@ function loadPackagedRuntimeConfig() {
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnaW15eWljaXhhenlnYWlybXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxODg1MjIsImV4cCI6MjA5Mjc2NDUyMn0.uZ0Cm_NxxcSXKaYE21wtob6xtY445S0I0y-v5i10NRo",
   };
 
-  const eraporEnvPath =
-    envValues.ERAPOR_ENV_PATH ||
-    process.env.ERAPOR_ENV_PATH ||
-    (envValues.ERAPOR_ROOT
-      ? path.join(envValues.ERAPOR_ROOT, "wwwroot", ".env")
-      : process.env.ERAPOR_ROOT
-        ? path.join(process.env.ERAPOR_ROOT, "wwwroot", ".env")
-        : "C:\\E-Rapor\\wwwroot\\.env");
-
-  if (!packaged.services) {
-    packaged.services = {};
-  }
-
-  if (!packaged.services.rapor) {
-    packaged.services.rapor = {};
-  }
-
-  packaged.services.rapor.path = eraporEnvPath;
-
   return packaged;
 }
 
@@ -118,7 +88,7 @@ function parseGitHubRemote(remoteUrl) {
 }
 
 function parseVersionTag(tag) {
-  const match = String(tag || "").trim().match(/^v(\d+)\.(\d+)\.(\d+)$/i);
+  const match = String(tag || "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)$/i);
   if (!match) {
     return null;
   }
@@ -194,434 +164,331 @@ function resolveBuildVersionInfo(currentCommit) {
   };
 }
 
-const remoteUrl = safeExec("git remote get-url origin");
-const gitCommit = safeExec("git rev-parse HEAD");
-const gitBranch = safeExec("git rev-parse --abbrev-ref HEAD") || "main";
-const githubRemote = parseGitHubRemote(remoteUrl);
-const buildVersionInfo = resolveBuildVersionInfo(gitCommit);
-const buildInfo = {
-  owner: githubRemote.owner,
-  repo: githubRemote.repo,
-  branch: gitBranch === "HEAD" ? "main" : gitBranch || "main",
-  version: buildVersionInfo.version,
-  commit: gitCommit || null,
-  releaseChannel: "latest",
-  assetName: "e-rapor-agent-win-x64.zip",
-  releaseTag: buildVersionInfo.releaseTag,
-  builtAt: new Date().toISOString(),
-};
+function buildInfoPayload() {
+  const remoteUrl = safeExec("git remote get-url origin");
+  const gitCommit = safeExec("git rev-parse HEAD");
+  const gitBranch = safeExec("git rev-parse --abbrev-ref HEAD") || "main";
+  const githubRemote = parseGitHubRemote(remoteUrl);
+  const buildVersionInfo = resolveBuildVersionInfo(gitCommit);
 
-const vbsContent = [
-  'Set shell = CreateObject("WScript.Shell")',
-  'Set fso = CreateObject("Scripting.FileSystemObject")',
-  'currentDir = fso.GetParentFolderName(WScript.ScriptFullName)',
-  `command = "${powerShellPath.replace(/\\/g, "\\\\")} -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\update-and-run.ps1" & Chr(34)`,
-  'shell.Run command, 0, False',
-  "",
-].join("\r\n");
-
-const adminVbsContent = [
-  'Set shellApp = CreateObject("Shell.Application")',
-  'Set fso = CreateObject("Scripting.FileSystemObject")',
-  'currentDir = fso.GetParentFolderName(WScript.ScriptFullName)',
-  'args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\start-agent-clean.ps1" & Chr(34)',
-  `shellApp.ShellExecute "${powerShellPath.replace(/\\/g, "\\\\")}", args, currentDir, "runas", 0`,
-  "",
-].join("\r\n");
-
-const ps1Content = [
-  '& (Join-Path $PSScriptRoot "update-and-run.ps1")',
-  "",
-].join("\r\n");
-
-const adminPs1Content = [
-  '$scriptPath = Join-Path $PSScriptRoot "start-agent-clean.ps1"',
-  `Start-Process -FilePath "${powerShellPath.replace(/\\/g, "\\\\")}" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$scriptPath) -Verb RunAs -WindowStyle Hidden`,
-  "",
-].join("\r\n");
-
-const stopPs1Content = [
-  '$lockPath = Join-Path $PSScriptRoot ".state\\agent.lock"',
-  'if (-not (Test-Path $lockPath)) {',
-  '  Write-Host "Agent lock file not found. Nothing to stop."',
-  '  exit 0',
-  '}',
-  '$payload = Get-Content $lockPath -Raw | ConvertFrom-Json',
-  'if (-not $payload.pid) {',
-  '  Write-Host "Agent lock file is invalid."',
-  '  exit 1',
-  '}',
-  'taskkill /PID $payload.pid /T /F',
-  "",
-].join("\r\n");
-
-const watchLogPs1Content = [
-  '$candidateDirs = @(',
-  '  (Join-Path $PSScriptRoot "logs"),',
-  '  (Join-Path (Split-Path $PSScriptRoot -Parent) "logs")',
-  ')',
-  '$latest = $null',
-  'foreach ($dir in $candidateDirs) {',
-  '  $match = Get-ChildItem -Path $dir -Filter "agent*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1',
-  '  if ($match) {',
-  '    $latest = $match',
-  '    break',
-  '  }',
-  '}',
-  'if ($latest) {',
-  '  Get-Content -Path $latest.FullName -Wait',
-  '} else {',
-  '  Write-Host "No agent log file found yet."',
-  '}',
-  "",
-].join("\r\n");
-
-const resetCloudflaredPs1Content = [
-  '$stateDir = Join-Path $PSScriptRoot ".state\\tunnels"',
-  'taskkill /F /IM cloudflared.exe /T > $null 2>&1',
-  'if (Test-Path $stateDir) {',
-  '  Remove-Item -LiteralPath (Join-Path $stateDir "*") -Force -ErrorAction SilentlyContinue',
-  '}',
-  'Write-Host "Cloudflared processes and tunnel state have been reset."',
-  "",
-].join("\r\n");
-
-const cleanStartPs1Content = [
-  '$ErrorActionPreference = "Stop"',
-  'Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force',
-  '$distDir = $PSScriptRoot',
-  '$stateDir = Join-Path $distDir ".state"',
-  '$lockPath = Join-Path $stateDir "agent.lock"',
-  '$tunnelStateDir = Join-Path $stateDir "tunnels"',
-  '$systemRoot = $env:SystemRoot',
-  'if (-not $systemRoot) { $systemRoot = "C:\\Windows" }',
-  '$cmdPath = Join-Path $systemRoot "System32\\cmd.exe"',
-  '$powerShellPath = Join-Path $systemRoot "System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
-  '$updaterPath = Join-Path $distDir "update-and-run.ps1"',
-  'function Invoke-TaskkillSafe([string[]]$arguments) {',
-  '  if (-not (Test-Path $cmdPath)) { return }',
-  '  $quotedArguments = $arguments | ForEach-Object {',
-  `    if ($_ -match "\\s") { return '"' + $_ + '"' }`,
-  '    return $_',
-  '  }',
-  '  $argumentLine = "/c taskkill " + ($quotedArguments -join " ") + " >nul 2>&1"',
-  '  $process = Start-Process -FilePath $cmdPath -ArgumentList $argumentLine -WindowStyle Hidden -Wait -PassThru -ErrorAction SilentlyContinue',
-  '  if ($process) { $null = $process.ExitCode }',
-  '}',
-  'function Stop-AgentByLock {',
-  '  if (-not (Test-Path $lockPath)) { return }',
-  '  try {',
-  '    $payload = Get-Content $lockPath -Raw | ConvertFrom-Json',
-  '    if ($payload.pid) { Invoke-TaskkillSafe @("/PID", [string]$payload.pid, "/T", "/F") }',
-  '  } catch {}',
-  '}',
-  'function Stop-AgentProcessesByName {',
-  '  Invoke-TaskkillSafe @("/F", "/IM", "e-rapor-agent.exe", "/T")',
-  '}',
-  'function Stop-AgentPowerShellHelpers {',
-  "  $targets = Get-CimInstance Win32_Process -Filter \"Name = 'powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object {",
-  '    $commandLine = [string]$_.CommandLine',
-  '    $commandLine -like "*update-and-run.ps1*" -or $commandLine -like "*start-agent-clean.ps1*"',
-  '  }',
-  '  foreach ($target in @($targets)) {',
-  '    if ($target.ProcessId -and $target.ProcessId -ne $PID) {',
-  '      Invoke-TaskkillSafe @("/PID", [string]$target.ProcessId, "/T", "/F")',
-  '    }',
-  '  }',
-  '}',
-  'function Stop-Cloudflared {',
-  '  Invoke-TaskkillSafe @("/F", "/IM", "cloudflared.exe", "/T")',
-  '}',
-  'function Clear-AgentState {',
-  '  if (Test-Path $lockPath) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }',
-  '  if (Test-Path $tunnelStateDir) {',
-  '    Remove-Item -LiteralPath (Join-Path $tunnelStateDir "*") -Force -Recurse -ErrorAction SilentlyContinue',
-  '  }',
-  '}',
-  'Stop-AgentByLock',
-  'Stop-AgentProcessesByName',
-  'Stop-AgentPowerShellHelpers',
-  'Stop-Cloudflared',
-  'Clear-AgentState',
-  '& $updaterPath',
-  "",
-].join("\r\n");
-
-const updateAndRunPs1Content = [
-  '$ErrorActionPreference = "Stop"',
-  'Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force',
-  '$distDir = $PSScriptRoot',
-  '$agentDir = Split-Path $distDir -Parent',
-  '$repoRoot = Split-Path $agentDir -Parent',
-  '$exePath = Join-Path $distDir "e-rapor-agent.exe"',
-  '$systemRoot = $env:SystemRoot',
-  'if (-not $systemRoot) { $systemRoot = "C:\\Windows" }',
-  '$system32Path = Join-Path $systemRoot "System32"',
-  '$requiredPathEntries = @(',
-  '  $system32Path,',
-  '  (Join-Path $system32Path "WindowsPowerShell\\v1.0"),',
-  '  (Join-Path $system32Path "Wbem")',
-  ') | Where-Object { $_ -and (Test-Path $_) }',
-  '$buildInfoPath = Join-Path $distDir "agent-build.json"',
-  '$logDir = Join-Path $distDir "logs"',
-  '$logPath = Join-Path $logDir "updater.log"',
-  'if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }',
-  '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls',
-  'function Write-UpdaterLog([string]$message) {',
-  '  $timestamp = (Get-Date).ToString("s")',
-  '  Add-Content -Path $logPath -Value "[$timestamp] $message"',
-  '}',
-  'function Normalize-PathEntries([string]$value) {',
-  '  if (-not $value) { return @() }',
-  '  return @($value.Split(";") | ForEach-Object { $_.Trim() } | Where-Object { $_ })',
-  '}',
-  'function Join-UniquePathEntries([string[]]$baseEntries, [string[]]$additionalEntries) {',
-  '  $result = New-Object System.Collections.Generic.List[string]',
-  '  $seen = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)',
-  '  foreach ($entry in @($additionalEntries) + @($baseEntries)) {',
-  '    if (-not $entry) { continue }',
-  '    if ($seen.Add($entry)) { [void]$result.Add($entry) }',
-  '  }',
-  '  return @($result)',
-  '}',
-  'function Ensure-RequiredEnvironment {',
-  '  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")',
-  '  $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")',
-  '  $existingUserEntries = Normalize-PathEntries $userPath',
-  '  $mergedUserEntries = Join-UniquePathEntries $existingUserEntries $requiredPathEntries',
-  '  $mergedUserPath = ($mergedUserEntries -join ";")',
-  '  if ($mergedUserPath -ne $userPath) {',
-  '    [Environment]::SetEnvironmentVariable("Path", $mergedUserPath, "User")',
-  '    Write-UpdaterLog ("Updated user PATH with required Windows entries: {0}" -f ($requiredPathEntries -join ", "))',
-  '  }',
-  '  $processEntries = Join-UniquePathEntries (Normalize-PathEntries $env:Path) (Join-UniquePathEntries (Normalize-PathEntries $machinePath) $requiredPathEntries)',
-  '  $env:Path = ($processEntries -join ";")',
-  '  $env:PATH = $env:Path',
-  '  Get-ChildItem -Path $distDir -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue',
-  '}',
-  'function Stop-AgentProcess {',
-  '  $lockPath = Join-Path $distDir ".state\\agent.lock"',
-  '  if (-not (Test-Path $lockPath)) { return }',
-  '  try {',
-  '    $payload = Get-Content $lockPath -Raw | ConvertFrom-Json',
-  '    if ($payload.pid) { taskkill /PID $payload.pid /T /F *> $null }',
-  '  } catch {',
-  '    Write-UpdaterLog "Failed to stop previous agent from lock file: $($_.Exception.Message)"',
-  '  }',
-  '}',
-  'function Get-BuildInfo {',
-  '  if (-not (Test-Path $buildInfoPath)) { return $null }',
-  '  try { return Get-Content $buildInfoPath -Raw | ConvertFrom-Json } catch { return $null }',
-  '}',
-  'function Save-BuildInfo($buildInfo) {',
-  '  $buildInfo | ConvertTo-Json -Depth 5 | Set-Content -Path $buildInfoPath -Encoding UTF8',
-  '}',
-  'function Set-BuildInfoValue($buildInfo, [string]$name, $value) {',
-  '  $property = $buildInfo.PSObject.Properties[$name]',
-  '  if ($property) {',
-  '    $property.Value = $value',
-  '    return',
-  '  }',
-  '  $buildInfo | Add-Member -NotePropertyName $name -NotePropertyValue $value',
-  '}',
-  'function Get-RequestHeaders {',
-  '  $headers = @{ "User-Agent" = "e-rapor-agent-updater" }',
-  '  $token = $env:GITHUB_TOKEN',
-  '  if (-not $token) { $token = $env:GH_TOKEN }',
-  '  if ($token) { $headers["Authorization"] = "Bearer $token" }',
-  '  return $headers',
-  '}',
-  'function Normalize-VersionToken([string]$value) {',
-  '  if (-not $value) { return "" }',
-  '  $normalized = $value.Trim()',
-  '  if ($normalized.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {',
-  '    $normalized = $normalized.Substring(1)',
-  '  }',
-  '  return $normalized.ToLowerInvariant()',
-  '}',
-  'function Get-ReleaseVersion([object]$release) {',
-  '  return Normalize-VersionToken([string]$release.tag_name)',
-  '}',
-  'function Start-AgentDeferred {',
-  '  $launcherPath = Join-Path ([System.IO.Path]::GetTempPath()) ("e-rapor-agent-relaunch-" + [guid]::NewGuid().ToString("N") + ".ps1")',
-  "  $launcherContent = @'",
-  '$ErrorActionPreference = "Continue"',
-  'Start-Sleep -Seconds 3',
-  "$exePath = '{0}'",
-  "$workingDir = '{1}'",
-  "$bootstrapPaths = '{2}'",
-  "$lockPath = '{3}'",
-  "$updaterLogPath = '{4}'",
-  'function Write-RelaunchLog([string]$message) {',
-  '  $timestamp = (Get-Date).ToString("s")',
-  '  Add-Content -Path $updaterLogPath -Value "[$timestamp] [relaunch] $message"',
-  '}',
-  'function Clear-StaleLock {',
-  '  if (-not (Test-Path $lockPath)) { return }',
-  '  try {',
-  '    $payload = Get-Content $lockPath -Raw | ConvertFrom-Json',
-  '    if (-not $payload.pid) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue; return }',
-  '    $existing = Get-Process -Id $payload.pid -ErrorAction SilentlyContinue',
-  '    if (-not $existing) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }',
-  '  } catch {',
-  '    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue',
-  '  }',
-  '}',
-  'function Start-AgentAttempt {',
-  '  Clear-StaleLock',
-  '  $process = Start-Process -FilePath $exePath -WorkingDirectory $workingDir -WindowStyle Hidden -PassThru',
-  '  Write-RelaunchLog ("Started agent process PID " + $process.Id)',
-  '  Start-Sleep -Seconds 4',
-  '  if (Test-Path $lockPath) {',
-  '    Write-RelaunchLog "Agent lock file detected after relaunch."',
-  '    return $true',
-  '  }',
-  '  $alive = Get-Process -Id $process.Id -ErrorAction SilentlyContinue',
-  '  if ($alive) {',
-  '    Write-RelaunchLog "Agent process is alive even though lock file is not written yet."',
-  '    return $true',
-  '  }',
-  '  Write-RelaunchLog "Agent relaunch attempt did not stay alive."',
-  '  return $false',
-  '}',
-  '$env:Path = (($bootstrapPaths -split ";") + ($env:Path -split ";") | Where-Object { $_ } | Select-Object -Unique) -join ";"',
-  '$env:PATH = $env:Path',
-  'Write-RelaunchLog "Starting deferred relaunch helper."',
-  '$started = Start-AgentAttempt',
-  'if (-not $started) {',
-  '  Write-RelaunchLog "Retrying deferred relaunch once."',
-  '  Start-Sleep -Seconds 3',
-  '  [void](Start-AgentAttempt)',
-  '}',
-  'Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue',
-  "'@ -f ($exePath -replace \"'\", \"''\"), ($distDir -replace \"'\", \"''\"), (($requiredPathEntries -join ';') -replace \"'\", \"''\"), ((Join-Path $distDir '.state\\agent.lock') -replace \"'\", \"''\"), ($logPath -replace \"'\", \"''\")",
-  '  Set-Content -Path $launcherPath -Value $launcherContent -Encoding UTF8',
-  '  Write-UpdaterLog "Starting deferred relaunch helper."',
-  `  Start-Process -FilePath "${powerShellPath.replace(/\\/g, "\\\\")}" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$launcherPath) -WindowStyle Hidden`,
-  '}',
-  'function Start-AgentNow {',
-  '  Write-UpdaterLog "Starting agent immediately."',
-  '  $process = Start-Process -FilePath $exePath -WorkingDirectory $distDir -WindowStyle Hidden -PassThru',
-  '  Write-UpdaterLog ("Started agent process PID " + $process.Id)',
-  '}',
-  'function Invoke-Robocopy($source, $destination) {',
-  '  & robocopy $source $destination /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XF "agent.runtime.json" "agent-build.json" | Out-Null',
-  '  $code = $LASTEXITCODE',
-  '  if ($code -gt 7) { throw "robocopy failed with exit code $code" }',
-  '}',
-  'function Get-LatestRelease {',
-  '  $buildInfo = Get-BuildInfo',
-  '  if (-not $buildInfo -or -not $buildInfo.owner -or -not $buildInfo.repo) {',
-  '    throw "GitHub owner/repo is missing from agent-build.json."',
-  '  }',
-  '  $owner = [string]$buildInfo.owner',
-  '  $repo = [string]$buildInfo.repo',
-  '  $releaseChannel = [string]$buildInfo.releaseChannel',
-  '  $headers = Get-RequestHeaders',
-  '  if ($releaseChannel -eq "latest") {',
-  '    return Invoke-RestMethod -Uri ("https://api.github.com/repos/$owner/$repo/releases/latest") -Headers $headers',
-  '  }',
-  '  return Invoke-RestMethod -Uri ("https://api.github.com/repos/$owner/$repo/releases/tags/" + $releaseChannel) -Headers $headers',
-  '}',
-  'function Update-FromRelease {',
-  '  $buildInfo = Get-BuildInfo',
-  '  if (-not $buildInfo) { throw "agent-build.json is missing or invalid." }',
-  '  $release = Get-LatestRelease',
-  '  $releaseTag = [string]$release.tag_name',
-  '  $releaseVersion = Get-ReleaseVersion $release',
-  '  $currentReleaseTag = [string]$buildInfo.releaseTag',
-  '  if (-not $currentReleaseTag -and $buildInfo.version) { $currentReleaseTag = "v" + [string]$buildInfo.version }',
-  '  $currentVersion = Normalize-VersionToken([string]$buildInfo.version)',
-  '  $currentReleaseVersion = Normalize-VersionToken($currentReleaseTag)',
-  '  $latestVersionObject = $null',
-  '  $currentVersionObject = $null',
-  '  if ($releaseVersion) { try { $latestVersionObject = [version]$releaseVersion } catch {} }',
-  '  if ($currentVersion) { try { $currentVersionObject = [version]$currentVersion } catch {} }',
-  '  if (-not $currentVersionObject -and $currentReleaseVersion) { try { $currentVersionObject = [version]$currentReleaseVersion } catch {} }',
-  '  if (($currentReleaseTag -and $currentReleaseTag -eq $releaseTag) -or ($currentVersion -and $releaseVersion -and $currentVersion -eq $releaseVersion) -or ($currentReleaseVersion -and $releaseVersion -and $currentReleaseVersion -eq $releaseVersion)) {',
-  '    Write-UpdaterLog ("Agent already latest. currentVersion={0}; currentReleaseTag={1}; latestReleaseTag={2}" -f $currentVersion, $currentReleaseTag, $releaseTag)',
-  '    return $false',
-  '  }',
-  '  if ($latestVersionObject -and $currentVersionObject -and $latestVersionObject -le $currentVersionObject) {',
-  '    Write-UpdaterLog ("Skipping update because current version is newer or equal. currentVersion={0}; latestReleaseTag={1}" -f $currentVersion, $releaseTag)',
-  '    return $false',
-  '  }',
-  '  $assetName = [string]$buildInfo.assetName',
-  '  $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1',
-  '  if (-not $asset) {',
-  '    throw "Release $releaseTag does not contain asset $assetName."',
-  '  }',
-  '  Write-UpdaterLog "Updating agent from release $currentReleaseTag to $releaseTag using asset $assetName"',
-  '  Stop-AgentProcess',
-  '  $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("e-rapor-update-" + [guid]::NewGuid().ToString("N"))',
-  '  $zipPath = Join-Path $tempRoot $asset.name',
-  '  $extractPath = Join-Path $tempRoot "extract"',
-  '  $headers = Get-RequestHeaders',
-  '  New-Item -ItemType Directory -Path $extractPath -Force | Out-Null',
-  '  Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $zipPath',
-  '  Expand-Archive -LiteralPath $zipPath -DestinationPath $extractPath -Force',
-  '  $packageRoot = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1',
-  '  if (-not $packageRoot) { $packageRoot = $extractPath }',
-  '  $packageDist = Join-Path $packageRoot "dist"',
-  '  if (-not (Test-Path $packageDist)) { $packageDist = $packageRoot }',
-  '  Get-ChildItem -Path $packageDist -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue',
-  '  if (-not (Test-Path (Join-Path $packageDist "e-rapor-agent.exe"))) {',
-  '    throw "Downloaded package does not contain e-rapor-agent.exe."',
-  '  }',
-  '  Invoke-Robocopy $packageDist $distDir',
-  '  Set-BuildInfoValue $buildInfo "releaseTag" $releaseTag',
-  '  Set-BuildInfoValue $buildInfo "version" $releaseVersion',
-  '  $nextCommit = $buildInfo.commit',
-  '  if ($release.target_commitish) { $nextCommit = [string]$release.target_commitish }',
-  '  Set-BuildInfoValue $buildInfo "commit" $nextCommit',
-  '  Set-BuildInfoValue $buildInfo "builtAt" ((Get-Date).ToString("o"))',
-  '  Save-BuildInfo $buildInfo',
-  '  Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue',
-  '  Write-UpdaterLog "Agent updated successfully to release $releaseTag"',
-  '  return $true',
-  '}',
-  '$didUpdate = $false',
-  'Ensure-RequiredEnvironment',
-  'try {',
-  '  $didUpdate = Update-FromRelease',
-  '} catch {',
-  '  Write-UpdaterLog "Auto-update failed: $($_.Exception.Message)"',
-  '}',
-  'if ($didUpdate) {',
-  '  Start-AgentDeferred',
-  '} else {',
-  '  Start-AgentNow',
-  '}',
-  "",
-].join("\r\n");
-
-fs.writeFileSync(vbsPath, vbsContent, "ascii");
-fs.writeFileSync(adminVbsPath, adminVbsContent, "ascii");
-fs.writeFileSync(ps1Path, ps1Content, "ascii");
-fs.writeFileSync(adminPs1Path, adminPs1Content, "ascii");
-fs.writeFileSync(stopPs1Path, stopPs1Content, "ascii");
-fs.writeFileSync(watchLogPs1Path, watchLogPs1Content, "ascii");
-fs.writeFileSync(resetCloudflaredPs1Path, resetCloudflaredPs1Content, "ascii");
-fs.writeFileSync(cleanStartPs1Path, cleanStartPs1Content, "utf8");
-fs.writeFileSync(updateAndRunPs1Path, updateAndRunPs1Content, "utf8");
-fs.writeFileSync(buildInfoPath, `${JSON.stringify(buildInfo, null, 2)}\n`, "utf8");
-fs.writeFileSync(
-  runtimeConfigOutputPath,
-  `${JSON.stringify(loadPackagedRuntimeConfig(), null, 2)}\n`,
-  "utf8"
-);
-if (fs.existsSync(faviconSourcePath)) {
-  fs.copyFileSync(faviconSourcePath, faviconOutputPath);
+  return {
+    owner: githubRemote.owner,
+    repo: githubRemote.repo,
+    branch: gitBranch === "HEAD" ? "main" : gitBranch || "main",
+    version: buildVersionInfo.version,
+    commit: gitCommit || null,
+    releaseChannel: "latest",
+    releaseTag: buildVersionInfo.releaseTag,
+    builtAt: new Date().toISOString(),
+  };
 }
 
-for (const legacyPath of legacyShortcutPaths) {
-  try {
-    if (fs.existsSync(legacyPath)) {
-      fs.unlinkSync(legacyPath);
-    }
-  } catch (error) {
-    // Best-effort cleanup for old shortcut artifacts in dist.
+function writeTextFile(filePath, content, encoding = "utf8") {
+  ensureDirectory(path.dirname(filePath));
+  fs.writeFileSync(filePath, content, encoding);
+}
+
+function createPowerShellScripts() {
+  const registerStartupPs1 = [
+    '$ErrorActionPreference = "Stop"',
+    `$taskName = '${STARTUP_TASK_NAME.replace(/'/g, "''")}'`,
+    `$description = '${STARTUP_TASK_DESCRIPTION.replace(/'/g, "''")}'`,
+    `$installDir = $PSScriptRoot`,
+    `$appName = '${APP_NAME.replace(/'/g, "''")}'`,
+    '$programData = $env:ProgramData',
+    'if (-not $programData) { $programData = "C:\\ProgramData" }',
+    '$dataDir = Join-Path $programData $appName',
+    '$startScriptPath = Join-Path $installDir "start-agent-clean.ps1"',
+    '$powerShellPath = Join-Path $env:SystemRoot "System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
+    'New-Item -ItemType Directory -Path $dataDir -Force | Out-Null',
+    '$argument = \'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "\' + $startScriptPath + \'"\'',
+    '$action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $argument',
+    '$trigger = New-ScheduledTaskTrigger -AtStartup',
+    "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest",
+    '$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -StartWhenAvailable',
+    'if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {',
+    '  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false',
+    '}',
+    'Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description $description -Force | Out-Null',
+    '',
+  ].join("\r\n");
+
+  const stopAgentPs1 = [
+    '$ErrorActionPreference = "Continue"',
+    `$agentExeName = '${AGENT_EXE_NAME.replace(/'/g, "''")}'`,
+    `$legacyAgentExeName = 'e-rapor-agent.exe'`,
+    `$taskName = '${STARTUP_TASK_NAME.replace(/'/g, "''")}'`,
+    `$dataDir = Join-Path ($env:ProgramData ? $env:ProgramData : "C:\\ProgramData") '${APP_NAME.replace(/'/g, "''")}'`,
+    '$stateDir = Join-Path $dataDir "state"',
+    '$lockPath = Join-Path $stateDir "agent.lock"',
+    'function Stop-ByLockFile {',
+    '  if (-not (Test-Path $lockPath)) { return }',
+    '  try {',
+    '    $payload = Get-Content $lockPath -Raw | ConvertFrom-Json',
+    '    if ($payload.pid) { taskkill /PID $payload.pid /T /F *> $null }',
+    '  } catch {}',
+    '}',
+    'Stop-ByLockFile',
+    'taskkill /F /IM $agentExeName /T *> $null',
+    'taskkill /F /IM $legacyAgentExeName /T *> $null',
+    'taskkill /F /IM cloudflared.exe /T *> $null',
+    'Get-CimInstance Win32_Process -Filter "Name = \'powershell.exe\'" -ErrorAction SilentlyContinue |',
+    '  Where-Object {',
+    '    $commandLine = [string]$_.CommandLine',
+    '    $commandLine -like "*update-and-run.ps1*" -or',
+    '    $commandLine -like "*start-agent-clean.ps1*" -or',
+    '    $commandLine -like "*post-install.ps1*"',
+    '  } | ForEach-Object {',
+    '    if ($_.ProcessId -and $_.ProcessId -ne $PID) { taskkill /PID $_.ProcessId /T /F *> $null }',
+    '  }',
+    'if (Test-Path $lockPath) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }',
+    '',
+  ].join("\r\n");
+
+  const startAgentCleanPs1 = [
+    '$ErrorActionPreference = "Stop"',
+    '$installDir = $PSScriptRoot',
+    `$agentExeName = '${AGENT_EXE_NAME.replace(/'/g, "''")}'`,
+    `$appName = '${APP_NAME.replace(/'/g, "''")}'`,
+    '$programData = $env:ProgramData',
+    'if (-not $programData) { $programData = "C:\\ProgramData" }',
+    '$dataDir = Join-Path $programData $appName',
+    '$stateDir = Join-Path $dataDir "state"',
+    '$tunnelStateDir = Join-Path $stateDir "tunnels"',
+    '$runtimeDir = Join-Path $dataDir "runtime"',
+    '$cacheDir = Join-Path $dataDir "cache"',
+    '$logsDir = Join-Path $dataDir "logs"',
+    '$updatesDir = Join-Path $dataDir "updates"',
+    '$stopScriptPath = Join-Path $installDir "stop-agent.ps1"',
+    '& $stopScriptPath',
+    'foreach ($dir in @($dataDir, $stateDir, $runtimeDir, $cacheDir, $logsDir, $updatesDir, $tunnelStateDir)) {',
+    '  New-Item -ItemType Directory -Path $dir -Force | Out-Null',
+    '}',
+    'if (Test-Path $tunnelStateDir) {',
+    '  Remove-Item -LiteralPath (Join-Path $tunnelStateDir "*") -Recurse -Force -ErrorAction SilentlyContinue',
+    '}',
+    '$agentExePath = Join-Path $installDir $agentExeName',
+    'Start-Process -FilePath $agentExePath -WorkingDirectory $installDir -WindowStyle Hidden',
+    '',
+  ].join("\r\n");
+
+  const watchAgentLogPs1 = [
+    '$programData = $env:ProgramData',
+    'if (-not $programData) { $programData = "C:\\ProgramData" }',
+    `$logDir = Join-Path (Join-Path $programData '${APP_NAME.replace(/'/g, "''")}') "logs"`,
+    '$latest = Get-ChildItem -Path $logDir -Filter "agent*.log" -ErrorAction SilentlyContinue |',
+    '  Sort-Object LastWriteTime -Descending |',
+    '  Select-Object -First 1',
+    'if ($latest) {',
+    '  Get-Content -Path $latest.FullName -Wait',
+    '} else {',
+    '  Write-Host "No agent log file found yet."',
+    '}',
+    '',
+  ].join("\r\n");
+
+  const updateAndRunPs1 = [
+    '$ErrorActionPreference = "Stop"',
+    '$installDir = $PSScriptRoot',
+    '$buildInfoPath = Join-Path $installDir "agent-build.json"',
+    '$programData = $env:ProgramData',
+    'if (-not $programData) { $programData = "C:\\ProgramData" }',
+    `$dataDir = Join-Path $programData '${APP_NAME.replace(/'/g, "''")}'`,
+    '$updatesDir = Join-Path $dataDir "updates"',
+    '$logsDir = Join-Path $dataDir "logs"',
+    '$logPath = Join-Path $logsDir "updater.log"',
+    'New-Item -ItemType Directory -Path $updatesDir -Force | Out-Null',
+    'New-Item -ItemType Directory -Path $logsDir -Force | Out-Null',
+    '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls',
+    'function Write-UpdaterLog([string]$message) {',
+    '  $timestamp = (Get-Date).ToString("s")',
+    '  Add-Content -Path $logPath -Value "[$timestamp] $message"',
+    '}',
+    'function Normalize-VersionToken([string]$value) {',
+    '  if (-not $value) { return "" }',
+    '  $normalized = $value.Trim()',
+    '  if ($normalized.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {',
+    '    $normalized = $normalized.Substring(1)',
+    '  }',
+    '  return $normalized',
+    '}',
+    'function Read-BuildInfo {',
+    '  if (-not (Test-Path $buildInfoPath)) { throw "agent-build.json is missing." }',
+    '  return Get-Content $buildInfoPath -Raw | ConvertFrom-Json',
+    '}',
+    'function Get-RequestHeaders {',
+    '  $headers = @{ "User-Agent" = "school-services-updater" }',
+    '  $token = $env:GITHUB_TOKEN',
+    '  if (-not $token) { $token = $env:GH_TOKEN }',
+    '  if ($token) { $headers["Authorization"] = "Bearer $token" }',
+    '  return $headers',
+    '}',
+    'function Get-LatestRelease($buildInfo) {',
+    '  $owner = [string]$buildInfo.owner',
+    '  $repo = [string]$buildInfo.repo',
+    '  if (-not $owner -or -not $repo) { throw "GitHub owner/repo is missing from build metadata." }',
+    '  $releaseChannel = [string]$buildInfo.releaseChannel',
+    '  if (-not $releaseChannel) { $releaseChannel = "latest" }',
+    '  $headers = Get-RequestHeaders',
+    '  if ($releaseChannel -eq "latest") {',
+    '    return Invoke-RestMethod -Uri ("https://api.github.com/repos/$owner/$repo/releases/latest") -Headers $headers',
+    '  }',
+    '  return Invoke-RestMethod -Uri ("https://api.github.com/repos/$owner/$repo/releases/tags/" + $releaseChannel) -Headers $headers',
+    '}',
+    'function Stop-ExistingAgent {',
+    '  & (Join-Path $installDir "stop-agent.ps1")',
+    '}',
+    '$buildInfo = Read-BuildInfo',
+    '$release = Get-LatestRelease $buildInfo',
+    '$releaseTag = [string]$release.tag_name',
+    '$releaseVersion = Normalize-VersionToken $releaseTag',
+    '$currentVersion = Normalize-VersionToken ([string]$buildInfo.version)',
+    'if (-not $releaseVersion) { throw "Latest release tag is not a semantic version." }',
+    'if ($currentVersion) {',
+    '  try {',
+    '    if ([version]$releaseVersion -le [version]$currentVersion) {',
+    '      Write-UpdaterLog ("Skipping update because current version is newer or equal. currentVersion={0}; latestReleaseTag={1}" -f $currentVersion, $releaseTag)',
+    '      exit 0',
+    '    }',
+    '  } catch {}',
+    '}',
+    `$assetName = 'School Services v' + $releaseVersion + '.exe'`,
+    '$asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1',
+    'if (-not $asset) { throw "Release does not contain installer asset $assetName." }',
+    '$installerPath = Join-Path $updatesDir $asset.name',
+    'Write-UpdaterLog ("Downloading installer " + $asset.name)',
+    'Invoke-WebRequest -Uri $asset.browser_download_url -Headers (Get-RequestHeaders) -OutFile $installerPath',
+    'Stop-ExistingAgent',
+    '$helperPath = Join-Path $updatesDir ("apply-update-" + [guid]::NewGuid().ToString("N") + ".ps1")',
+    '$powerShellPath = Join-Path $env:SystemRoot "System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
+    "$helperContent = @'",
+    '$ErrorActionPreference = "Stop"',
+    'Start-Sleep -Seconds 3',
+    "$installerPath = '{0}'",
+    "$logPath = '{1}'",
+    'function Write-HelperLog([string]$message) {',
+    '  $timestamp = (Get-Date).ToString("s")',
+    '  Add-Content -Path $logPath -Value "[$timestamp] [apply-update] $message"',
+    '}',
+    'Write-HelperLog ("Running silent installer " + $installerPath)',
+    '$process = Start-Process -FilePath $installerPath -ArgumentList @("/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART") -WindowStyle Hidden -PassThru -Wait',
+    'if ($process.ExitCode -ne 0) { throw "Installer exited with code $($process.ExitCode)." }',
+    'Write-HelperLog "Update completed successfully."',
+    'Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue',
+    "'@ -f ($installerPath -replace \"'\", \"''\"), ($logPath -replace \"'\", \"''\")",
+    'Set-Content -Path $helperPath -Value $helperContent -Encoding UTF8',
+    'Write-UpdaterLog ("Starting detached update helper " + $helperPath)',
+    'Start-Process -FilePath $powerShellPath -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$helperPath) -WindowStyle Hidden',
+    '',
+  ].join("\r\n");
+
+  const postInstallPs1 = [
+    '$ErrorActionPreference = "Stop"',
+    '$installDir = $PSScriptRoot',
+    '$programData = $env:ProgramData',
+    'if (-not $programData) { $programData = "C:\\ProgramData" }',
+    `$appName = '${APP_NAME.replace(/'/g, "''")}'`,
+    '$dataDir = Join-Path $programData $appName',
+    '$configTargetPath = Join-Path $dataDir "agent.runtime.json"',
+    '$legacyConfigCandidates = New-Object System.Collections.Generic.List[string]',
+    'function Add-Candidate([string]$candidate) {',
+    '  if (-not $candidate) { return }',
+    '  if ($legacyConfigCandidates.Contains($candidate)) { return }',
+    '  $legacyConfigCandidates.Add($candidate)',
+    '}',
+    'function Get-LegacyTaskScriptPath {',
+    `  $taskName = '${STARTUP_TASK_NAME.replace(/'/g, "''")}'`,
+    '  try {',
+    '    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue',
+    '    if (-not $task) { return $null }',
+    '    $action = @($task.Actions | Select-Object -First 1)[0]',
+    '    if (-not $action) { return $null }',
+    '    $arguments = [string]$action.Arguments',
+    '    $match = [regex]::Match($arguments, \'-File\\s+"([^"]+)"\')',
+    '    if ($match.Success) { return $match.Groups[1].Value }',
+    '  } catch {}',
+    '  return $null',
+    '}',
+    'function Migrate-LegacyConfig {',
+    '  New-Item -ItemType Directory -Path $dataDir -Force | Out-Null',
+    '  Add-Candidate (Join-Path $installDir "agent.runtime.json")',
+    '  Add-Candidate (Join-Path (Split-Path $installDir -Parent) "agent.runtime.json")',
+    '  $legacyTaskScriptPath = Get-LegacyTaskScriptPath',
+    '  if ($legacyTaskScriptPath) {',
+    '    $legacyDistDir = Split-Path $legacyTaskScriptPath -Parent',
+    '    Add-Candidate (Join-Path $legacyDistDir "agent.runtime.json")',
+    '    Add-Candidate (Join-Path (Split-Path $legacyDistDir -Parent) "agent.runtime.json")',
+    '  }',
+    '  if (-not (Test-Path $configTargetPath)) {',
+    '    foreach ($candidate in $legacyConfigCandidates) {',
+    '      if (Test-Path $candidate) {',
+    '        Copy-Item -LiteralPath $candidate -Destination $configTargetPath -Force',
+    '        break',
+    '      }',
+    '    }',
+    '  }',
+    '}',
+    'function Remove-LegacyGuestShortcuts {',
+    `  $shortcutName = '${LEGACY_GUEST_SHORTCUT_NAME.replace(/'/g, "''")}'`,
+    '  $usersRoot = "C:\\Users"',
+    '  if (-not (Test-Path $usersRoot)) { return }',
+    '  Get-ChildItem -Path $usersRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {',
+    '    $desktopPath = Join-Path $_.FullName "Desktop"',
+    '    $oneDriveDesktopPath = Join-Path $_.FullName "OneDrive\\Desktop"',
+    '    foreach ($candidate in @((Join-Path $desktopPath $shortcutName), (Join-Path $oneDriveDesktopPath $shortcutName))) {',
+    '      if (Test-Path $candidate) { Remove-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue }',
+    '    }',
+    '  }',
+    '}',
+    'Migrate-LegacyConfig',
+    'Remove-LegacyGuestShortcuts',
+    '& (Join-Path $installDir "register-startup.ps1")',
+    '& (Join-Path $installDir "start-agent-clean.ps1")',
+    '',
+  ].join("\r\n");
+
+  const uninstallCleanupPs1 = [
+    '$ErrorActionPreference = "Continue"',
+    `try { Unregister-ScheduledTask -TaskName '${STARTUP_TASK_NAME.replace(/'/g, "''")}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}`,
+    '& (Join-Path $PSScriptRoot "stop-agent.ps1")',
+    '',
+  ].join("\r\n");
+
+  return {
+    "register-startup.ps1": registerStartupPs1,
+    "stop-agent.ps1": stopAgentPs1,
+    "start-agent-clean.ps1": startAgentCleanPs1,
+    "watch-agent-log.ps1": watchAgentLogPs1,
+    "update-and-run.ps1": updateAndRunPs1,
+    "post-install.ps1": postInstallPs1,
+    "uninstall-cleanup.ps1": uninstallCleanupPs1,
+  };
+}
+
+function main() {
+  ensureDirectory(payloadDir);
+
+  const scripts = createPowerShellScripts();
+  for (const [fileName, content] of Object.entries(scripts)) {
+    writeTextFile(path.join(payloadDir, fileName), content, "utf8");
   }
+
+  writeTextFile(
+    runtimeConfigOutputPath,
+    `${JSON.stringify(loadPackagedRuntimeConfig(), null, 2)}\n`,
+    "utf8"
+  );
+  writeTextFile(
+    buildInfoPath,
+    `${JSON.stringify(buildInfoPayload(), null, 2)}\n`,
+    "utf8"
+  );
+
+  if (fs.existsSync(faviconSourcePath)) {
+    fs.copyFileSync(faviconSourcePath, faviconOutputPath);
+  }
+
+  console.log(`Wrote installer payload files to ${payloadDir}`);
 }
 
-console.log(`Wrote launcher files to ${distDir}`);
+main();

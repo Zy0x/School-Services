@@ -6,7 +6,7 @@
   "bin": "index.js",
   "scripts": {
     "dev": "node index.js",
-    "build": "pkg . --targets node18-win-x64 --output dist/e-rapor-agent.exe && node write-launchers.js && pkg setup.js --targets node18-win-x64 --output \"dist/School Services.exe\" && node set-setup-icon.js"
+    "build": "npx pkg . --targets node18-win-x64 --output \"dist/payload/School Services Agent.exe\" && npx pkg launcher.package.json --targets node18-win-x64 --output \"dist/payload/School Services.exe\" && node write-launchers.js && node build-installer.js"
   },
   "pkg": {
     "assets": [

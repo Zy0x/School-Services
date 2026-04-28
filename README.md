@@ -9,8 +9,9 @@ Untuk instalasi Windows yang umum, agent sekarang mencoba langsung:
 - konek ke Supabase publik bawaan repo
 - mendeteksi service Windows E-Rapor dan Dapodik secara otomatis
 - mendeteksi file config lokal E-Rapor yang perlu diubah untuk `app.baseURL`
-- membuat shortcut desktop `School Services.url` dengan icon `favicon.ico`
-- membuka halaman guest yang otomatis menunggu agent/service siap lalu masuk ke E-Rapor saat public URL sudah tersedia
+- memasang aplikasi `School Services` ke `C:\Program Files\School Services`
+- menyimpan state tulis ke `C:\ProgramData\School Services`
+- membuka halaman guest lewat launcher `School Services` di browser default
 - tetap jalan walau software target belum terpasang atau agent belum dijalankan sebagai Administrator
 
 ## Isi Repo
@@ -58,26 +59,27 @@ npm run dashboard:build
 npm run agent:build
 ```
 
-Output agent akan berada di `agent/dist/e-rapor-agent.exe`.
+Build ini sekarang menghasilkan:
 
-Build agent juga menyalin `favicon.ico` ke `agent/dist` agar shortcut `School Services` memakai icon yang sama.
+- payload installer internal di `agent/dist/payload/`
+- installer final di `agent/dist/release/School Services vX.Y.Z.exe`
 
-Untuk menjalankan:
+Syarat build installer:
 
-- `agent/dist/run-agent-hidden.vbs`: mode biasa
-- `agent/dist/run-agent-admin-hidden.vbs`: mode Administrator, dipakai jika agent perlu start/stop Windows service yang belum berjalan
-- `agent/dist/School Services.exe`: sekali klik untuk meminta hak Administrator, membersihkan agent/tunnel lama, menyalakan agent baru, dan mendaftarkan startup otomatis dengan hak tertinggi
+- Inno Setup 6 (`ISCC.exe`) harus terpasang atau path-nya diset lewat `ISCC_PATH`
 
-## Startup Otomatis
+## Layout Instalasi Windows
 
-Jalankan `agent/dist/School Services.exe` satu kali.
+Installer `School Services vX.Y.Z.exe` akan:
 
-Setup ini akan:
-
-- meminta hak Administrator
-- mematikan agent lama, helper PowerShell lama, `cloudflared.exe`, lock file, dan state tunnel lama
-- menyalakan agent baru secara clean
+- memasang binary read-only ke `C:\Program Files\School Services`
+- menyimpan konfigurasi, log, cache, update, dan tunnel state ke `C:\ProgramData\School Services`
+- membuat Start Menu entry `School Services`
+- membuat desktop shortcut `.lnk` hanya jika dipilih saat install
 - mendaftarkan Scheduled Task Windows agar agent otomatis jalan saat startup sistem dengan hak tertinggi
+- membersihkan scheduled task lama dan shortcut legacy `School Services.url`
+
+Saat user membuka `School Services`, launcher akan memastikan background agent aktif lalu membuka guest portal di browser default.
 
 ## Konfigurasi Minimum
 
@@ -105,8 +107,7 @@ Opsional:
 - atur service lokal yang ingin dijalankan
 - atur `cloudflaredPath` jika `cloudflared.exe` tidak ada di PATH Windows
 - atur file config target lokal jika agent perlu menulis URL publik ke file aplikasi Anda
-- atur `guestPortal.filePaths` jika lokasi shortcut `School Services.url` ingin dipindah
-- atur `guestPortal.iconFile` jika ingin memakai icon selain `favicon.ico`
+- atur `guestPortal.baseUrl` jika domain guest portal berubah
 
 Kalau `agent.runtime.json` tidak ada, agent tetap akan memakai built-in defaults dan autodiscovery.
 
@@ -114,5 +115,6 @@ Kalau `agent.runtime.json` tidak ada, agent tetap akan memakai built-in defaults
 
 - Jangan commit `.env`, `agent.runtime.json`, log runtime, atau file automation lokal.
 - Jangan masukkan service role key, secret key, access token, password database, atau token admin lain ke repo.
-- Shortcut E-Rapor asli tidak lagi diubah oleh agent. Akses user diarahkan lewat shortcut desktop `School Services`.
-- Updater agent hanya akan mengambil rilis GitHub jika versi rilis memang lebih baru daripada versi agent yang sedang berjalan.
+- Release Windows resmi sekarang berupa satu file installer: `School Services vX.Y.Z.exe`.
+- Tag release yang didukung updater adalah `vX.Y.Z` atau `X.Y.Z`.
+- Updater agent akan mengambil installer GitHub yang versinya lebih baru lalu menjalankan silent upgrade di background.

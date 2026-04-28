@@ -1,0 +1,16 @@
+{
+  "name": "school-services-launcher",
+  "version": "1.0.8",
+  "private": true,
+  "main": "launcher.js",
+  "bin": "launcher.js",
+  "pkg": {
+    "assets": [
+      "../cloudflared.exe"
+    ]
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "dotenv": "^16.6.1"
+  }
+}

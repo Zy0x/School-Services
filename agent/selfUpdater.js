@@ -1,7 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
-const { getBaseDir } = require("./utils");
+const { VERSIONED_INSTALLER_PREFIX } = require("./appConstants");
+const { getBuildInfoPath, getInstallDir } = require("./paths");
+const { getPowerShellPath } = require("./windows");
 
 function normalizeVersionToken(value) {
   const normalized = String(value || "").trim();
@@ -32,30 +34,27 @@ function compareVersionParts(left, right) {
   return 0;
 }
 
+function resolveReleaseAssetName(version) {
+  const normalizedVersion = normalizeVersionToken(version);
+  if (!normalizedVersion) {
+    return null;
+  }
+
+  return `${VERSIONED_INSTALLER_PREFIX}${normalizedVersion}.exe`;
+}
+
 class SelfUpdater {
   constructor(options = {}) {
     this.enabled = options.enabled !== false;
     this.intervalMs = Number(options.intervalMs || 300000);
     this.logger = options.logger;
-    this.baseDir = options.baseDir || getBaseDir();
-    this.buildInfoPath =
-      options.buildInfoPath || path.join(this.baseDir, "agent-build.json");
+    this.baseDir = options.baseDir || getInstallDir();
+    this.buildInfoPath = options.buildInfoPath || getBuildInfoPath();
     this.updateScriptPath =
       options.updateScriptPath || path.join(this.baseDir, "update-and-run.ps1");
     this.lastCheckedAt = 0;
     this.lastKnownReleaseTag = null;
     this.lastKnownReleaseVersion = null;
-  }
-
-  getPowerShellPath() {
-    const systemRoot = process.env.SystemRoot || "C:\\Windows";
-    return path.join(
-      systemRoot,
-      "System32",
-      "WindowsPowerShell",
-      "v1.0",
-      "powershell.exe"
-    );
   }
 
   log(level, message, details = {}) {
@@ -153,6 +152,10 @@ class SelfUpdater {
     const latestRelease = await this.getLatestRelease(buildInfo);
     const latestReleaseTag = String(latestRelease.tag_name || "").trim();
     const latestReleaseVersion = normalizeVersionToken(latestReleaseTag);
+    const expectedAssetName = resolveReleaseAssetName(latestReleaseVersion);
+    const matchingAsset = Array.isArray(latestRelease.assets)
+      ? latestRelease.assets.find((asset) => asset?.name === expectedAssetName)
+      : null;
     const currentReleaseTag = String(buildInfo.releaseTag || "").trim();
     const currentVersion = normalizeVersionToken(buildInfo.version);
     const currentReleaseVersion = normalizeVersionToken(currentReleaseTag);
@@ -178,9 +181,11 @@ class SelfUpdater {
 
     return {
       checked: true,
-      updateAvailable,
+      updateAvailable: updateAvailable && Boolean(matchingAsset),
+      expectedAssetName,
       latestReleaseTag,
       latestReleaseVersion,
+      matchingAssetName: matchingAsset?.name || null,
       currentReleaseTag,
       currentVersion,
     };

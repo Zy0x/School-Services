@@ -1,12 +1,17 @@
 const path = require("path");
 const dotenv = require("dotenv");
+const { LEGACY_GUEST_SHORTCUT_NAME } = require("./appConstants");
 const { ensureBundledCloudflared } = require("./embeddedBinary");
+const {
+  getFileJobsRoot,
+  getInstallDir,
+  getLogsDir,
+} = require("./paths");
 const { buildDefaults } = require("./serviceConfigs");
 const logger = require("./logger");
 const {
   buildAncestorCandidates,
   deepMerge,
-  getBaseDir,
   getRuntimeConfigPath,
   readJsonFile,
   resolveExistingPath,
@@ -14,7 +19,7 @@ const {
 } = require("./utils");
 
 function loadEnvironmentFiles() {
-  const baseDir = getBaseDir();
+  const baseDir = getInstallDir();
   const candidates = [
     ...buildAncestorCandidates(process.cwd(), ".env"),
     ...buildAncestorCandidates(baseDir, ".env"),
@@ -61,7 +66,7 @@ function loadRuntimeOverrides() {
 }
 
 function resolveCloudflaredPath(overridePath) {
-  const baseDir = getBaseDir();
+  const baseDir = getInstallDir();
   const bundledPath = ensureBundledCloudflared();
   const fileCandidates = [
     overridePath,
@@ -97,7 +102,7 @@ function resolveConfigRelativePath(filePath, runtimeConfigPath) {
     return path.resolve(path.dirname(runtimeConfigPath), filePath);
   }
 
-  return path.resolve(getBaseDir(), filePath);
+  return path.resolve(getInstallDir(), filePath);
 }
 
 function isSystemAccountEnvironment() {
@@ -130,7 +135,7 @@ function loadConfig() {
   const localLogPath = resolveConfigRelativePath(
     overrides.localLogPath ||
       process.env.AGENT_LOG_PATH ||
-      path.join(getBaseDir(), "logs", `agent-${new Date().toISOString().slice(0, 10)}.log`),
+      path.join(getLogsDir(), `agent-${new Date().toISOString().slice(0, 10)}.log`),
     runtimeConfigPath
   );
   const tunnelMode = String(
@@ -182,23 +187,23 @@ function loadConfig() {
       : "C:\\Users\\Public\\Desktop",
   ].filter(Boolean);
   const publicDesktopShortcutPath = process.env.PUBLIC
-    ? path.join(process.env.PUBLIC, "Desktop", "School Services.url")
-    : "C:\\Users\\Public\\Desktop\\School Services.url";
+    ? path.join(process.env.PUBLIC, "Desktop", LEGACY_GUEST_SHORTCUT_NAME)
+    : `C:\\Users\\Public\\Desktop\\${LEGACY_GUEST_SHORTCUT_NAME}`;
   const defaultGuestShortcutPaths = isSystemAccountEnvironment()
     ? [publicDesktopShortcutPath]
     : [
-        oneDriveRoot ? path.join(oneDriveRoot, "Desktop", "School Services.url") : null,
+        oneDriveRoot ? path.join(oneDriveRoot, "Desktop", LEGACY_GUEST_SHORTCUT_NAME) : null,
         process.env.USERPROFILE
-          ? path.join(process.env.USERPROFILE, "OneDrive", "Desktop", "School Services.url")
+          ? path.join(process.env.USERPROFILE, "OneDrive", "Desktop", LEGACY_GUEST_SHORTCUT_NAME)
           : null,
         process.env.USERPROFILE
-          ? path.join(process.env.USERPROFILE, "Desktop", "School Services.url")
+          ? path.join(process.env.USERPROFILE, "Desktop", LEGACY_GUEST_SHORTCUT_NAME)
           : null,
         publicDesktopShortcutPath,
       ].filter(Boolean);
   const defaultFaviconPath = resolveExistingPath([
     ...buildAncestorCandidates(process.cwd(), "favicon.ico"),
-    ...buildAncestorCandidates(getBaseDir(), "favicon.ico"),
+    ...buildAncestorCandidates(getInstallDir(), "favicon.ico"),
   ]);
 
   if (!supabaseAnonKey) {
@@ -245,7 +250,7 @@ function loadConfig() {
       workspaceRoot: resolveConfigRelativePath(
         overrides.fileAccess?.workspaceRoot ||
           process.env.AGENT_FILE_WORKSPACE_ROOT ||
-          path.join(getBaseDir(), "runtime", "file-jobs"),
+          getFileJobsRoot(),
         runtimeConfigPath
       ),
       maxArtifactBytes: Number(
@@ -302,7 +307,7 @@ function loadConfig() {
       fileName:
         overrides.guestPortal?.fileName ||
         process.env.GUEST_PORTAL_FILE_NAME ||
-        "School Services.url",
+        LEGACY_GUEST_SHORTCUT_NAME,
       iconFile:
         overrides.guestPortal?.iconFile ||
         process.env.GUEST_PORTAL_ICON_FILE ||

@@ -25,6 +25,7 @@ const adminPs1Path = path.join(distDir, "run-agent-admin.ps1");
 const stopPs1Path = path.join(distDir, "stop-agent.ps1");
 const watchLogPs1Path = path.join(distDir, "watch-agent-log.ps1");
 const resetCloudflaredPs1Path = path.join(distDir, "reset-cloudflared.ps1");
+const cleanStartPs1Path = path.join(distDir, "start-agent-clean.ps1");
 const updateAndRunPs1Path = path.join(distDir, "update-and-run.ps1");
 const buildInfoPath = path.join(distDir, "agent-build.json");
 const faviconSourcePath = path.join(repoRoot, "favicon.ico");
@@ -223,7 +224,7 @@ const adminVbsContent = [
   'Set shellApp = CreateObject("Shell.Application")',
   'Set fso = CreateObject("Scripting.FileSystemObject")',
   'currentDir = fso.GetParentFolderName(WScript.ScriptFullName)',
-  'args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\update-and-run.ps1" & Chr(34)',
+  'args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\start-agent-clean.ps1" & Chr(34)',
   `shellApp.ShellExecute "${powerShellPath.replace(/\\/g, "\\\\")}", args, currentDir, "runas", 0`,
   "",
 ].join("\r\n");
@@ -234,7 +235,7 @@ const ps1Content = [
 ].join("\r\n");
 
 const adminPs1Content = [
-  '$scriptPath = Join-Path $PSScriptRoot "update-and-run.ps1"',
+  '$scriptPath = Join-Path $PSScriptRoot "start-agent-clean.ps1"',
   `Start-Process -FilePath "${powerShellPath.replace(/\\/g, "\\\\")}" -ArgumentList @("-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$scriptPath) -Verb RunAs -WindowStyle Hidden`,
   "",
 ].join("\r\n");
@@ -282,6 +283,67 @@ const resetCloudflaredPs1Content = [
   '  Remove-Item -LiteralPath (Join-Path $stateDir "*") -Force -ErrorAction SilentlyContinue',
   '}',
   'Write-Host "Cloudflared processes and tunnel state have been reset."',
+  "",
+].join("\r\n");
+
+const cleanStartPs1Content = [
+  '$ErrorActionPreference = "Stop"',
+  'Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force',
+  '$distDir = $PSScriptRoot',
+  '$stateDir = Join-Path $distDir ".state"',
+  '$lockPath = Join-Path $stateDir "agent.lock"',
+  '$tunnelStateDir = Join-Path $stateDir "tunnels"',
+  '$systemRoot = $env:SystemRoot',
+  'if (-not $systemRoot) { $systemRoot = "C:\\Windows" }',
+  '$cmdPath = Join-Path $systemRoot "System32\\cmd.exe"',
+  '$powerShellPath = Join-Path $systemRoot "System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
+  '$updaterPath = Join-Path $distDir "update-and-run.ps1"',
+  'function Invoke-TaskkillSafe([string[]]$arguments) {',
+  '  if (-not (Test-Path $cmdPath)) { return }',
+  '  $quotedArguments = $arguments | ForEach-Object {',
+  `    if ($_ -match "\\s") { return '"' + $_ + '"' }`,
+  '    return $_',
+  '  }',
+  '  $argumentLine = "/c taskkill " + ($quotedArguments -join " ") + " >nul 2>&1"',
+  '  $process = Start-Process -FilePath $cmdPath -ArgumentList $argumentLine -WindowStyle Hidden -Wait -PassThru -ErrorAction SilentlyContinue',
+  '  if ($process) { $null = $process.ExitCode }',
+  '}',
+  'function Stop-AgentByLock {',
+  '  if (-not (Test-Path $lockPath)) { return }',
+  '  try {',
+  '    $payload = Get-Content $lockPath -Raw | ConvertFrom-Json',
+  '    if ($payload.pid) { Invoke-TaskkillSafe @("/PID", [string]$payload.pid, "/T", "/F") }',
+  '  } catch {}',
+  '}',
+  'function Stop-AgentProcessesByName {',
+  '  Invoke-TaskkillSafe @("/F", "/IM", "e-rapor-agent.exe", "/T")',
+  '}',
+  'function Stop-AgentPowerShellHelpers {',
+  "  $targets = Get-CimInstance Win32_Process -Filter \"Name = 'powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object {",
+  '    $commandLine = [string]$_.CommandLine',
+  '    $commandLine -like "*update-and-run.ps1*" -or $commandLine -like "*start-agent-clean.ps1*"',
+  '  }',
+  '  foreach ($target in @($targets)) {',
+  '    if ($target.ProcessId -and $target.ProcessId -ne $PID) {',
+  '      Invoke-TaskkillSafe @("/PID", [string]$target.ProcessId, "/T", "/F")',
+  '    }',
+  '  }',
+  '}',
+  'function Stop-Cloudflared {',
+  '  Invoke-TaskkillSafe @("/F", "/IM", "cloudflared.exe", "/T")',
+  '}',
+  'function Clear-AgentState {',
+  '  if (Test-Path $lockPath) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }',
+  '  if (Test-Path $tunnelStateDir) {',
+  '    Remove-Item -LiteralPath (Join-Path $tunnelStateDir "*") -Force -Recurse -ErrorAction SilentlyContinue',
+  '  }',
+  '}',
+  'Stop-AgentByLock',
+  'Stop-AgentProcessesByName',
+  'Stop-AgentPowerShellHelpers',
+  'Stop-Cloudflared',
+  'Clear-AgentState',
+  '& $updaterPath',
   "",
 ].join("\r\n");
 
@@ -540,6 +602,7 @@ fs.writeFileSync(adminPs1Path, adminPs1Content, "ascii");
 fs.writeFileSync(stopPs1Path, stopPs1Content, "ascii");
 fs.writeFileSync(watchLogPs1Path, watchLogPs1Content, "ascii");
 fs.writeFileSync(resetCloudflaredPs1Path, resetCloudflaredPs1Content, "ascii");
+fs.writeFileSync(cleanStartPs1Path, cleanStartPs1Content, "utf8");
 fs.writeFileSync(updateAndRunPs1Path, updateAndRunPs1Content, "utf8");
 fs.writeFileSync(buildInfoPath, `${JSON.stringify(buildInfo, null, 2)}\n`, "utf8");
 fs.writeFileSync(

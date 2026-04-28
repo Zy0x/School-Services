@@ -66,6 +66,18 @@ Untuk menjalankan:
 
 - `agent/dist/run-agent-hidden.vbs`: mode biasa
 - `agent/dist/run-agent-admin-hidden.vbs`: mode Administrator, dipakai jika agent perlu start/stop Windows service yang belum berjalan
+- `agent/dist/School Services.exe`: sekali klik untuk meminta hak Administrator, membersihkan agent/tunnel lama, menyalakan agent baru, dan mendaftarkan startup otomatis dengan hak tertinggi
+
+## Startup Otomatis
+
+Jalankan `agent/dist/School Services.exe` satu kali.
+
+Setup ini akan:
+
+- meminta hak Administrator
+- mematikan agent lama, helper PowerShell lama, `cloudflared.exe`, lock file, dan state tunnel lama
+- menyalakan agent baru secara clean
+- mendaftarkan Scheduled Task Windows agar agent otomatis jalan saat startup sistem dengan hak tertinggi
 
 ## Konfigurasi Minimum
 

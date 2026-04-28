@@ -199,6 +199,17 @@ function createElevatedVbsScript(targetScriptName) {
   ].join("\r\n");
 }
 
+function createSilentPowerShellVbsScript(targetScriptName) {
+  return [
+    'Set shellApp = CreateObject("Shell.Application")',
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    'currentDir = fso.GetParentFolderName(WScript.ScriptFullName)',
+    `args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\${targetScriptName}" & Chr(34)`,
+    'shellApp.ShellExecute "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", args, currentDir, "", 0',
+    "",
+  ].join("\r\n");
+}
+
 function createPowerShellScripts() {
   const registerStartupPs1 = [
     '$ErrorActionPreference = "Stop"',
@@ -296,6 +307,56 @@ function createPowerShellScripts() {
     '  Get-Content -Path $latest.FullName -Wait',
     '} else {',
     '  Write-Host "No agent log file found yet."',
+    '}',
+    '',
+  ].join("\r\n");
+
+  const openGuestDashboardPs1 = [
+    '$ErrorActionPreference = "Stop"',
+    '$programData = $env:ProgramData',
+    'if (-not $programData) { $programData = "C:\\ProgramData" }',
+    `$appName = '${APP_NAME.replace(/'/g, "''")}'`,
+    '$dataDir = Join-Path $programData $appName',
+    '$logPath = Join-Path $dataDir "guest-launcher.log"',
+    '$runtimeConfigPath = Join-Path $dataDir "agent.runtime.json"',
+    '$defaultBaseUrl = "https://school-services.netlify.app"',
+    'function Write-GuestLaunchLog([string]$message) {',
+    '  New-Item -ItemType Directory -Path $dataDir -Force | Out-Null',
+    '  $timestamp = (Get-Date).ToString("s")',
+    '  Add-Content -Path $logPath -Value "[$timestamp] $message"',
+    '}',
+    'function Get-GuestBaseUrl {',
+    '  $baseUrl = $env:GUEST_PORTAL_BASE_URL',
+    '  if (-not $baseUrl -and (Test-Path $runtimeConfigPath)) {',
+    '    try {',
+    '      $runtimeConfig = Get-Content $runtimeConfigPath -Raw | ConvertFrom-Json',
+    '      $baseUrl = $runtimeConfig.guestPortal.baseUrl',
+    '    } catch {}',
+    '  }',
+    '  if (-not $baseUrl) { $baseUrl = $defaultBaseUrl }',
+    '  return ([string]$baseUrl).TrimEnd("/")',
+    '}',
+    'function Get-DeviceId {',
+    '  $hostname = ([string]$env:COMPUTERNAME).ToLowerInvariant()',
+    '  $seed = "$($hostname):win32"',
+    '  $sha = [System.Security.Cryptography.SHA256]::Create()',
+    '  try {',
+    '    $bytes = [System.Text.Encoding]::UTF8.GetBytes($seed)',
+    '    $hash = $sha.ComputeHash($bytes)',
+    '  } finally {',
+    '    $sha.Dispose()',
+    '  }',
+    '  return ([System.BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()).Substring(0, 24)',
+    '}',
+    'try {',
+    '  $baseUrl = Get-GuestBaseUrl',
+    '  $deviceId = Get-DeviceId',
+    '  $guestUrl = "$baseUrl/guest/$([uri]::EscapeDataString($deviceId))"',
+    '  Write-GuestLaunchLog ("Opening guest dashboard " + $guestUrl)',
+    '  Start-Process $guestUrl',
+    '} catch {',
+    '  Write-GuestLaunchLog ("Guest dashboard launch failed: " + $_.Exception.Message)',
+    '  throw',
     '}',
     '',
   ].join("\r\n");
@@ -526,6 +587,10 @@ function createPowerShellScripts() {
     "stop-agent.ps1": stopAgentPs1,
     "start-agent-clean.ps1": startAgentCleanPs1,
     "watch-agent-log.ps1": watchAgentLogPs1,
+    "open-guest-dashboard.ps1": openGuestDashboardPs1,
+    "School Services Guest Web.vbs": createSilentPowerShellVbsScript(
+      "open-guest-dashboard.ps1"
+    ),
     "School Services Start Service.ps1": adminStartServicePs1,
     "School Services Stop Service.ps1": adminStopServicePs1,
     "School Services Restart Service.ps1": adminRestartServicePs1,

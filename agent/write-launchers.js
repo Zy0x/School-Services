@@ -188,6 +188,17 @@ function writeTextFile(filePath, content, encoding = "utf8") {
   fs.writeFileSync(filePath, content, encoding);
 }
 
+function createElevatedVbsScript(targetScriptName) {
+  return [
+    'Set shellApp = CreateObject("Shell.Application")',
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    'currentDir = fso.GetParentFolderName(WScript.ScriptFullName)',
+    `args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\${targetScriptName}" & Chr(34)`,
+    'shellApp.ShellExecute "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", args, currentDir, "runas", 0',
+    "",
+  ].join("\r\n");
+}
+
 function createPowerShellScripts() {
   const registerStartupPs1 = [
     '$ErrorActionPreference = "Stop"',
@@ -286,6 +297,31 @@ function createPowerShellScripts() {
     '} else {',
     '  Write-Host "No agent log file found yet."',
     '}',
+    '',
+  ].join("\r\n");
+
+  const adminStartServicePs1 = [
+    '$ErrorActionPreference = "Stop"',
+    '$installDir = $PSScriptRoot',
+    '& (Join-Path $installDir "register-startup.ps1")',
+    '& (Join-Path $installDir "start-agent-clean.ps1")',
+    '',
+  ].join("\r\n");
+
+  const adminStopServicePs1 = [
+    '$ErrorActionPreference = "Stop"',
+    '$installDir = $PSScriptRoot',
+    '& (Join-Path $installDir "stop-agent.ps1")',
+    '',
+  ].join("\r\n");
+
+  const adminRestartServicePs1 = [
+    '$ErrorActionPreference = "Stop"',
+    '$installDir = $PSScriptRoot',
+    '& (Join-Path $installDir "stop-agent.ps1")',
+    'Start-Sleep -Seconds 2',
+    '& (Join-Path $installDir "register-startup.ps1")',
+    '& (Join-Path $installDir "start-agent-clean.ps1")',
     '',
   ].join("\r\n");
 
@@ -490,6 +526,18 @@ function createPowerShellScripts() {
     "stop-agent.ps1": stopAgentPs1,
     "start-agent-clean.ps1": startAgentCleanPs1,
     "watch-agent-log.ps1": watchAgentLogPs1,
+    "School Services Start Service.ps1": adminStartServicePs1,
+    "School Services Stop Service.ps1": adminStopServicePs1,
+    "School Services Restart Service.ps1": adminRestartServicePs1,
+    "School Services Start Service.vbs": createElevatedVbsScript(
+      "School Services Start Service.ps1"
+    ),
+    "School Services Stop Service.vbs": createElevatedVbsScript(
+      "School Services Stop Service.ps1"
+    ),
+    "School Services Restart Service.vbs": createElevatedVbsScript(
+      "School Services Restart Service.ps1"
+    ),
     "update-and-run.ps1": updateAndRunPs1,
     "post-install.ps1": postInstallPs1,
     "uninstall-cleanup.ps1": uninstallCleanupPs1,

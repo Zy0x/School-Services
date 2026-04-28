@@ -1,47 +1,11 @@
 #!/usr/bin/env node
 
-const path = require("path");
-const { STARTUP_TASK_NAME } = require("./appConstants");
 const { loadConfig } = require("./config");
 const { createDeviceMetadata } = require("./device");
 const { ensureProcessPathEntries } = require("./environment");
-const { getAgentExePath, getInstallDir } = require("./paths");
+const { getInstallDir } = require("./paths");
 const ShortcutManager = require("./shortcutManager");
-const {
-  fileExists,
-  runPowerShellScript,
-  startDetachedHidden,
-  startUrlInBrowser,
-} = require("./windows");
-
-function ensureStartupTaskOrStartAgent(agentExePath) {
-  try {
-    const taskName = STARTUP_TASK_NAME.replace(/'/g, "''");
-    const taskState = runPowerShellScript(
-      [
-        `$task = Get-ScheduledTask -TaskName '${taskName}' -ErrorAction SilentlyContinue`,
-        "if (-not $task) { Write-Output 'missing'; exit 0 }",
-        "try {",
-        "  Start-ScheduledTask -TaskName $task.TaskName -ErrorAction Stop",
-        "  Write-Output 'started'",
-        "} catch {",
-        "  Write-Output 'fallback'",
-        "}",
-      ].join("; "),
-      { hidden: true }
-    ).trim();
-
-    if (taskState === "started") {
-      return;
-    }
-  } catch (_error) {
-    // Fall back to starting the agent directly when the task is missing or inaccessible.
-  }
-
-  if (fileExists(agentExePath)) {
-    startDetachedHidden(agentExePath, [], path.dirname(agentExePath));
-  }
-}
+const { startUrlInBrowser } = require("./windows");
 
 function main() {
   ensureProcessPathEntries();
@@ -57,8 +21,6 @@ function main() {
     throw new Error("Guest portal URL is not configured.");
   }
 
-  shortcutManager.syncGuestPortalUrl(device.deviceId, null);
-  ensureStartupTaskOrStartAgent(getAgentExePath());
   startUrlInBrowser(guestPortalUrl);
 }
 

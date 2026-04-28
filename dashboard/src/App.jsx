@@ -625,9 +625,8 @@ function GuestConsole({ deviceId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [launchRequested, setLaunchRequested] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
   const [redirecting, setRedirecting] = useState(false);
-  const autoStartRequestedRef = useRef(false);
 
   async function loadGuest() {
     try {
@@ -678,6 +677,7 @@ function GuestConsole({ deviceId }) {
   async function sendCommand(action) {
     try {
       setBusy(true);
+      setCopyStatus("");
       const { data, error: invokeError } = await supabase.functions.invoke("guest-access", {
         body: { action, deviceId },
       });
@@ -695,6 +695,21 @@ function GuestConsole({ deviceId }) {
     }
   }
 
+  async function copyPublicUrl() {
+    if (!service?.public_url) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(service.public_url);
+      setCopyStatus("Link publik berhasil disalin.");
+      setError("");
+    } catch (copyError) {
+      setCopyStatus("");
+      setError(copyError?.message || "Gagal menyalin link publik.");
+    }
+  }
+
   const service = state.service;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
   const canOpenService =
@@ -707,23 +722,6 @@ function GuestConsole({ deviceId }) {
     service?.status === "starting" ||
     service?.status === "waiting_retry" ||
     state.device?.deviceStatus !== "online";
-
-  useEffect(() => {
-    if (
-      autoStartRequestedRef.current ||
-      !state.device ||
-      busy ||
-      redirecting ||
-      canOpenService ||
-      state.device?.deviceStatus === "blocked"
-    ) {
-      return;
-    }
-
-    autoStartRequestedRef.current = true;
-    setLaunchRequested(true);
-    sendCommand("start").catch(() => {});
-  }, [busy, canOpenService, redirecting, state.device, deviceId]);
 
   useEffect(() => {
     if (!canOpenService || redirecting) {
@@ -744,7 +742,10 @@ function GuestConsole({ deviceId }) {
         <div>
           <div className="section-eyebrow">Guest Device Monitor</div>
           <h1>{state.device?.deviceName || deviceId}</h1>
-          <p>Buka shortcut School Services untuk menyalakan koneksi E-Rapor dan tunggu sampai layanan siap.</p>
+          <p>
+            Shortcut School Services membuka panel guest web. Gunakan tombol Start atau Stop di
+            sini, dan gunakan tool admin di folder Program Files jika perlu restart penuh service.
+          </p>
         </div>
         <div className="topbar-actions">
           <StatusChip status={state.device?.deviceStatus || "offline"} />
@@ -780,9 +781,8 @@ function GuestConsole({ deviceId }) {
             ) : null}
             {!redirecting && isPendingConnection ? (
               <div className="explorer-warning">
-                {launchRequested
-                  ? "Menunggu agent dan tunnel E-Rapor tersambung. Halaman ini akan otomatis masuk saat public URL sudah siap."
-                  : "Memeriksa koneksi agent dan layanan E-Rapor..."}
+                Memeriksa status agent dan layanan E-Rapor. Halaman ini akan otomatis masuk saat
+                public URL sudah siap.
               </div>
             ) : null}
             <div className="service-detail-grid">
@@ -802,6 +802,7 @@ function GuestConsole({ deviceId }) {
               </div>
             </div>
             {service?.last_error ? <div className="job-error">{service.last_error}</div> : null}
+            {copyStatus ? <div className="service-note">{copyStatus}</div> : null}
             <div className="panel-actions">
               <button
                 type="button"
@@ -809,7 +810,7 @@ function GuestConsole({ deviceId }) {
                 disabled={busy || redirecting}
                 onClick={() => sendCommand("start")}
               >
-                {busy ? "Menghubungkan..." : "Hubungkan"}
+                {busy ? "Memproses..." : "Start"}
               </button>
               <button
                 type="button"
@@ -818,6 +819,14 @@ function GuestConsole({ deviceId }) {
                 onClick={() => sendCommand("stop")}
               >
                 Stop
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!service?.public_url}
+                onClick={copyPublicUrl}
+              >
+                Salin Link
               </button>
             </div>
           </article>

@@ -440,47 +440,21 @@ class ShortcutManager {
 
     const guestUrl = this.getGuestPortalUrl(deviceId);
     const { canonicalPath, duplicatePaths } = this.resolveGuestPortalManagedPaths();
-    this.removeDuplicateShortcuts(duplicatePaths);
+    const managedPaths = canonicalPath ? [canonicalPath, ...duplicatePaths] : duplicatePaths;
+    this.removeDuplicateShortcuts(managedPaths);
 
     this.cache.guestPortal = {
       deviceId,
       guestUrl,
       effectiveUrl: publicUrl || null,
-      filePaths: canonicalPath ? [canonicalPath] : [],
+      filePaths: [],
       updatedAt: new Date().toISOString(),
     };
     this.writeCache();
   }
 
   syncGuestPortalUrl(deviceId, publicUrl) {
-    if (!this.guestPortal?.fileName) {
-      return;
-    }
-
-    const guestUrl = this.getGuestPortalUrl(deviceId);
-    const { canonicalPath, duplicatePaths } = this.resolveGuestPortalManagedPaths();
-
-    this.removeDuplicateShortcuts(duplicatePaths);
-
-    if (canonicalPath && guestUrl) {
-      try {
-        writeInternetShortcut(canonicalPath, guestUrl, this.guestPortal);
-      } catch (error) {
-        logger.warn(`Failed to sync guest portal shortcut ${canonicalPath}: ${error.message}`, {
-          canonicalPath,
-          guestUrl,
-        });
-      }
-    }
-
-    this.cache.guestPortal = {
-      deviceId,
-      guestUrl,
-      effectiveUrl: publicUrl || null,
-      filePaths: canonicalPath ? [canonicalPath] : [],
-      updatedAt: new Date().toISOString(),
-    };
-    this.writeCache();
+    this.cleanupLegacyGuestPortalShortcuts(deviceId, publicUrl);
   }
 }
 

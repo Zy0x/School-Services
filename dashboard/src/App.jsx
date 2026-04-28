@@ -625,6 +625,9 @@ function GuestConsole({ deviceId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [launchRequested, setLaunchRequested] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+  const autoStartRequestedRef = useRef(false);
 
   async function loadGuest() {
     try {
@@ -652,6 +655,26 @@ function GuestConsole({ deviceId }) {
     return () => window.clearInterval(refreshId);
   }, [deviceId]);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel(`guest-console:${deviceId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "devices", filter: `device_id=eq.${deviceId}` },
+        () => loadGuest()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "services", filter: `device_id=eq.${deviceId}` },
+        () => loadGuest()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [deviceId]);
+
   async function sendCommand(action) {
     try {
       setBusy(true);
@@ -674,6 +697,46 @@ function GuestConsole({ deviceId }) {
 
   const service = state.service;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
+  const canOpenService =
+    state.device?.deviceStatus === "online" &&
+    service?.status === "running" &&
+    service?.desired_state !== "stopped" &&
+    Boolean(service?.public_url);
+  const isPendingConnection =
+    !canOpenService ||
+    service?.status === "starting" ||
+    service?.status === "waiting_retry" ||
+    state.device?.deviceStatus !== "online";
+
+  useEffect(() => {
+    if (
+      autoStartRequestedRef.current ||
+      !state.device ||
+      busy ||
+      redirecting ||
+      canOpenService ||
+      state.device?.deviceStatus === "blocked"
+    ) {
+      return;
+    }
+
+    autoStartRequestedRef.current = true;
+    setLaunchRequested(true);
+    sendCommand("start").catch(() => {});
+  }, [busy, canOpenService, redirecting, state.device, deviceId]);
+
+  useEffect(() => {
+    if (!canOpenService || redirecting) {
+      return;
+    }
+
+    setRedirecting(true);
+    const redirectId = window.setTimeout(() => {
+      window.location.replace(service.public_url);
+    }, 1200);
+
+    return () => window.clearTimeout(redirectId);
+  }, [canOpenService, redirecting, service?.public_url]);
 
   return (
     <main className="console-shell">
@@ -681,7 +744,7 @@ function GuestConsole({ deviceId }) {
         <div>
           <div className="section-eyebrow">Guest Device Monitor</div>
           <h1>{state.device?.deviceName || deviceId}</h1>
-          <p>Pantau status E-Rapor dan kendalikan start/stop service Rapor untuk device ini.</p>
+          <p>Buka shortcut School Services untuk menyalakan koneksi E-Rapor dan tunggu sampai layanan siap.</p>
         </div>
         <div className="topbar-actions">
           <StatusChip status={state.device?.deviceStatus || "offline"} />
@@ -703,17 +766,31 @@ function GuestConsole({ deviceId }) {
               </div>
               <div className="service-status-group">
                 <StatusChip status={service?.status || "offline"} />
-                {service?.public_url ? (
+                {canOpenService ? (
                   <a className="primary-button" href={service.public_url} target="_blank" rel="noreferrer">
                     Buka E-Rapor
                   </a>
                 ) : null}
               </div>
             </div>
+            {redirecting ? (
+              <div className="explorer-warning">
+                Koneksi sudah siap. Mengalihkan ke E-Rapor...
+              </div>
+            ) : null}
+            {!redirecting && isPendingConnection ? (
+              <div className="explorer-warning">
+                {launchRequested
+                  ? "Menunggu agent dan tunnel E-Rapor tersambung. Halaman ini akan otomatis masuk saat public URL sudah siap."
+                  : "Memeriksa koneksi agent dan layanan E-Rapor..."}
+              </div>
+            ) : null}
             <div className="service-detail-grid">
               <div>
                 <span>Public URL</span>
-                <strong className="service-link mono">{service?.public_url || "disabled"}</strong>
+                <strong className="service-link mono">
+                  {canOpenService ? service.public_url : "waiting for connection"}
+                </strong>
               </div>
               <div>
                 <span>Desired state</span>
@@ -729,10 +806,10 @@ function GuestConsole({ deviceId }) {
               <button
                 type="button"
                 className="primary-button"
-                disabled={busy || isRunning}
+                disabled={busy || redirecting}
                 onClick={() => sendCommand("start")}
               >
-                Start
+                {busy ? "Menghubungkan..." : "Hubungkan"}
               </button>
               <button
                 type="button"

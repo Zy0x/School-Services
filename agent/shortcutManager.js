@@ -164,6 +164,22 @@ class ShortcutManager {
     return this.shortcuts?.[serviceName] || null;
   }
 
+  resolveGuestPortalPaths() {
+    const explicitPaths = Array.isArray(this.guestPortal?.filePaths)
+      ? this.guestPortal.filePaths.filter(Boolean)
+      : [];
+
+    if (explicitPaths.length > 0) {
+      return explicitPaths;
+    }
+
+    if (this.guestPortal?.fileName) {
+      return [path.join(this.baseDir, this.guestPortal.fileName)];
+    }
+
+    return [];
+  }
+
   listDiscoveredShortcutPaths(shortcut) {
     const discovered = [];
     const targetName = normalizeShortcutName(shortcut.fileName || "e-Rapor SD.url");
@@ -302,68 +318,7 @@ class ShortcutManager {
   }
 
   syncServiceUrl(serviceName, publicUrl, options = {}) {
-    const shortcut = this.getShortcutConfig(serviceName);
-    if (!shortcut || shortcut.enabled === false) {
-      return;
-    }
-
-    const normalizedPublicUrl = publicUrl ? normalizeShortcutUrl(publicUrl) : null;
-    const effectiveUrl = normalizeShortcutUrl(
-      normalizedPublicUrl || shortcut.fallbackUrl
-    );
-
-    if (!effectiveUrl) {
-      return;
-    }
-
-    const { managedPaths, duplicatePaths } = this.resolveManagedShortcutPaths(serviceName, options);
-    this.removeDuplicateShortcuts(duplicatePaths);
-
-    if (managedPaths.length === 0) {
-      logger.warn(
-        `Shortcut target for ${serviceName} could not be found. No .url file was updated.`,
-        { serviceName, effectiveUrl }
-      );
-    }
-
-    const syncedPaths = [];
-    for (const originalPath of managedPaths) {
-      const filePath = this.ensureCanonicalShortcutPath(originalPath, shortcut);
-
-      try {
-        ensureParentDirectory(filePath);
-        const existingFields = readShortcutFields(filePath);
-        fs.writeFileSync(
-          filePath,
-          buildInternetShortcutContent(effectiveUrl, existingFields, shortcut),
-          "ascii"
-        );
-        if (filePath !== originalPath && fs.existsSync(originalPath)) {
-          this.removeDuplicateShortcuts([originalPath]);
-        }
-        syncedPaths.push(filePath);
-      } catch (error) {
-        logger.warn(`Failed to update shortcut for ${serviceName}: ${error.message}`, {
-          serviceName,
-          filePath,
-          effectiveUrl,
-        });
-      }
-    }
-
-    this.cache[serviceName] = {
-      publicUrl: normalizedPublicUrl,
-      effectiveUrl,
-      filePaths: syncedPaths.length > 0 ? syncedPaths : managedPaths,
-      updatedAt: new Date().toISOString(),
-    };
-    this.writeCache();
-    logger.info(`Synchronized shortcut targets for ${serviceName}`, {
-      serviceName,
-      effectiveUrl,
-      pathCount: syncedPaths.length > 0 ? syncedPaths.length : managedPaths.length,
-      filePaths: syncedPaths.length > 0 ? syncedPaths : managedPaths,
-    });
+    return;
   }
 
   syncGuestPortalUrl(deviceId, publicUrl) {
@@ -373,31 +328,41 @@ class ShortcutManager {
 
     const baseUrl = String(this.guestPortal.baseUrl).replace(/\/+$/, "");
     const guestUrl = `${baseUrl}/guest/${encodeURIComponent(deviceId)}`;
-    const filePath = path.join(this.baseDir, this.guestPortal.fileName);
+    const filePaths = this.resolveGuestPortalPaths();
+    const shortcutOptions = {
+      iconFile: this.guestPortal.iconFile || "",
+      iconIndex: this.guestPortal.iconIndex ?? 0,
+    };
+    const syncedPaths = [];
 
-    try {
-      ensureParentDirectory(filePath);
-      const existingFields = readShortcutFields(filePath);
-      fs.writeFileSync(
-        filePath,
-        buildInternetShortcutContent(guestUrl, existingFields, {}),
-        "ascii"
-      );
-      this.cache.guestPortal = {
-        deviceId,
-        guestUrl,
-        effectiveUrl: publicUrl || null,
-        filePath,
-        updatedAt: new Date().toISOString(),
-      };
-      this.writeCache();
-    } catch (error) {
-      logger.warn(`Failed to update guest portal shortcut: ${error.message}`, {
-        serviceName: "rapor",
-        deviceId,
-        guestUrl,
-      });
+    for (const filePath of filePaths) {
+      try {
+        ensureParentDirectory(filePath);
+        const existingFields = readShortcutFields(filePath);
+        fs.writeFileSync(
+          filePath,
+          buildInternetShortcutContent(guestUrl, existingFields, shortcutOptions),
+          "ascii"
+        );
+        syncedPaths.push(filePath);
+      } catch (error) {
+        logger.warn(`Failed to update guest portal shortcut: ${error.message}`, {
+          serviceName: "rapor",
+          deviceId,
+          guestUrl,
+          filePath,
+        });
+      }
     }
+
+    this.cache.guestPortal = {
+      deviceId,
+      guestUrl,
+      effectiveUrl: publicUrl || null,
+      filePaths: syncedPaths,
+      updatedAt: new Date().toISOString(),
+    };
+    this.writeCache();
   }
 }
 

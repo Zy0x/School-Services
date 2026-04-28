@@ -27,6 +27,8 @@ const watchLogPs1Path = path.join(distDir, "watch-agent-log.ps1");
 const resetCloudflaredPs1Path = path.join(distDir, "reset-cloudflared.ps1");
 const updateAndRunPs1Path = path.join(distDir, "update-and-run.ps1");
 const buildInfoPath = path.join(distDir, "agent-build.json");
+const faviconSourcePath = path.join(repoRoot, "favicon.ico");
+const faviconOutputPath = path.join(distDir, "favicon.ico");
 const legacyShortcutPaths = [
   path.join(distDir, "E-Rapor SD.url"),
   path.join(distDir, "e-Rapor SD.url"),
@@ -545,6 +547,9 @@ fs.writeFileSync(
   `${JSON.stringify(loadPackagedRuntimeConfig(), null, 2)}\n`,
   "utf8"
 );
+if (fs.existsSync(faviconSourcePath)) {
+  fs.copyFileSync(faviconSourcePath, faviconOutputPath);
+}
 
 for (const legacyPath of legacyShortcutPaths) {
   try {

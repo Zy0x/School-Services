@@ -9,6 +9,8 @@ Untuk instalasi Windows yang umum, agent sekarang mencoba langsung:
 - konek ke Supabase publik bawaan repo
 - mendeteksi service Windows E-Rapor dan Dapodik secara otomatis
 - mendeteksi file config lokal E-Rapor yang perlu diubah untuk `app.baseURL`
+- membuat shortcut desktop `School Services.url` dengan icon `favicon.ico`
+- membuka halaman guest yang otomatis menunggu agent/service siap lalu masuk ke E-Rapor saat public URL sudah tersedia
 - tetap jalan walau software target belum terpasang atau agent belum dijalankan sebagai Administrator
 
 ## Isi Repo
@@ -58,6 +60,8 @@ npm run agent:build
 
 Output agent akan berada di `agent/dist/e-rapor-agent.exe`.
 
+Build agent juga menyalin `favicon.ico` ke `agent/dist` agar shortcut `School Services` memakai icon yang sama.
+
 Untuk menjalankan:
 
 - `agent/dist/run-agent-hidden.vbs`: mode biasa
@@ -89,6 +93,8 @@ Opsional:
 - atur service lokal yang ingin dijalankan
 - atur `cloudflaredPath` jika `cloudflared.exe` tidak ada di PATH Windows
 - atur file config target lokal jika agent perlu menulis URL publik ke file aplikasi Anda
+- atur `guestPortal.filePaths` jika lokasi shortcut `School Services.url` ingin dipindah
+- atur `guestPortal.iconFile` jika ingin memakai icon selain `favicon.ico`
 
 Kalau `agent.runtime.json` tidak ada, agent tetap akan memakai built-in defaults dan autodiscovery.
 
@@ -96,4 +102,5 @@ Kalau `agent.runtime.json` tidak ada, agent tetap akan memakai built-in defaults
 
 - Jangan commit `.env`, `agent.runtime.json`, log runtime, atau file automation lokal.
 - Jangan masukkan service role key, secret key, access token, password database, atau token admin lain ke repo.
+- Shortcut E-Rapor asli tidak lagi diubah oleh agent. Akses user diarahkan lewat shortcut desktop `School Services`.
 - Updater agent hanya akan mengambil rilis GitHub jika versi rilis memang lebih baru daripada versi agent yang sedang berjalan.

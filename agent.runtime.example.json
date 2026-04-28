@@ -12,22 +12,17 @@
     "startupTimeoutMs": 30000,
     "retryDelaysMs": [10000, 30000, 60000, 120000, 300000]
   },
-  "shortcuts": {
-    "rapor": {
-      "enabled": true,
-      "fileName": "e-Rapor SD.url",
-      "iconFile": "",
-      "iconIndex": 0,
-      "fallbackUrl": "http://localhost:8535",
-      "searchRoots": [
-        "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs",
-        "${APPDATA}\\Microsoft\\Windows\\Start Menu\\Programs",
-        "${OneDrive}\\Desktop",
-        "${USERPROFILE}\\OneDrive\\Desktop",
-        "${USERPROFILE}\\Desktop",
-        "C:\\Users\\Public\\Desktop"
-      ]
-    }
+  "guestPortal": {
+    "baseUrl": "https://school-services.netlify.app",
+    "fileName": "School Services.url",
+    "iconFile": ".\\favicon.ico",
+    "iconIndex": 0,
+    "filePaths": [
+      "${OneDrive}\\Desktop\\School Services.url",
+      "${USERPROFILE}\\OneDrive\\Desktop\\School Services.url",
+      "${USERPROFILE}\\Desktop\\School Services.url",
+      "C:\\Users\\Public\\Desktop\\School Services.url"
+    ]
   },
   "services": {
     "rapor": {

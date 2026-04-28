@@ -9,6 +9,7 @@ const {
   getBaseDir,
   getRuntimeConfigPath,
   readJsonFile,
+  resolveExistingPath,
   resolveFirstExistingPath,
 } = require("./utils");
 
@@ -170,6 +171,22 @@ function loadConfig() {
       ? path.join(process.env.PUBLIC, "Desktop")
       : "C:\\Users\\Public\\Desktop",
   ].filter(Boolean);
+  const defaultGuestShortcutPaths = [
+    oneDriveRoot ? path.join(oneDriveRoot, "Desktop", "School Services.url") : null,
+    process.env.USERPROFILE
+      ? path.join(process.env.USERPROFILE, "OneDrive", "Desktop", "School Services.url")
+      : null,
+    process.env.USERPROFILE
+      ? path.join(process.env.USERPROFILE, "Desktop", "School Services.url")
+      : null,
+    process.env.PUBLIC
+      ? path.join(process.env.PUBLIC, "Desktop", "School Services.url")
+      : "C:\\Users\\Public\\Desktop\\School Services.url",
+  ].filter(Boolean);
+  const defaultFaviconPath = resolveExistingPath([
+    ...buildAncestorCandidates(process.cwd(), "favicon.ico"),
+    ...buildAncestorCandidates(getBaseDir(), "favicon.ico"),
+  ]);
 
   if (!supabaseAnonKey) {
     throw new Error(
@@ -272,48 +289,61 @@ function loadConfig() {
       fileName:
         overrides.guestPortal?.fileName ||
         process.env.GUEST_PORTAL_FILE_NAME ||
-        "Guest E-Rapor.url",
+        "School Services.url",
+      iconFile:
+        overrides.guestPortal?.iconFile ||
+        process.env.GUEST_PORTAL_ICON_FILE ||
+        defaultFaviconPath ||
+        "",
+      iconIndex: Number(
+        overrides.guestPortal?.iconIndex ||
+          process.env.GUEST_PORTAL_ICON_INDEX ||
+          0
+      ),
+      filePaths: resolveConfigRelativePaths(
+        overrides.guestPortal?.filePaths ||
+          defaultGuestShortcutPaths,
+          runtimeConfigPath
+        ),
+      searchRoots: resolveConfigRelativePaths(
+        overrides.guestPortal?.searchRoots || defaultShortcutSearchRoots,
+        runtimeConfigPath
+      ),
     },
-    shortcuts: {
+    shortcuts: {},
+    legacyShortcuts: {
+      enabled:
+        overrides.legacyShortcuts?.enabled === true ||
+        process.env.ENABLE_LEGACY_SHORTCUT_SYNC === "1",
       rapor: {
-        enabled: overrides.shortcuts?.rapor?.enabled !== false,
+        enabled: false,
         fileName:
-          overrides.shortcuts?.rapor?.fileName ||
+          overrides.legacyShortcuts?.rapor?.fileName ||
           process.env.ERAPOR_SHORTCUT_FILE_NAME ||
           "e-Rapor SD.url",
         iconFile:
-          overrides.shortcuts?.rapor?.iconFile ||
+          overrides.legacyShortcuts?.rapor?.iconFile ||
           process.env.ERAPOR_SHORTCUT_ICON_FILE ||
           "",
         iconIndex: Number(
-          overrides.shortcuts?.rapor?.iconIndex ||
+          overrides.legacyShortcuts?.rapor?.iconIndex ||
             process.env.ERAPOR_SHORTCUT_ICON_INDEX ||
             0
         ),
         fallbackUrl:
-          overrides.shortcuts?.rapor?.fallbackUrl ||
+          overrides.legacyShortcuts?.rapor?.fallbackUrl ||
           process.env.ERAPOR_SHORTCUT_FALLBACK_URL ||
           `http://localhost:${raporPort}`,
         filePaths: resolveConfigRelativePaths(
-          overrides.shortcuts?.rapor?.filePaths || [],
+          overrides.legacyShortcuts?.rapor?.filePaths || [],
           runtimeConfigPath
         ),
         priorityPaths: resolveConfigRelativePaths(
-          overrides.shortcuts?.rapor?.priorityPaths || [
-            oneDriveRoot ? path.join(oneDriveRoot, "Desktop", "e-Rapor SD.url") : null,
-            process.env.USERPROFILE
-              ? path.join(process.env.USERPROFILE, "OneDrive", "Desktop", "e-Rapor SD.url")
-              : null,
-            process.env.USERPROFILE
-              ? path.join(process.env.USERPROFILE, "Desktop", "e-Rapor SD.url")
-              : null,
-            "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\e-Rapor SD.url",
-            "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Aplikasi e-Rapor SD\\e-Rapor SD.url",
-          ].filter(Boolean),
+          overrides.legacyShortcuts?.rapor?.priorityPaths || [],
           runtimeConfigPath
         ),
         searchRoots: resolveConfigRelativePaths(
-          overrides.shortcuts?.rapor?.searchRoots || defaultShortcutSearchRoots,
+          overrides.legacyShortcuts?.rapor?.searchRoots || defaultShortcutSearchRoots,
           runtimeConfigPath
         ),
       },

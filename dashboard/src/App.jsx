@@ -2147,6 +2147,8 @@ function TransferHistoryModal({
   open,
   loading,
   history,
+  device,
+  deviceId,
   onClose,
   onDownload,
 }) {
@@ -2156,14 +2158,15 @@ function TransferHistoryModal({
 
   const jobs = history?.jobs || [];
   const audits = history?.auditLogs || [];
+  const contextLabel = device?.deviceName || deviceId || "Semua device";
 
   return (
-    <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="transfer-history-title">
+    <div className="guest-modal-backdrop modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="transfer-history-title">
       <div className="guest-modal-card transfer-modal-card">
-        <div className="panel-heading-row">
+        <div className="modal-title-row">
           <div>
             <strong id="transfer-history-title">Riwayat Transfer Data</strong>
-            <p>Data yang berhasil diambil dari device atau dikirim kembali lewat kontrol SuperAdmin.</p>
+            <p>File yang berhasil diambil atau dikirim untuk <span className="mono">{contextLabel}</span>.</p>
           </div>
           <ActionButton className="secondary-button" onClick={onClose}>
             Tutup
@@ -2175,8 +2178,8 @@ function TransferHistoryModal({
           <div className="empty-state compact-empty">Belum ada riwayat transfer untuk cakupan ini.</div>
         ) : (
           <div className="transfer-history-grid">
-            <section>
-              <h4>File jobs</h4>
+            <section className="transfer-files-section">
+              <h4>File dari device</h4>
               <div className="job-stack">
                 {jobs.map((job) => (
                   <article key={job.id} className={`job-card tone-${statusTone(job.status)}`}>
@@ -2206,7 +2209,7 @@ function TransferHistoryModal({
                 ))}
               </div>
             </section>
-            <section>
+            <section className="transfer-audit-section">
               <h4>Audit</h4>
               <div className="job-stack">
                 {audits.map((audit) => (
@@ -3018,7 +3021,7 @@ export default function App() {
     }
   }
 
-  async function openTransferHistory() {
+  async function openTransferHistory(deviceIdOverride = "") {
     if (profile?.role !== "super_admin") {
       return;
     }
@@ -3027,8 +3030,9 @@ export default function App() {
       setTransferHistoryOpen(true);
       setTransferHistoryLoading(true);
       setError("");
+      const scopedDeviceId = String(deviceIdOverride || (selectedDeviceId === "all" ? "" : selectedDeviceId) || "").trim();
       const data = await invokeAdmin("listTransferHistory", {
-        deviceId: selectedDeviceId === "all" ? "" : selectedDeviceId,
+        deviceId: scopedDeviceId,
       });
       setTransferHistory({
         jobs: data.jobs || [],
@@ -3446,6 +3450,8 @@ export default function App() {
         open={transferHistoryOpen}
         loading={transferHistoryLoading}
         history={transferHistory}
+        device={selectedDevice}
+        deviceId={selectedDeviceId === "all" ? "" : selectedDeviceId}
         onClose={() => setTransferHistoryOpen(false)}
         onDownload={handleArtifactDownload}
       />
@@ -3533,7 +3539,7 @@ export default function App() {
                   <article className="service-panel">
                     <div className="panel-heading-row">
                       <h3>Kontrol layanan <InfoHint text="Start/Stop mengatur service lokal. Stop agent menghentikan koneksi agent sampai service dijalankan lagi dari perangkat." /></h3>
-                      <div className="panel-actions">
+                      <div className="panel-actions device-control-actions">
                         {isSuperAdmin || isOperator ? (
                           <ActionButton
                             className="secondary-button"
@@ -3559,7 +3565,11 @@ export default function App() {
                             >
                               {selectedDevice.deviceStatus === "blocked" ? "Unblock device" : "Block device"}
                             </ActionButton>
-                            <ActionButton className="secondary-button" busy={transferHistoryLoading} onClick={openTransferHistory}>
+                            <ActionButton
+                              className="secondary-button"
+                              busy={transferHistoryLoading}
+                              onClick={() => openTransferHistory(selectedDevice.deviceId)}
+                            >
                               Riwayat transfer
                             </ActionButton>
                           </>
@@ -3641,7 +3651,7 @@ export default function App() {
                             compact
                             onActionComplete={setError}
                           />
-                          <div className="panel-actions">
+                          <div className="panel-actions service-command-actions">
                             <ActionButton
                               className="primary-button"
                               busy={busyAction === `${selectedDevice.deviceId}:${service.service_name}:start`}

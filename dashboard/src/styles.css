@@ -233,7 +233,7 @@ a {
 .console-shell {
   max-width: 1640px;
   margin: 0 auto;
-  padding: 22px;
+  padding: 20px;
   animation: shellEnter 420ms ease both;
 }
 
@@ -526,8 +526,8 @@ a {
 
 .console-grid {
   display: grid;
-  grid-template-columns: 292px minmax(0, 1fr);
-  gap: 22px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 18px;
   margin-top: 22px;
 }
 
@@ -600,7 +600,7 @@ a {
 
 .workspace {
   display: grid;
-  gap: 18px;
+  gap: 16px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(250, 251, 255, 0.78)),
     var(--panel);
@@ -679,9 +679,34 @@ a {
 
 .service-card {
   border-radius: 20px;
-  border: 1px solid rgba(17, 33, 29, 0.08);
-  background: rgba(255, 255, 255, 0.78);
-  padding: 16px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.88);
+  padding: 18px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.service-card.tone-good {
+  border-color: rgba(34, 197, 94, 0.24);
+  background: linear-gradient(180deg, rgba(240, 253, 244, 0.72), rgba(255, 255, 255, 0.94));
+  color: var(--text);
+}
+
+.service-card.tone-warn {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: linear-gradient(180deg, rgba(255, 251, 235, 0.78), rgba(255, 255, 255, 0.94));
+  color: var(--text);
+}
+
+.service-card.tone-bad {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: linear-gradient(180deg, rgba(254, 242, 242, 0.78), rgba(255, 255, 255, 0.94));
+  color: var(--text);
+}
+
+.service-card.tone-neutral {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
 }
 
 .service-card-header {
@@ -694,6 +719,29 @@ a {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 14px;
+}
+
+.device-control-actions,
+.service-command-actions,
+.public-link-actions {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.device-control-actions {
+  justify-content: flex-end;
+}
+
+.service-command-actions {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.service-command-actions .primary-button,
+.service-command-actions .secondary-button,
+.public-link-actions .secondary-button {
+  min-width: 112px;
 }
 
 .service-link {
@@ -1356,12 +1404,15 @@ a {
 .guest-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 1000;
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(13, 24, 22, 0.22);
-  backdrop-filter: blur(14px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .guest-modal-card {
@@ -1370,9 +1421,9 @@ a {
   gap: 12px;
   padding: 24px;
   border-radius: 28px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(17, 33, 29, 0.08);
-  box-shadow: 0 26px 60px rgba(17, 33, 29, 0.14);
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--border);
+  box-shadow: 0 26px 70px rgba(15, 23, 42, 0.2);
   text-align: center;
 }
 
@@ -1478,17 +1529,50 @@ a {
 }
 
 .transfer-modal-card {
-  width: min(100%, 1040px);
-  max-height: min(86vh, 860px);
+  width: min(100%, 980px);
+  max-height: min(82vh, 760px);
   overflow: auto;
   text-align: left;
 }
 
+.modal-title-row {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding-bottom: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.92));
+  border-bottom: 1px solid var(--border);
+}
+
 .transfer-history-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   width: 100%;
+}
+
+.transfer-audit-section {
+  display: none;
+}
+
+.transfer-files-section .job-stack {
+  gap: 10px;
+}
+
+.transfer-files-section .job-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  box-shadow: none;
+}
+
+.transfer-files-section .job-actions {
+  margin-top: 6px;
 }
 
 .transfer-history-grid h4 {
@@ -1502,11 +1586,9 @@ a {
 @keyframes shellEnter {
   from {
     opacity: 0;
-    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 

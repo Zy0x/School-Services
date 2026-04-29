@@ -23,6 +23,7 @@ const SUPABASE_ANON_KEY = String(
 const PAYPAL_URL = "https://paypal.me/theamagenta";
 const TRAKTEER_URL = "https://trakteer.id/zy0x";
 const GITHUB_PROFILE_URL = "https://github.com/Zy0x";
+const GUEST_BRAND_ICON = "/icon.png";
 
 function buildGuestPath(deviceId) {
   return `/guest/${encodeURIComponent(String(deviceId || "").trim())}`;
@@ -55,10 +56,33 @@ function formatEdgeFunctionError(error) {
   if (/email rate limit exceeded/i.test(message)) {
     return "Terlalu banyak permintaan reset password. Coba lagi beberapa menit lagi.";
   }
+  if (/invalid login credentials/i.test(message)) {
+    return "Email atau password belum sesuai. Periksa kembali lalu coba masuk lagi.";
+  }
   if (isInvalidSessionError(message)) {
     return "Sesi login telah berakhir. Silakan masuk lagi.";
   }
-  return message;
+  if (/missing authorization header/i.test(message)) {
+    return "Sesi Anda tidak lagi valid. Silakan masuk kembali.";
+  }
+  if (/failed to fetch|networkerror/i.test(message)) {
+    return "Koneksi ke layanan sedang bermasalah. Periksa internet Anda lalu coba lagi.";
+  }
+  return message || "Permintaan belum berhasil diproses. Silakan coba lagi.";
+}
+
+function formatSignInError(error) {
+  const message = String(error?.message || error || "");
+  if (/invalid login credentials/i.test(message)) {
+    return "Email atau password belum sesuai. Coba lagi atau gunakan fitur lupa password.";
+  }
+  if (/email not confirmed/i.test(message)) {
+    return "Email akun belum terverifikasi. Periksa inbox Anda lalu coba masuk kembali.";
+  }
+  if (/too many requests|rate limit/i.test(message)) {
+    return "Terlalu banyak percobaan masuk. Tunggu sebentar lalu coba kembali.";
+  }
+  return formatEdgeFunctionError(message);
 }
 
 function formatPasswordUpdateError(error) {
@@ -353,6 +377,37 @@ function StatusChip({ status, label }) {
   );
 }
 
+function SupportIcon({ kind }) {
+  if (kind === "github") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.21.68-.47v-1.66c-2.77.6-3.35-1.17-3.35-1.17-.45-1.13-1.1-1.43-1.1-1.43-.9-.61.07-.6.07-.6 1 .07 1.52 1 1.52 1 .88 1.51 2.3 1.07 2.87.82.09-.63.35-1.07.63-1.31-2.21-.25-4.54-1.11-4.54-4.94 0-1.09.39-1.99 1.03-2.69-.1-.25-.45-1.28.1-2.66 0 0 .84-.27 2.75 1.03a9.45 9.45 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.41.1 2.66.64.7 1.03 1.6 1.03 2.69 0 3.84-2.33 4.69-4.56 4.94.36.31.68.92.68 1.85v2.74c0 .26.18.57.69.47A10 10 0 0 0 12 2Z"
+        />
+      </svg>
+    );
+  }
+  if (kind === "paypal") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M7.22 20.48H3.8a.78.78 0 0 1-.77-.9L5.7 3.14A1.33 1.33 0 0 1 7 2h6.17c2.21 0 3.87.47 4.93 1.4.92.82 1.35 2.01 1.35 3.55 0 1.66-.49 3.02-1.45 4.04-.97 1.02-2.37 1.65-4.17 1.87-.14.02-.26.11-.29.25l-.13.72-.93 5.83a1 1 0 0 1-.98.82H8.86l.48-3.03a.78.78 0 0 1 .77-.66h1.26c2.79 0 4.97-1.14 5.61-4.44.02-.1.03-.2.04-.29-.61.29-1.34.47-2.21.57-.84.1-1.68.15-2.52.15H9.66a.78.78 0 0 0-.77.66l-1.67 10.44Z"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12.01 2c2.48 0 4.46.62 5.93 1.87 1.48 1.25 2.22 2.95 2.22 5.1 0 1.95-.58 3.44-1.74 4.48-1.16 1.04-2.75 1.55-4.79 1.55h-.88l-.4 2.48h-2.8l1.94-12.32h3.95c1.77 0 2.66.7 2.66 2.1 0 .95-.31 1.73-.93 2.32-.62.59-1.47.89-2.55.89h-1.26l-.23 1.43h.62c2.84 0 4.26-1.18 4.26-3.53 0-1-.33-1.74-1-2.22-.67-.48-1.62-.72-2.87-.72h-4.9L6.35 22h5.52l.65-4.05h1.08c2.93 0 5.22-.76 6.88-2.28 1.66-1.52 2.49-3.7 2.49-6.54 0-2.39-.95-4.31-2.86-5.75C18.21 1.46 15.53.74 12.01.74V2Z"
+      />
+    </svg>
+  );
+}
+
 async function copyTextToClipboard(text) {
   if (!text) {
     throw new Error("Tidak ada tautan yang bisa disalin.");
@@ -398,12 +453,13 @@ function getGuestStatusModel(device, service) {
   if (deviceStatus === "blocked") {
     return {
       overallStatus: "blocked",
-      headline: "Akses perangkat sedang diblokir",
+      headline: "Akses perangkat dibatasi",
       description:
-        "Guest monitor tidak bisa membuka E-Rapor sampai perangkat di-unblock oleh administrator.",
+        "Perangkat terdeteksi tetapi aksesnya sedang dibatasi. Hubungi pengelola sistem untuk mengaktifkan kembali layanan publik.",
       publicStatus: "disabled",
-      publicLabel: "Akses publik diblokir",
+      publicLabel: "Akses publik dibatasi",
       runtimeLabel: "Perangkat diblokir",
+      runtimeChipLabel: "blocked",
       ready,
     };
   }
@@ -411,12 +467,13 @@ function getGuestStatusModel(device, service) {
   if (deviceStatus === "offline") {
     return {
       overallStatus: "offline",
-      headline: "Perangkat sedang offline",
+      headline: "Perangkat belum terhubung",
       description:
-        "Agent belum mengirim heartbeat terbaru. Jalankan shortcut School Services atau cek koneksi perangkat.",
+        "Sistem belum menerima heartbeat terbaru dari perangkat. Pastikan aplikasi School Services berjalan dan koneksi jaringan perangkat stabil.",
       publicStatus: hasPublicUrl ? "unavailable" : "disabled",
-      publicLabel: hasPublicUrl ? "URL terakhir tersimpan" : "Belum ada URL publik",
-      runtimeLabel: "Agent tidak terhubung",
+      publicLabel: hasPublicUrl ? "URL terakhir tersimpan" : "URL publik belum tersedia",
+      runtimeLabel: "Agent belum terhubung",
+      runtimeChipLabel: "offline",
       ready,
     };
   }
@@ -426,10 +483,11 @@ function getGuestStatusModel(device, service) {
       overallStatus: "ready",
       headline: "E-Rapor siap digunakan",
       description:
-        "Koneksi perangkat aktif, layanan E-Rapor sedang running, dan URL publik sudah siap dibuka.",
+        "Perangkat terhubung, layanan E-Rapor sedang berjalan, dan tautan publik siap dibuka dari browser mana pun yang memiliki izin akses.",
       publicStatus: "ready",
       publicLabel: "URL publik aktif",
       runtimeLabel: "Layanan running",
+      runtimeChipLabel: "running",
       ready,
     };
   }
@@ -437,12 +495,13 @@ function getGuestStatusModel(device, service) {
   if (serviceStatus === "starting") {
     return {
       overallStatus: "starting",
-      headline: "E-Rapor sedang dinyalakan",
+      headline: "E-Rapor sedang disiapkan",
       description:
-        "Perangkat online dan agent sedang memulai service atau menunggu port lokal terbuka.",
+        "Permintaan start sudah diterima. Agent sedang menyiapkan proses lokal dan menunggu layanan siap menerima koneksi.",
       publicStatus: hasPublicUrl ? "reconnecting" : "starting",
       publicLabel: hasPublicUrl ? "URL lama masih tersimpan" : "Menunggu URL publik",
-      runtimeLabel: "Sedang starting",
+      runtimeLabel: "Sedang memulai layanan",
+      runtimeChipLabel: "starting",
       ready,
     };
   }
@@ -450,12 +509,13 @@ function getGuestStatusModel(device, service) {
   if (serviceStatus === "waiting_retry") {
     return {
       overallStatus: "reconnecting",
-      headline: "Koneksi publik sedang dipulihkan",
+      headline: "Tautan publik sedang dipulihkan",
       description:
-        "Service lokal merespons, tetapi tunnel publik sedang retry. Tunggu beberapa saat lalu refresh otomatis.",
+        "Layanan lokal sudah merespons, tetapi koneksi publik masih melakukan pemulihan. Halaman ini akan menampilkan status terbaru secara berkala.",
       publicStatus: "waiting_retry",
       publicLabel: "Tunnel sedang retry",
-      runtimeLabel: "Service lokal tersedia",
+      runtimeLabel: "Layanan lokal tersedia",
+      runtimeChipLabel: "waiting retry",
       ready,
     };
   }
@@ -463,12 +523,13 @@ function getGuestStatusModel(device, service) {
   if (serviceStatus === "running" && !hasPublicUrl) {
     return {
       overallStatus: "degraded",
-      headline: "Service aktif, URL publik belum siap",
+      headline: "Layanan aktif, tautan publik belum siap",
       description:
-        "E-Rapor sudah running di perangkat, tetapi URL publik belum dipublikasikan atau masih diproses.",
+        "Proses utama E-Rapor sudah berjalan di perangkat, tetapi publikasi tautan akses masih menunggu sinkronisasi.",
       publicStatus: "starting",
       publicLabel: "Menunggu URL publik",
       runtimeLabel: "Service running",
+      runtimeChipLabel: "running",
       ready,
     };
   }
@@ -476,12 +537,13 @@ function getGuestStatusModel(device, service) {
   if (serviceStatus === "error") {
     return {
       overallStatus: "error",
-      headline: "Service E-Rapor mengalami error",
+      headline: "Layanan memerlukan perhatian",
       description:
-        "Ada error pada service atau tunnel. Lihat pesan error terbaru di bawah untuk tindak lanjut.",
+        "Sistem mendeteksi gangguan pada layanan atau koneksi publik. Periksa ringkasan error di bawah untuk langkah tindak lanjut.",
       publicStatus: hasPublicUrl ? "unavailable" : "disabled",
-      publicLabel: hasPublicUrl ? "URL publik tidak stabil" : "Belum ada URL publik",
-      runtimeLabel: "Service error",
+      publicLabel: hasPublicUrl ? "URL publik belum stabil" : "URL publik belum tersedia",
+      runtimeLabel: "Layanan mengalami error",
+      runtimeChipLabel: "error",
       ready,
     };
   }
@@ -489,24 +551,26 @@ function getGuestStatusModel(device, service) {
   if (desiredState === "stopped" || serviceStatus === "stopped") {
     return {
       overallStatus: "stopped",
-      headline: "E-Rapor belum dijalankan",
+      headline: "Layanan belum dijalankan",
       description:
-        "Perangkat online, tetapi service E-Rapor belum running. Tekan Start atau buka shortcut School Services.",
+        "Perangkat sudah online, tetapi layanan E-Rapor belum aktif. Tekan Start Service untuk menyalakan layanan dari halaman ini.",
       publicStatus: hasPublicUrl ? "unavailable" : "disabled",
       publicLabel: hasPublicUrl ? "URL lama tersimpan" : "Belum ada URL publik",
-      runtimeLabel: "Service berhenti",
+      runtimeLabel: "Layanan berhenti",
+      runtimeChipLabel: "stopped",
       ready,
     };
   }
 
   return {
     overallStatus: serviceStatus,
-    headline: "Status E-Rapor sedang diperiksa",
+    headline: "Status layanan sedang diperiksa",
     description:
-      "Guest monitor terus memantau heartbeat perangkat, status service, dan URL publik secara realtime.",
+      "Halaman ini memantau heartbeat perangkat, kesiapan layanan, dan status tautan publik untuk membantu pengguna mengetahui kondisi akses terbaru.",
     publicStatus: hasPublicUrl ? "available" : "disabled",
     publicLabel: hasPublicUrl ? "URL publik tersedia" : "Belum ada URL publik",
     runtimeLabel: "Menunggu pembaruan status",
+    runtimeChipLabel: serviceStatus,
     ready,
   };
 }
@@ -580,43 +644,51 @@ function PublicLinkActions({
 function SiteFooter() {
   return (
     <footer className="site-footer">
-      <div>
+      <div className="site-footer-copy">
         <strong>School Services v2.0.0</strong>
         <p>
-          Monitor guest dan dashboard admin untuk E-Rapor dengan fokus pada status realtime,
-          akses publik, dan operasional yang rapi.
+          Monitor layanan sekolah dan akses publik E-Rapor dalam satu panel yang rapi,
+          responsif, dan mudah dipahami oleh tim operasional maupun pengguna umum.
         </p>
       </div>
-      <div className="site-footer-actions">
+      <div className="support-cluster">
+        <div className="support-cluster-copy">
+          <span className="section-eyebrow">Buy Me a Coffee</span>
+          <strong>Dukung pengembangan School Services</strong>
+        </div>
+        <div className="site-footer-actions">
         <a
-          className="secondary-button footer-link-button"
+          className="secondary-button footer-link-button support-link-button"
           href={GITHUB_PROFILE_URL}
           target="_blank"
           rel="noreferrer"
         >
+          <SupportIcon kind="github" />
           Support GitHub
         </a>
         <a
-          className="secondary-button footer-link-button"
+          className="secondary-button footer-link-button support-link-button"
           href={PAYPAL_URL}
           target="_blank"
           rel="noreferrer"
         >
+          <SupportIcon kind="paypal" />
           PayPal
         </a>
         <a
-          className="secondary-button footer-link-button"
+          className="secondary-button footer-link-button support-link-button"
           href={TRAKTEER_URL}
           target="_blank"
           rel="noreferrer"
         >
+          <SupportIcon kind="trakteer" />
           Trakteer
         </a>
+        </div>
       </div>
     </footer>
   );
 }
-
 
 function PasswordField({
   label,
@@ -625,16 +697,20 @@ function PasswordField({
   placeholder,
   autoComplete,
   disabled = false,
-  visible,
-  onToggleVisibility,
+  visible = null,
+  onToggleVisibility = null,
 }) {
-  const [internalVisible, setInternalVisible] = useState(false);
-  const isVisible = visible !== undefined ? visible : internalVisible;
-  
-  const toggle = () => {
-    if (onToggleVisibility) onToggleVisibility();
-    else setInternalVisible(v => !v);
-  };
+  const [localVisible, setLocalVisible] = useState(false);
+  const controlled = typeof visible === "boolean";
+  const isVisible = controlled ? visible : localVisible;
+
+  function toggleVisibility() {
+    if (typeof onToggleVisibility === "function") {
+      onToggleVisibility();
+      return;
+    }
+    setLocalVisible((current) => !current);
+  }
 
   return (
     <label className="password-field">
@@ -653,7 +729,7 @@ function PasswordField({
           className="password-toggle"
           aria-label={isVisible ? "Sembunyikan password" : "Lihat password"}
           aria-pressed={isVisible}
-          onClick={toggle}
+          onClick={toggleVisibility}
           disabled={disabled}
         >
           {isVisible ? "Sembunyikan" : "Lihat"}
@@ -669,10 +745,14 @@ function LoginScreen({
   password,
   displayName,
   role,
+  registrationMode,
+  referralCode,
   setEmail,
   setPassword,
   setDisplayName,
   setRole,
+  setRegistrationMode,
+  setReferralCode,
   setMode,
   onSubmit,
   onForgotPassword,
@@ -683,11 +763,11 @@ function LoginScreen({
   return (
     <main className="login-shell">
       <div className="login-card">
-        <div className="login-eyebrow">Secure Admin Control</div>
-        <h1>School Services Remote Console</h1>
+        <div className="login-eyebrow">School Services Access</div>
+        <h1>Kelola akses perangkat dan layanan sekolah</h1>
         <p>
-          Masuk sebagai super admin untuk mengontrol fleet, akses file user, backup
-          data, dan memantau status agent secara realtime.
+          Masuk untuk memantau status layanan, mengelola akses perangkat sesuai peran,
+          dan membuka E-Rapor dengan kontrol yang sesuai kebutuhan operasional Anda.
         </p>
         <form
           className="login-form"
@@ -718,12 +798,37 @@ function LoginScreen({
                 />
               </label>
               <label>
-                <span>Role request</span>
+                <span>Peran akun</span>
                 <select value={role} onChange={(event) => setRole(event.target.value)}>
                   <option value="operator">Operator</option>
                   <option value="user">User</option>
                 </select>
               </label>
+              {role === "user" ? (
+                <>
+                  <label>
+                    <span>Jalur pendaftaran</span>
+                    <select
+                      value={registrationMode}
+                      onChange={(event) => setRegistrationMode(event.target.value)}
+                    >
+                      <option value="referral_code">Gabung ke lingkungan operator</option>
+                      <option value="direct_superadmin">Daftar langsung ke SuperAdmin</option>
+                    </select>
+                  </label>
+                  {registrationMode === "referral_code" ? (
+                    <label>
+                      <span>Kode lingkungan operator</span>
+                      <input
+                        type="text"
+                        value={referralCode}
+                        onChange={(event) => setReferralCode(event.target.value.toUpperCase())}
+                        placeholder="Contoh: ABCD123456"
+                      />
+                    </label>
+                  ) : null}
+                </>
+              ) : null}
             </>
           ) : null}
           <PasswordField
@@ -739,18 +844,18 @@ function LoginScreen({
           <button className="primary-button login-button" disabled={loading} type="submit">
             {loading
               ? mode === "register"
-                ? "Submitting..."
-                : "Signing in..."
+                ? "Memproses pendaftaran..."
+                : "Masuk..."
               : mode === "register"
-                ? "Request access"
-                : "Sign in"}
+                ? "Ajukan akses"
+                : "Masuk"}
           </button>
           <button
             type="button"
             className="secondary-button"
             onClick={() => setMode(mode === "register" ? "login" : "register")}
           >
-            {mode === "register" ? "Back to sign in" : "Need an account?"}
+            {mode === "register" ? "Kembali ke login" : "Belum punya akun?"}
           </button>
           {mode === "login" ? (
             <button
@@ -771,12 +876,12 @@ function LoginScreen({
 function AccountStatusScreen({ profile, onSignOut }) {
   const label =
     !profile
-      ? "Profil akun belum ditemukan. Coba masuk ulang atau hubungi administrator."
+      ? "Profil akun belum ditemukan. Silakan masuk ulang atau hubungi pengelola sistem."
       : profile?.status === "pending"
-      ? "Akun Anda sedang menunggu persetujuan administrator."
+      ? "Akses akun Anda masih diproses. Silakan pantau kembali halaman ini setelah jadwal persetujuan berjalan."
       : profile?.status === "rejected"
-        ? "Permintaan akun Anda ditolak."
-        : "Akun Anda dinonaktifkan.";
+        ? "Permintaan akun Anda belum dapat disetujui. Hubungi pengelola lingkungan atau SuperAdmin untuk tindak lanjut."
+        : "Akun Anda sedang dinonaktifkan. Hubungi pengelola sistem bila perlu aktivasi ulang.";
 
   return (
     <main className="login-shell">
@@ -786,7 +891,7 @@ function AccountStatusScreen({ profile, onSignOut }) {
         <p>{label}</p>
         {profile?.approval_due_at ? (
           <div className="explorer-warning">
-            Auto approval ETA: {formatRelativeTime(profile.approval_due_at)}
+            Estimasi persetujuan otomatis: {formatRelativeTime(profile.approval_due_at)}
           </div>
         ) : null}
         <div className="panel-actions" style={{ marginTop: 16 }}>
@@ -807,7 +912,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [nextPassword, setNextPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [newPasswordVisible, setNewPasswordVisible] = useState(false);
+  const [showNextPasswords, setShowNextPasswords] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -913,8 +1018,8 @@ function ProfilePanel({ profile, session, onSignOut }) {
             placeholder="Minimal 8 karakter"
             autoComplete="new-password"
             disabled={busy}
-            visible={newPasswordVisible}
-            onToggleVisibility={() => setNewPasswordVisible(!newPasswordVisible)}
+            visible={showNextPasswords}
+            onToggleVisibility={() => setShowNextPasswords((current) => !current)}
           />
           <PasswordField
             label="Konfirmasi password"
@@ -923,8 +1028,8 @@ function ProfilePanel({ profile, session, onSignOut }) {
             placeholder="Ulangi password baru"
             autoComplete="new-password"
             disabled={busy}
-            visible={newPasswordVisible}
-            onToggleVisibility={() => setNewPasswordVisible(!newPasswordVisible)}
+            visible={showNextPasswords}
+            onToggleVisibility={() => setShowNextPasswords((current) => !current)}
           />
           <div>
             <span>Aksi akun</span>
@@ -953,11 +1058,24 @@ function ProfilePanel({ profile, session, onSignOut }) {
 function GuestConsole({ deviceId }) {
   const [state, setState] = useState({ device: null, service: null });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [commandModal, setCommandModal] = useState({
+    open: false,
+    action: "",
+    title: "",
+    message: "",
+  });
 
-  async function loadGuest() {
+  async function loadGuest(options = {}) {
+    const silent = Boolean(options.silent);
     try {
+      if (silent) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       const { data, error: invokeError } = await supabase.functions.invoke("guest-access", {
         body: { action: "status", deviceId },
       });
@@ -970,9 +1088,13 @@ function GuestConsole({ deviceId }) {
       setState({ device: data.device, service: data.service });
       setError("");
     } catch (nextError) {
-      setError(nextError.message);
+      setError(formatEdgeFunctionError(nextError));
     } finally {
-      setLoading(false);
+      if (silent) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }
 
@@ -1005,6 +1127,15 @@ function GuestConsole({ deviceId }) {
   async function sendCommand(action) {
     try {
       setBusy(true);
+      setCommandModal({
+        open: true,
+        action,
+        title: action === "start" ? "Menyalakan layanan E-Rapor" : "Menghentikan layanan E-Rapor",
+        message:
+          action === "start"
+            ? "Permintaan sedang dikirim ke perangkat. Status halaman akan diperbarui otomatis setelah agent merespons."
+            : "Perintah stop sedang dikirim. Tunggu beberapa saat sampai status layanan berubah.",
+      });
       const { data, error: invokeError } = await supabase.functions.invoke("guest-access", {
         body: { action, deviceId },
       });
@@ -1014,9 +1145,24 @@ function GuestConsole({ deviceId }) {
       if (!data?.ok) {
         throw new Error(data?.error || "Guest command failed.");
       }
-      await loadGuest();
+      await loadGuest({ silent: true });
+      setCommandModal((current) => ({
+        ...current,
+        message:
+          action === "start"
+            ? "Permintaan start sudah diterima. Jika koneksi perangkat aktif, badge status akan segera berubah menjadi siap."
+            : "Permintaan stop sudah diterima. Halaman akan menampilkan status terbaru begitu agent selesai memproses.",
+      }));
+      window.setTimeout(() => {
+        setCommandModal((current) => ({ ...current, open: false }));
+      }, 1200);
     } catch (nextError) {
-      setError(nextError.message);
+      setError(formatEdgeFunctionError(nextError));
+      setCommandModal((current) => ({
+        ...current,
+        open: true,
+        message: formatEdgeFunctionError(nextError),
+      }));
     } finally {
       setBusy(false);
     }
@@ -1033,7 +1179,7 @@ function GuestConsole({ deviceId }) {
     <main className="console-shell guest-console-shell">
       <header className="guest-nav">
         <div className="guest-brand">
-          <div className="guest-brand-mark">SS</div>
+          <img className="guest-brand-mark guest-brand-image" src={GUEST_BRAND_ICON} alt="School Services" />
           <div>
             <div className="section-eyebrow">School Services</div>
             <strong>Guest Access Monitor</strong>
@@ -1057,11 +1203,11 @@ function GuestConsole({ deviceId }) {
           <div className="guest-hero-badges">
             <StatusChip
               status={state.device?.deviceStatus || "offline"}
-              label={`device ${state.device?.deviceStatus || "offline"}`}
+              label={`Perangkat ${state.device?.deviceStatus || "offline"}`}
             />
             <StatusChip
               status={service?.status || "offline"}
-              label={`service ${service?.status || "offline"}`}
+              label={`Layanan ${service?.status || "offline"}`}
             />
             <StatusChip
               status={guestStatus.publicStatus}
@@ -1071,8 +1217,13 @@ function GuestConsole({ deviceId }) {
         </div>
         <div className="guest-hero-actions">
           <StatusChip status={guestStatus.overallStatus} label={guestStatus.headline} />
-          <button type="button" className={`secondary-button ${loading ? "button-busy" : ""}`} disabled={loading} onClick={loadGuest}>
-            {loading ? "Refreshing..." : "Refresh"}
+          <button
+            type="button"
+            className={`secondary-button ${refreshing ? "button-busy" : ""}`}
+            onClick={() => loadGuest({ silent: true })}
+            disabled={refreshing}
+          >
+            {refreshing ? "Menyegarkan..." : "Refresh"}
           </button>
         </div>
       </section>
@@ -1087,13 +1238,13 @@ function GuestConsole({ deviceId }) {
             <section className="guest-status-grid">
               <article className="metric-card guest-status-card">
                 <span>Koneksi perangkat</span>
-                <strong>{state.device?.deviceStatus || "offline"}</strong>
-                <StatusChip status={state.device?.deviceStatus || "offline"} />
+                <strong>{state.device?.deviceStatus === "online" ? "Terhubung" : state.device?.deviceStatus || "offline"}</strong>
+                <StatusChip status={state.device?.deviceStatus || "offline"} label={state.device?.deviceStatus === "online" ? "online" : undefined} />
               </article>
               <article className="metric-card guest-status-card">
                 <span>Status service</span>
                 <strong>{guestStatus.runtimeLabel}</strong>
-                <StatusChip status={service?.status || "offline"} />
+                <StatusChip status={service?.status || "offline"} label={guestStatus.runtimeChipLabel} />
               </article>
               <article className="metric-card guest-status-card">
                 <span>Publikasi link</span>
@@ -1114,8 +1265,8 @@ function GuestConsole({ deviceId }) {
                   <div className="mono">{state.device?.deviceId}</div>
                 </div>
                 <div className="service-status-group">
-                  <StatusChip status={state.device?.deviceStatus || "offline"} />
-                  <StatusChip status={service?.status || "offline"} />
+                  <StatusChip status={state.device?.deviceStatus || "offline"} label={state.device?.deviceStatus === "online" ? "device online" : undefined} />
+                  <StatusChip status={service?.status || "offline"} label={guestStatus.runtimeChipLabel} />
                   <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
                 </div>
               </div>
@@ -1142,36 +1293,45 @@ function GuestConsole({ deviceId }) {
                   </strong>
                 </div>
                 <div>
-                  <span>Desired state</span>
-                  <strong>{service?.desired_state || "-"}</strong>
+                  <span>Status target</span>
+                  <strong>{service?.desired_state === "running" ? "Dijaga tetap running" : service?.desired_state || "-"}</strong>
                 </div>
                 <div>
-                  <span>Last ping</span>
+                  <span>Ping service</span>
                   <strong>{formatRelativeTime(service?.last_ping)}</strong>
                 </div>
                 <div>
-                  <span>Last heartbeat</span>
+                  <span>Heartbeat agent</span>
                   <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
                 </div>
-                
+                <div>
+                  <span>Kesiapan direktori</span>
+                  <strong>{service?.location_status || "unknown"}</strong>
+                </div>
+                <div>
+                  <span>Lokasi layanan</span>
+                  <strong className="mono">{service?.resolved_path || "-"}</strong>
+                </div>
               </div>
 
-              
+              {service?.location_details?.message ? (
+                <div className="service-note">{service.location_details.message}</div>
+              ) : null}
               {service?.last_error ? <div className="job-error">{service.last_error}</div> : null}
 
               <div className="guest-cta-row">
                 <div className="panel-actions">
                   <button
                     type="button"
-                    className={`primary-button ${busy ? "button-busy" : ""}`}
+                    className="primary-button"
                     disabled={busy}
                     onClick={() => sendCommand("start")}
                   >
-                    {busy ? "Starting..." : "Start Service"}
+                    {busy ? "Memproses..." : "Start Service"}
                   </button>
                   <button
                     type="button"
-                    className={`secondary-button ${busy ? "button-busy" : ""}`}
+                    className="secondary-button"
                     disabled={busy || !isRunning}
                     onClick={() => sendCommand("stop")}
                   >
@@ -1203,7 +1363,15 @@ function GuestConsole({ deviceId }) {
         )}
       </section>
       <SiteFooter />
-      
+      {commandModal.open ? (
+        <div className="guest-modal-backdrop" role="status" aria-live="polite">
+          <div className="guest-modal-card">
+            <div className="guest-modal-spinner" />
+            <strong>{commandModal.title}</strong>
+            <p>{commandModal.message}</p>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -1211,7 +1379,7 @@ function GuestConsole({ deviceId }) {
 function PasswordResetScreen() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [newPasswordVisible, setNewPasswordVisible] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1288,10 +1456,12 @@ function PasswordResetScreen() {
       clearStoredAuthArtifacts();
       setPassword("");
       setConfirmPassword("");
-      setInfo("Password baru berhasil disimpan. Mengalihkan ke halaman login...");
-      setTimeout(() => {
-        window.location.href = "/";
-      }, 2000);
+      setInfo("Password baru berhasil disimpan. Anda akan diarahkan ke halaman login.");
+      window.setTimeout(() => {
+        if (typeof window !== "undefined") {
+          window.location.href = `${PUBLIC_DASHBOARD_URL}/?mode=login`;
+        }
+      }, 1200);
     } catch (error) {
       setError(formatPasswordUpdateError(error));
     } finally {
@@ -1315,9 +1485,9 @@ function PasswordResetScreen() {
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Minimal 8 karakter"
             autoComplete="new-password"
-            disabled={busy || !ready}
-            visible={newPasswordVisible}
-            onToggleVisibility={() => setNewPasswordVisible(!newPasswordVisible)}
+            disabled={busy}
+            visible={showPasswords}
+            onToggleVisibility={() => setShowPasswords((current) => !current)}
           />
           <PasswordField
             label="Konfirmasi password"
@@ -1325,9 +1495,9 @@ function PasswordResetScreen() {
             onChange={(event) => setConfirmPassword(event.target.value)}
             placeholder="Ulangi password baru"
             autoComplete="new-password"
-            disabled={busy || !ready}
-            visible={newPasswordVisible}
-            onToggleVisibility={() => setNewPasswordVisible(!newPasswordVisible)}
+            disabled={busy}
+            visible={showPasswords}
+            onToggleVisibility={() => setShowPasswords((current) => !current)}
           />
           {error ? <div className="error-banner">{error}</div> : null}
           {info ? <div className="explorer-warning">{info}</div> : null}
@@ -1615,14 +1785,19 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState("");
   const [registerDisplayName, setRegisterDisplayName] = useState("");
   const [registerRole, setRegisterRole] = useState("operator");
+  const [registerMode, setRegisterMode] = useState("referral_code");
+  const [registerReferralCode, setRegisterReferralCode] = useState("");
   const [authError, setAuthError] = useState("");
   const [authInfo, setAuthInfo] = useState("");
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [accounts, setAccounts] = useState([]);
+  const [environments, setEnvironments] = useState([]);
   const [authPolicy, setAuthPolicy] = useState({
-    autoApproveEnabled: true,
-    approvalWindowHours: 24,
+    operatorAutoApproveHours: 24,
+    environmentUserAutoApproveHours: 8,
+    standaloneUserApprovalMode: "manual",
+    standaloneUserAutoApproveHours: 24,
     maintenanceIntervalMinutes: 15,
     passwordResetRedirectUrl: `${PUBLIC_DASHBOARD_URL}/reset-password`,
   });
@@ -1648,7 +1823,7 @@ export default function App() {
   const [createPassword, setCreatePassword] = useState("");
   const [createDisplayName, setCreateDisplayName] = useState("");
   const [createRole, setCreateRole] = useState("operator");
-  const [createAutoApprove, setCreateAutoApprove] = useState(false);
+  const [createApproveImmediately, setCreateApproveImmediately] = useState(true);
   const fileInputRef = useRef(null);
 
   function resetAuthenticatedState() {
@@ -1656,6 +1831,7 @@ export default function App() {
     setProfile(null);
     setProfileLoading(false);
     setAccounts([]);
+    setEnvironments([]);
     setServices([]);
     setLogs([]);
     setFileJobs([]);
@@ -1677,7 +1853,7 @@ export default function App() {
     setCreatePassword("");
     setCreateDisplayName("");
     setCreateRole("operator");
-    setCreateAutoApprove(false);
+    setCreateApproveImmediately(true);
   }
 
   useEffect(() => {
@@ -1755,6 +1931,20 @@ export default function App() {
     };
   }, [session, guestDeviceId]);
 
+  useEffect(() => {
+    if (registerRole !== "user") {
+      setRegisterMode("referral_code");
+      setRegisterReferralCode("");
+    }
+  }, [registerRole]);
+
+  useEffect(() => {
+    if (profile?.role === "operator") {
+      setCreateRole("user");
+      setCreateApproveImmediately(false);
+    }
+  }, [profile]);
+
   async function loadAll(background = false) {
     if (!session || guestDeviceId) {
       return;
@@ -1764,64 +1954,24 @@ export default function App() {
       setLoading(true);
     }
 
-    const [servicesResult, logsResult, jobsResult, rootsResult, accountsResult, settingsResult] = await Promise.all([
-      supabase
-        .from("services")
-        .select("*, devices(device_name, status, last_seen)")
-        .order("device_id", { ascending: true })
-        .order("service_name", { ascending: true }),
-      supabase
-        .from("agent_logs")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(LOG_LIMIT),
-      supabase
-        .from("file_jobs")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(JOB_LIMIT),
-      supabase
-        .from("file_roots")
-        .select("*")
-        .order("root_type", { ascending: true })
-        .order("label", { ascending: true }),
-      profile?.role === "super_admin"
-        ? invokeAdmin("listAccounts").catch((invokeError) => ({
-            ok: false,
-            error: invokeError.message,
-          }))
-        : Promise.resolve(null),
-      profile?.role === "super_admin"
-        ? invokeAdmin("setupStatus").catch((invokeError) => ({
-            ok: false,
-            error: invokeError.message,
-          }))
-        : Promise.resolve(null),
-    ]);
-
-    const nextError =
-      servicesResult.error?.message ||
-      logsResult.error?.message ||
-      jobsResult.error?.message ||
-      rootsResult.error?.message ||
-      (accountsResult && accountsResult.ok === false ? accountsResult.error : "") ||
-      (settingsResult && settingsResult.ok === false ? settingsResult.error : "") ||
-      "";
-
-    setError(nextError);
-    if (!nextError) {
+    try {
+      const dashboard = await invokeAdmin("listDashboard");
       startTransition(() => {
-        setServices(servicesResult.data || []);
-        setLogs(logsResult.data || []);
-        setFileJobs(jobsResult.data || []);
-        setRoots(rootsResult.data || []);
-        if (accountsResult?.ok) {
-          setAccounts(accountsResult.accounts || []);
-        }
-        if (settingsResult?.ok && settingsResult.authPolicy) {
-          setAuthPolicy(settingsResult.authPolicy);
+        setServices(dashboard.services || []);
+        setLogs(dashboard.logs || []);
+        setFileJobs(dashboard.fileJobs || []);
+        setRoots(dashboard.roots || []);
+        setAccounts(dashboard.accounts || []);
+        setEnvironments(dashboard.environments || []);
+        if (dashboard.authPolicy) {
+          setAuthPolicy((current) => ({ ...current, ...dashboard.authPolicy }));
         }
       });
+      setChannelState("ready");
+      setError("");
+    } catch (loadError) {
+      setChannelState("error");
+      setError(formatEdgeFunctionError(loadError));
     }
 
     if (!background) {
@@ -1835,15 +1985,6 @@ export default function App() {
     }
 
     loadAll();
-    const channel = supabase
-      .channel("remote-control-plane")
-      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, () => loadAll(true))
-      .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, () => loadAll(true))
-      .on("postgres_changes", { event: "*", schema: "public", table: "agent_logs" }, () => loadAll(true))
-      .on("postgres_changes", { event: "*", schema: "public", table: "file_jobs" }, () => loadAll(true))
-      .on("postgres_changes", { event: "*", schema: "public", table: "file_roots" }, () => loadAll(true))
-      .subscribe((status) => setChannelState(String(status || "").toLowerCase()));
-
     const refreshId = window.setInterval(() => {
       loadAll(true);
       setNow(Date.now());
@@ -1851,7 +1992,6 @@ export default function App() {
 
     return () => {
       window.clearInterval(refreshId);
-      supabase.removeChannel(channel);
     };
   }, [session, profile, guestDeviceId]);
 
@@ -1865,7 +2005,10 @@ export default function App() {
     if (!profile) {
       return;
     }
-    if (profile.role !== "super_admin" && ["files", "accounts"].includes(selectedTab)) {
+    if (profile.role !== "super_admin" && selectedTab === "files") {
+      setSelectedTab("overview");
+    }
+    if (!["super_admin", "operator"].includes(profile.role) && selectedTab === "accounts") {
       setSelectedTab("overview");
     }
   }, [profile, selectedTab]);
@@ -2037,9 +2180,11 @@ export default function App() {
           password: loginPassword,
           displayName: registerDisplayName,
           role: registerRole,
+          registrationMode: registerRole === "user" ? registerMode : "open_operator_signup",
+          referralCode: registerRole === "user" ? registerReferralCode : "",
         });
         setAuthInfo(
-          "Registration received. Sign in with the same credentials to view approval status."
+          "Pendaftaran berhasil diterima. Masuk dengan akun yang sama untuk memantau status persetujuan."
         );
         setAuthMode("login");
       } catch (registerError) {
@@ -2052,13 +2197,7 @@ export default function App() {
       });
 
       if (signInError) {
-        if (/invalid login credentials/i.test(signInError.message)) {
-          setAuthError("Email atau kata sandi yang Anda masukkan belum tepat.");
-        } else if (/email not confirmed/i.test(signInError.message)) {
-          setAuthError("Email belum terkonfirmasi.");
-        } else {
-          setAuthError(signInError.message);
-        }
+        setAuthError(formatSignInError(signInError));
       }
     }
 
@@ -2077,7 +2216,7 @@ export default function App() {
         redirectTo,
       });
 
-      setAuthInfo("Email verifikasi untuk ganti password sudah dikirim. Buka email Anda, verifikasi tautan, lalu buat password baru.");
+      setAuthInfo("Tautan untuk mengganti password sudah dikirim ke email Anda. Buka email tersebut, verifikasi tautan, lalu buat password baru.");
     } catch (forgotError) {
       setAuthError(formatEdgeFunctionError(forgotError));
     } finally {
@@ -2114,7 +2253,7 @@ export default function App() {
     });
     setBusyAction("");
     if (insertError) {
-      setError(insertError.message);
+      setError(formatEdgeFunctionError(insertError));
       return;
     }
     loadAll(true);
@@ -2128,7 +2267,7 @@ export default function App() {
       .eq("device_id", deviceId);
     setBusyAction("");
     if (updateError) {
-      setError(updateError.message);
+      setError(formatEdgeFunctionError(updateError));
       return;
     }
     loadAll(true);
@@ -2157,7 +2296,7 @@ export default function App() {
       return data.job;
     } catch (jobError) {
       setBusyAction("");
-      setError(jobError.message);
+      setError(formatEdgeFunctionError(jobError));
       return null;
     }
   }
@@ -2170,7 +2309,7 @@ export default function App() {
       setError("");
       loadAll(true);
     } catch (copyError) {
-      setError(copyError.message);
+      setError(formatEdgeFunctionError(copyError));
     } finally {
       setBusyAction("");
     }
@@ -2182,7 +2321,7 @@ export default function App() {
       await invokeAdmin(action, payload);
       await loadAll(true);
     } catch (accountError) {
-      setError(accountError.message);
+      setError(formatEdgeFunctionError(accountError));
     } finally {
       setBusyAction("");
     }
@@ -2199,15 +2338,15 @@ export default function App() {
       password: createPassword,
       displayName: createDisplayName,
       role: createRole,
-      autoApprove: createAutoApprove,
-      approvalWindowHours: authPolicy.approvalWindowHours,
+      approveImmediately: createApproveImmediately,
+      environmentId: createRole === "user" ? environments[0]?.id || profile?.primary_environment_id || "" : "",
     });
 
     setCreateEmail("");
     setCreatePassword("");
     setCreateDisplayName("");
     setCreateRole("operator");
-    setCreateAutoApprove(false);
+    setCreateApproveImmediately(true);
   }
 
   async function openPath(nextPath) {
@@ -2330,7 +2469,7 @@ export default function App() {
         }
       }
     } catch (downloadError) {
-      setError(downloadError.message);
+      setError(formatEdgeFunctionError(downloadError));
     } finally {
       setBusyAction("");
     }
@@ -2342,7 +2481,7 @@ export default function App() {
       await invokeAdmin("promoteArchive", { jobId: job.id });
       loadAll(true);
     } catch (promoteError) {
-      setError(promoteError.message);
+      setError(formatEdgeFunctionError(promoteError));
     } finally {
       setBusyAction("");
     }
@@ -2368,7 +2507,7 @@ export default function App() {
       }
       loadAll(true);
     } catch (cancelError) {
-      setError(cancelError.message);
+      setError(formatEdgeFunctionError(cancelError));
     } finally {
       setBusyAction("");
     }
@@ -2402,7 +2541,7 @@ export default function App() {
         },
       });
     } catch (uploadError) {
-      setError(uploadError.message);
+      setError(formatEdgeFunctionError(uploadError));
     } finally {
       setBusyAction("");
       if (fileInputRef.current) {
@@ -2427,10 +2566,14 @@ export default function App() {
         password=""
         displayName=""
         role="operator"
+        registrationMode="referral_code"
+        referralCode=""
         setEmail={() => {}}
         setPassword={() => {}}
         setDisplayName={() => {}}
         setRole={() => {}}
+        setRegistrationMode={() => {}}
+        setReferralCode={() => {}}
         setMode={() => {}}
         onSubmit={() => {}}
         onForgotPassword={() => {}}
@@ -2449,10 +2592,14 @@ export default function App() {
         password={loginPassword}
         displayName={registerDisplayName}
         role={registerRole}
+        registrationMode={registerMode}
+        referralCode={registerReferralCode}
         setEmail={setLoginEmail}
         setPassword={setLoginPassword}
         setDisplayName={setRegisterDisplayName}
         setRole={setRegisterRole}
+        setRegistrationMode={setRegisterMode}
+        setReferralCode={setRegisterReferralCode}
         setMode={setAuthMode}
         onSubmit={signIn}
         onForgotPassword={sendForgotPassword}
@@ -2489,10 +2636,10 @@ export default function App() {
           <h1>School Services Remote Control</h1>
           <p>
             {isSuperAdmin
-              ? "Kontrol service, akses file user, backup data, approval account, dan pantau error agent dalam satu console realtime."
+              ? "Pantau seluruh trafik, persetujuan akun, lingkungan operator, dan akses perangkat dari satu console terpusat."
               : isOperator
-                ? "Pantau device dan kontrol service dari device yang tersedia."
-                : "Pantau E-Rapor dan status device secara realtime."}
+                ? "Kelola perangkat dan akun user di lingkungan Anda tanpa membuka akses yang khusus untuk SuperAdmin."
+                : "Pantau perangkat yang terhubung ke akun Anda dan gunakan kontrol layanan yang relevan untuk device sendiri."}
           </p>
         </div>
         <div className="topbar-actions">
@@ -2531,7 +2678,7 @@ export default function App() {
               ...(isSuperAdmin ? [["files", "Remote Files"]] : []),
               ["activity", "Activity"],
               ["profile", "Profile"],
-              ...(isSuperAdmin || isOperator ? [["accounts", "Accounts"]] : []),
+              ...((isSuperAdmin || isOperator) ? [["accounts", "Accounts"]] : []),
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -2853,78 +3000,152 @@ export default function App() {
               {selectedTab === "accounts" && (isSuperAdmin || isOperator) ? (
                 <section className="panel-stack">
                   {isSuperAdmin ? (
-                  <article className="service-panel">
-                    <div className="panel-heading-row">
-                      <h3>Approval Policy</h3>
-                      <StatusChip status={authPolicy.autoApproveEnabled ? "running" : "warn"} label={authPolicy.autoApproveEnabled ? "auto approve on" : "manual approval"} />
-                    </div>
-                    <div className="service-detail-grid">
-                      <label>
-                        <span>Approval window</span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={authPolicy.approvalWindowHours}
-                          onChange={(event) =>
-                            setAuthPolicy((current) => ({
-                              ...current,
-                              approvalWindowHours: Number(event.target.value || 24),
-                            }))
+                    <article className="service-panel">
+                      <div className="panel-heading-row">
+                        <h3>Approval Policy</h3>
+                        <StatusChip
+                          status={authPolicy.standaloneUserApprovalMode === "auto" ? "running" : "warn"}
+                          label={
+                            authPolicy.standaloneUserApprovalMode === "auto"
+                              ? "standalone auto"
+                              : "standalone manual"
                           }
                         />
-                      </label>
-                      <label>
-                        <span>Maintenance interval</span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={authPolicy.maintenanceIntervalMinutes}
-                          onChange={(event) =>
-                            setAuthPolicy((current) => ({
-                              ...current,
-                              maintenanceIntervalMinutes: Number(event.target.value || 15),
-                            }))
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>Reset redirect</span>
-                        <input
-                          value={authPolicy.passwordResetRedirectUrl}
-                          onChange={(event) =>
-                            setAuthPolicy((current) => ({
-                              ...current,
-                              passwordResetRedirectUrl: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>Auto approve</span>
-                        <select
-                          value={authPolicy.autoApproveEnabled ? "enabled" : "disabled"}
-                          onChange={(event) =>
-                            setAuthPolicy((current) => ({
-                              ...current,
-                              autoApproveEnabled: event.target.value === "enabled",
-                            }))
-                          }
-                        >
-                          <option value="enabled">Enabled</option>
-                          <option value="disabled">Disabled</option>
-                        </select>
-                      </label>
-                      <div className="panel-actions" style={{ alignItems: "end" }}>
-                        <button
-                          type="button"
-                          className="primary-button"
-                          onClick={() => handleAccountAction("updateAuthPolicy", authPolicy)}
-                        >
-                          Save policy
-                        </button>
                       </div>
-                    </div>
-                  </article>
+                      <div className="service-detail-grid">
+                        <label>
+                          <span>Operator auto approval</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={authPolicy.operatorAutoApproveHours}
+                            onChange={(event) =>
+                              setAuthPolicy((current) => ({
+                                ...current,
+                                operatorAutoApproveHours: Number(event.target.value || 24),
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>User lingkungan</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={authPolicy.environmentUserAutoApproveHours}
+                            onChange={(event) =>
+                              setAuthPolicy((current) => ({
+                                ...current,
+                                environmentUserAutoApproveHours: Number(event.target.value || 8),
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>User standalone</span>
+                          <select
+                            value={authPolicy.standaloneUserApprovalMode}
+                            onChange={(event) =>
+                              setAuthPolicy((current) => ({
+                                ...current,
+                                standaloneUserApprovalMode: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="manual">Manual approval</option>
+                            <option value="auto">Auto approval</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span>Auto approval standalone</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={authPolicy.standaloneUserAutoApproveHours}
+                            onChange={(event) =>
+                              setAuthPolicy((current) => ({
+                                ...current,
+                                standaloneUserAutoApproveHours: Number(event.target.value || 24),
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>Maintenance interval</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={authPolicy.maintenanceIntervalMinutes}
+                            onChange={(event) =>
+                              setAuthPolicy((current) => ({
+                                ...current,
+                                maintenanceIntervalMinutes: Number(event.target.value || 15),
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>Reset redirect</span>
+                          <input
+                            value={authPolicy.passwordResetRedirectUrl}
+                            onChange={(event) =>
+                              setAuthPolicy((current) => ({
+                                ...current,
+                                passwordResetRedirectUrl: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <div className="panel-actions" style={{ alignItems: "end" }}>
+                          <button
+                            type="button"
+                            className="primary-button"
+                            onClick={() => handleAccountAction("updateAuthPolicy", authPolicy)}
+                          >
+                            Save policy
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ) : null}
+                  {environments.length ? (
+                    <article className="service-panel">
+                      <div className="panel-heading-row">
+                        <h3>{isSuperAdmin ? "Operator Environments" : "Lingkungan Operator"}</h3>
+                        <StatusChip status="ready" label={`${environments.length} lingkungan`} />
+                      </div>
+                      <div className="job-stack">
+                        {environments.map((environment) => (
+                          <article key={environment.id} className="job-card">
+                            <div className="job-card-top">
+                              <div>
+                                <strong>{environment.name}</strong>
+                                <div className="mono">{environment.referral_code}</div>
+                              </div>
+                              <div className="service-status-group">
+                                <StatusChip status={environment.is_active ? "ready" : "disabled"} label={environment.is_active ? "active" : "inactive"} />
+                              </div>
+                            </div>
+                            <div className="job-actions">
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                onClick={() => copyTextToClipboard(environment.referral_code).then(() => setError("")).catch((copyError) => setError(formatEdgeFunctionError(copyError)))}
+                              >
+                                Salin kode referral
+                              </button>
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                onClick={() => handleAccountAction("rotateReferralCode", { environmentId: environment.id })}
+                              >
+                                Putar referral code
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </article>
                   ) : null}
                   <article className="jobs-panel">
                     <div className="panel-heading-row">
@@ -2949,14 +3170,18 @@ export default function App() {
                       />
                       <label>
                         <span>Role</span>
-                        <select value={createRole} onChange={(event) => setCreateRole(event.target.value)}>
-                          <option value="operator">Operator</option>
-                          <option value="user">User</option>
-                        </select>
+                        {isSuperAdmin ? (
+                          <select value={createRole} onChange={(event) => setCreateRole(event.target.value)}>
+                            <option value="operator">Operator</option>
+                            <option value="user">User</option>
+                          </select>
+                        ) : (
+                          <input value="User" disabled readOnly />
+                        )}
                       </label>
                       <label>
                         <span>Create as</span>
-                        <select value={createAutoApprove ? "pending" : "approved"} onChange={(event) => setCreateAutoApprove(event.target.value === "pending")}>
+                        <select value={createApproveImmediately ? "approved" : "pending"} onChange={(event) => setCreateApproveImmediately(event.target.value === "approved")}>
                           <option value="approved">Approved now</option>
                           <option value="pending">Pending approval</option>
                         </select>
@@ -2978,6 +3203,7 @@ export default function App() {
                             <div className="service-status-group">
                               <StatusChip status={account.role} />
                               <StatusChip status={account.status} />
+                              {account.membership?.status ? <StatusChip status={account.membership.status} label={`env ${account.membership.status}`} /> : null}
                             </div>
                           </div>
                           <div className="job-card-meta">
@@ -2985,6 +3211,7 @@ export default function App() {
                             {account.approval_due_at ? (
                               <span>approval {formatRelativeTime(account.approval_due_at)}</span>
                             ) : null}
+                            {account.membership?.joined_via ? <span>via {String(account.membership.joined_via).replace(/_/g, " ")}</span> : null}
                           </div>
                           {account.rejection_reason ? <div className="job-error">{account.rejection_reason}</div> : null}
                           <div className="job-actions">
@@ -2995,10 +3222,10 @@ export default function App() {
                             ) : null}
                             {account.status === "pending" ? (
                               <>
-                                <button type="button" className="secondary-button" onClick={() => handleAccountAction("extendApproval", { userId: account.user_id, hours: authPolicy.approvalWindowHours })}>
+                                <button type="button" className="secondary-button" onClick={() => handleAccountAction("extendApproval", { userId: account.user_id, hours: account.role === "operator" ? authPolicy.operatorAutoApproveHours : authPolicy.environmentUserAutoApproveHours })}>
                                   Extend
                                 </button>
-                                <button type="button" className="danger-button" onClick={() => handleAccountAction("rejectAccount", { userId: account.user_id, reason: "Rejected by administrator." })}>
+                                <button type="button" className="danger-button" onClick={() => handleAccountAction("rejectAccount", { userId: account.user_id, reason: "Permintaan akun belum dapat disetujui." })}>
                                   Reject
                                 </button>
                               </>

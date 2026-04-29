@@ -1,8 +1,15 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { createAnonClient, requireSuperAdmin, requireAdmin } from "../_shared/admin.ts";
+import {
+  createAnonClient,
+  getAuthPolicy,
+  getRequestActor,
+  requireSuperAdmin,
+} from "../_shared/admin.ts";
 
 const TEMP_BUCKET = "agent-temp-artifacts";
 const ARCHIVE_BUCKET = "agent-archives";
+const LOG_LIMIT = 120;
+const JOB_LIMIT = 80;
 const DASHBOARD_PUBLIC_URL =
   (Deno.env.get("DASHBOARD_PUBLIC_URL") || "https://school-services.netlify.app").replace(/\/+$/, "");
 
@@ -41,7 +48,484 @@ function sanitizeApprovalHours(value: unknown, fallback = 24) {
 }
 
 function buildGuestPath(deviceId: string) {
-  return `/guest/${encodeURIComponent(deviceId)}`;
+  return `/guest/${encodeURIComponent(String(deviceId || "").trim())}`;
+}
+
+function buildOperatorEnvironmentName(displayName: string | null, email: string) {
+  const seed = displayName || email.split("@")[0] || "Operator";
+  return `${seed} Workspace`;
+}
+
+function isApprovedProfile(profile: Record<string, unknown> | null) {
+  return Boolean(profile && profile.status === "approved");
+}
+
+function isSuperAdminProfile(profile: Record<string, unknown> | null) {
+  return Boolean(profile && profile.role === "super_admin" && isApprovedProfile(profile));
+}
+
+function isOperatorProfile(profile: Record<string, unknown> | null) {
+  return Boolean(profile && profile.role === "operator" && isApprovedProfile(profile));
+}
+
+async function requireApprovedActor(request: Request) {
+  const actor = await getRequestActor(request);
+  if (!isApprovedProfile(actor.profile)) {
+    throw new Error("Account access is pending or unavailable.");
+  }
+  return actor;
+}
+
+async function generateReferralCode(service: Awaited<ReturnType<typeof getRequestActor>>["service"]) {
+  const referral = await service.rpc("generate_referral_code");
+  if (referral.error) {
+    throw referral.error;
+  }
+  return String(referral.data || "").trim();
+}
+
+async function getAccessibleDeviceIds(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
+  if (isSuperAdminProfile(actor.profile)) {
+    return null;
+  }
+
+  if (isOperatorProfile(actor.profile)) {
+    const environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+    if (!environmentId) {
+      return [];
+    }
+
+    const { data, error } = await service
+      .from("device_assignments")
+      .select("device_id")
+      .eq("environment_id", environmentId)
+      .eq("status", "active");
+
+    if (error) {
+      throw error;
+    }
+
+    return [...new Set((data || []).map((row) => String(row.device_id || "").trim()).filter(Boolean))];
+  }
+
+  const { data, error } = await service
+    .from("device_assignments")
+    .select("device_id")
+    .eq("user_id", actor.user.id)
+    .eq("status", "active");
+
+  if (error) {
+    throw error;
+  }
+
+  return [...new Set((data || []).map((row) => String(row.device_id || "").trim()).filter(Boolean))];
+}
+
+async function canAccessDevice(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>, deviceId: string) {
+  const accessible = await getAccessibleDeviceIds(service, actor);
+  return accessible === null || accessible.includes(deviceId);
+}
+
+async function getScopedAccounts(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
+  if (isSuperAdminProfile(actor.profile)) {
+    const [{ data: profiles, error: profileError }, { data: memberships, error: membershipError }] =
+      await Promise.all([
+        service.from("admin_profiles").select("*").order("created_at", { ascending: false }),
+        service
+          .from("environment_memberships")
+          .select("user_id, environment_id, role, status, joined_via, approved_at, updated_at"),
+      ]);
+
+    if (profileError) {
+      throw profileError;
+    }
+    if (membershipError) {
+      throw membershipError;
+    }
+
+    const membershipMap = new Map(
+      (memberships || []).map((membership) => [String(membership.user_id), membership])
+    );
+
+    return (profiles || []).map((profile) => ({
+      ...profile,
+      membership: membershipMap.get(String(profile.user_id)) || null,
+    }));
+  }
+
+  if (!isOperatorProfile(actor.profile)) {
+    return [];
+  }
+
+  const environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+  if (!environmentId) {
+    return [];
+  }
+
+  const { data: memberships, error: membershipError } = await service
+    .from("environment_memberships")
+    .select("user_id, environment_id, role, status, joined_via, approved_at, updated_at")
+    .eq("environment_id", environmentId)
+    .order("created_at", { ascending: false });
+
+  if (membershipError) {
+    throw membershipError;
+  }
+
+  const userIds = [...new Set((memberships || []).map((row) => String(row.user_id || "").trim()).filter(Boolean))];
+  if (!userIds.length) {
+    return [];
+  }
+
+  const { data: profiles, error: profileError } = await service
+    .from("admin_profiles")
+    .select("*")
+    .in("user_id", userIds)
+    .order("created_at", { ascending: false });
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  const membershipMap = new Map(
+    (memberships || []).map((membership) => [String(membership.user_id), membership])
+  );
+
+  return (profiles || []).map((profile) => ({
+    ...profile,
+    membership: membershipMap.get(String(profile.user_id)) || null,
+  }));
+}
+
+async function getScopedEnvironments(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
+  if (isSuperAdminProfile(actor.profile)) {
+    const { data, error } = await service
+      .from("operator_environments")
+      .select("id, operator_id, name, referral_code, is_active, created_at, updated_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  if (!isOperatorProfile(actor.profile) || !actor.environment) {
+    return [];
+  }
+
+  return [actor.environment];
+}
+
+async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
+  const accessibleDeviceIds = await getAccessibleDeviceIds(service, actor);
+  const superAdmin = isSuperAdminProfile(actor.profile);
+  const operator = isOperatorProfile(actor.profile);
+
+  const buildQuery = <T extends string>(table: T, columns = "*") => {
+    const query = service.from(table).select(columns);
+    if (accessibleDeviceIds === null) {
+      return query;
+    }
+    if (!accessibleDeviceIds.length) {
+      return query.in("device_id", ["__none__"]);
+    }
+    return query.in("device_id", accessibleDeviceIds);
+  };
+
+  const [
+    servicesResult,
+    devicesResult,
+    logsResult,
+    jobsResult,
+    rootsResult,
+    accounts,
+    environments,
+    authPolicy,
+  ] = await Promise.all([
+    buildQuery("services")
+      .select(
+        "device_id, service_name, port, status, desired_state, last_error, public_url, last_ping, location_status, resolved_path, location_details"
+      )
+      .order("device_id", { ascending: true })
+      .order("service_name", { ascending: true }),
+    buildQuery("devices")
+      .select("device_id, device_name, status, last_seen")
+      .order("device_name", { ascending: true }),
+    buildQuery("agent_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(LOG_LIMIT),
+    superAdmin
+      ? service.from("file_jobs").select("*").order("created_at", { ascending: false }).limit(JOB_LIMIT)
+      : Promise.resolve({ data: [], error: null }),
+    superAdmin
+      ? service.from("file_roots").select("*").order("root_type", { ascending: true }).order("label", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    getScopedAccounts(service, actor),
+    getScopedEnvironments(service, actor),
+    superAdmin ? getAuthPolicy(service) : Promise.resolve(null),
+  ]);
+
+  if (servicesResult.error) {
+    throw servicesResult.error;
+  }
+  if (devicesResult.error) {
+    throw devicesResult.error;
+  }
+  if (logsResult.error) {
+    throw logsResult.error;
+  }
+  if (jobsResult.error) {
+    throw jobsResult.error;
+  }
+  if (rootsResult.error) {
+    throw rootsResult.error;
+  }
+
+  const deviceMap = new Map((devicesResult.data || []).map((device) => [String(device.device_id), device]));
+  const services = (servicesResult.data || []).map((row) => ({
+    ...row,
+    devices: deviceMap.get(String(row.device_id)) || null,
+  }));
+
+  return {
+    ok: true,
+    scope: {
+      isSuperAdmin: superAdmin,
+      isOperator: operator,
+      environment: actor.environment || null,
+      accessibleDeviceIds: accessibleDeviceIds || [],
+    },
+    services,
+    logs: logsResult.data || [],
+    fileJobs: jobsResult.data || [],
+    roots: rootsResult.data || [],
+    accounts,
+    environments,
+    authPolicy: authPolicy?.raw || null,
+  };
+}
+
+async function createManagedAccount(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>, body: Record<string, unknown>) {
+  const email = String(body.email || "").trim().toLowerCase();
+  const password = String(body.password || "").trim();
+  const role = sanitizeRole(body.role);
+  const displayName = String(body.displayName || "").trim() || null;
+  const approveImmediately = Boolean(body.approveImmediately);
+  const authPolicy = await getAuthPolicy(service);
+  const actorIsSuperAdmin = isSuperAdminProfile(actor.profile);
+  const actorIsOperator = isOperatorProfile(actor.profile);
+
+  if (!email || !password) {
+    throw new Error("Email dan password wajib diisi.");
+  }
+  if (actorIsOperator && role !== "user") {
+    throw new Error("Operator hanya dapat membuat akun user.");
+  }
+
+  let environmentId = String(body.environmentId || "").trim();
+  if (actorIsOperator) {
+    environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+  }
+
+  let approvalDueAt: string | null = null;
+  let status = "approved";
+  let registrationSource = actorIsOperator ? "operator_created" : "super_admin_created";
+  let standaloneState = "standalone";
+
+  if (role === "operator") {
+    status = approveImmediately ? "approved" : "pending";
+    approvalDueAt = status === "pending"
+      ? new Date(Date.now() + authPolicy.operatorAutoApproveHours * 60 * 60 * 1000).toISOString()
+      : null;
+  } else if (environmentId) {
+    status = approveImmediately ? "approved" : "pending";
+    approvalDueAt = status === "pending"
+      ? new Date(Date.now() + authPolicy.environmentUserAutoApproveHours * 60 * 60 * 1000).toISOString()
+      : null;
+    standaloneState = status === "approved" ? "linked" : "pending_environment";
+  } else {
+    registrationSource = "direct_superadmin";
+    if (authPolicy.standaloneUserApprovalMode === "auto" && !approveImmediately) {
+      status = "pending";
+      approvalDueAt = new Date(Date.now() + authPolicy.standaloneUserAutoApproveHours * 60 * 60 * 1000).toISOString();
+    } else {
+      status = approveImmediately ? "approved" : "pending";
+      approvalDueAt = null;
+    }
+  }
+
+  const { data: created, error: createError } = await service.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+
+  if (createError || !created.user) {
+    throw createError || new Error("Failed to create user.");
+  }
+
+  const { error: profileError } = await service.from("admin_profiles").upsert({
+    user_id: created.user.id,
+    email,
+    display_name: displayName,
+    role,
+    status,
+    approval_due_at: approvalDueAt,
+    approved_at: status === "approved" ? new Date().toISOString() : null,
+    approved_by: status === "approved" ? actor.user.id : null,
+    updated_at: new Date().toISOString(),
+    registration_source: registrationSource,
+    managed_by: actor.user.id,
+    primary_environment_id: environmentId || null,
+    standalone_state: standaloneState,
+  });
+
+  if (profileError) {
+    throw profileError;
+  }
+
+  if (role === "operator") {
+    const { error: environmentError } = await service.from("operator_environments").upsert({
+      operator_id: created.user.id,
+      name: buildOperatorEnvironmentName(displayName, email),
+      referral_code: await generateReferralCode(service),
+      is_active: true,
+      created_by: actor.user.id,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (environmentError) {
+      throw environmentError;
+    }
+  }
+
+  if (role === "user" && environmentId) {
+    const { error: membershipError } = await service.from("environment_memberships").upsert({
+      environment_id: environmentId,
+      user_id: created.user.id,
+      role: "user",
+      status: status === "approved" ? "approved" : "pending",
+      joined_via: actorIsOperator ? "operator_created" : "super_admin_created",
+      requested_by_user_id: actor.user.id,
+      approved_by: status === "approved" ? actor.user.id : null,
+      approved_at: status === "approved" ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (membershipError) {
+      throw membershipError;
+    }
+  }
+
+  return {
+    ok: true,
+    userId: created.user.id,
+    status,
+    approvalDueAt,
+  };
+}
+
+async function updateAccountStatus(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>, action: string, body: Record<string, unknown>) {
+  const userId = String(body.userId || "").trim();
+  if (!userId) {
+    throw new Error("userId is required.");
+  }
+
+  const { data: target, error: targetError } = await service
+    .from("admin_profiles")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (targetError) {
+    throw targetError;
+  }
+  if (!target) {
+    throw new Error("Account not found.");
+  }
+
+  if (!isSuperAdminProfile(actor.profile)) {
+    const environmentId = String(actor.environment?.id || "").trim();
+    if (!environmentId || target.role !== "user") {
+      throw new Error("Anda tidak memiliki izin untuk mengubah akun ini.");
+    }
+
+    const { data: membership } = await service
+      .from("environment_memberships")
+      .select("id")
+      .eq("environment_id", environmentId)
+      .eq("user_id", userId)
+      .in("status", ["pending", "approved"])
+      .maybeSingle();
+
+    if (!membership) {
+      throw new Error("Akun target berada di luar lingkungan operator Anda.");
+    }
+  }
+
+  const patch: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (action === "approveAccount") {
+    patch.status = "approved";
+    patch.approved_at = new Date().toISOString();
+    patch.approved_by = actor.user.id;
+    patch.approval_due_at = null;
+    patch.rejected_at = null;
+    patch.rejected_by = null;
+    patch.rejection_reason = null;
+    patch.disabled_at = null;
+    patch.disabled_by = null;
+    if (target.primary_environment_id) {
+      patch.standalone_state = "linked";
+      await service
+        .from("environment_memberships")
+        .update({
+          status: "approved",
+          approved_by: actor.user.id,
+          approved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .eq("environment_id", String(target.primary_environment_id));
+    }
+  } else if (action === "rejectAccount") {
+    patch.status = "rejected";
+    patch.rejected_at = new Date().toISOString();
+    patch.rejected_by = actor.user.id;
+    patch.rejection_reason = String(body.reason || "").trim() || "Permintaan akun ditolak oleh administrator.";
+    await service
+      .from("environment_memberships")
+      .update({
+        status: "rejected",
+        rejected_by: actor.user.id,
+        rejected_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .in("status", ["pending", "approved"]);
+  } else {
+    patch.status = "disabled";
+    patch.disabled_at = new Date().toISOString();
+    patch.disabled_by = actor.user.id;
+  }
+
+  const { data, error } = await service
+    .from("admin_profiles")
+    .update(patch)
+    .eq("user_id", userId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return { ok: true, account: data };
 }
 
 Deno.serve(async (request) => {
@@ -50,221 +534,216 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const actor = await requireAdmin(request);
-    const { service, user, profile } = actor;
-    const isSuperAdmin = profile.role === "super_admin";
     const body = await request.json();
     const action = String(body.action || "").trim();
 
-    if (["createJob", "cancelJob", "signArtifact", "promoteArchive", "updateAuthPolicy"].includes(action)) {
-      if (!isSuperAdmin) throw new Error("Super admin access required.");
-    }
+    if (["createJob", "cancelJob", "signArtifact", "promoteArchive", "setupStatus"].includes(action)) {
+      const { service, user } = await requireSuperAdmin(request);
 
-    if (action === "createEnvironment") {
-      const name = String(body.name || "").trim();
-      if (!name) throw new Error("Environment name required");
-      const operatorId = isSuperAdmin ? (body.operatorId || user.id) : user.id;
-      const { data, error } = await service.from("operator_environments").insert({
-        operator_id: operatorId,
-        name
-      }).select("*").single();
-      if (error) throw error;
-      return json({ ok: true, environment: data });
-    }
+      if (action === "createJob") {
+        const payload = {
+          device_id: String(body.deviceId || "").trim(),
+          requested_by: user.id,
+          job_type: String(body.jobType || "").trim(),
+          delivery_mode: String(body.deliveryMode || "temp").trim(),
+          source_path: body.sourcePath ? String(body.sourcePath) : null,
+          destination_path: body.destinationPath ? String(body.destinationPath) : null,
+          selection: sanitizeSelection(body.selection),
+          options: body.options && typeof body.options === "object" ? body.options : {},
+          status: "pending",
+        };
 
-    if (action === "generateReferralCode") {
-      let targetEnvId = body.environmentId;
-      if (!isSuperAdmin) {
-        const { data: env } = await service.from("operator_environments").select("id").eq("operator_id", user.id).maybeSingle();
-        if (!env) throw new Error("No environment found");
-        targetEnvId = env.id;
-      }
-      if (!targetEnvId) throw new Error("Environment ID required");
-      
-      const code = Math.random().toString(36).substring(2, 10).toUpperCase();
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      
-      const { data, error } = await service.from("environment_invitations").insert({
-        environment_id: targetEnvId,
-        referral_code: code,
-        created_by: user.id,
-        expires_at: expiresAt
-      }).select("*").single();
-      if (error) throw error;
-      return json({ ok: true, invitation: data });
-    }
+        const { data, error } = await service
+          .from("file_jobs")
+          .insert(payload)
+          .select("*")
+          .single();
 
-    if (action === "assignDevice") {
-      const targetUserId = String(body.userId || "").trim();
-      const targetDeviceId = String(body.deviceId || "").trim();
-      if (!targetUserId || !targetDeviceId) throw new Error("userId and deviceId required");
-      
-      if (!isSuperAdmin) {
-        const { data: env } = await service.from("operator_environments").select("id").eq("operator_id", user.id).maybeSingle();
-        if (!env) throw new Error("Not authorized");
-        const { data: member } = await service.from("environment_memberships").select("*").eq("environment_id", env.id).eq("user_id", targetUserId).maybeSingle();
-        if (!member && targetUserId !== user.id) throw new Error("Not authorized to manage this user");
-      }
-      
-      const { error } = await service.from("device_assignments").upsert({
-        device_id: targetDeviceId,
-        user_id: targetUserId,
-        assigned_by: user.id,
-        assigned_at: new Date().toISOString()
-      });
-      if (error) throw error;
-      return json({ ok: true });
-    }
+        if (error) {
+          throw error;
+        }
 
-    if (action === "unassignDevice") {
-      const targetUserId = String(body.userId || "").trim();
-      const targetDeviceId = String(body.deviceId || "").trim();
-      if (!isSuperAdmin) {
-        const { data: env } = await service.from("operator_environments").select("id").eq("operator_id", user.id).maybeSingle();
-        if (!env) throw new Error("Not authorized");
-        const { data: member } = await service.from("environment_memberships").select("*").eq("environment_id", env.id).eq("user_id", targetUserId).maybeSingle();
-        if (!member && targetUserId !== user.id) throw new Error("Not authorized");
-      }
-      const { error } = await service.from("device_assignments").delete().match({
-        device_id: targetDeviceId,
-        user_id: targetUserId
-      });
-      if (error) throw error;
-      return json({ ok: true });
-    }
+        await service.from("file_audit_logs").insert({
+          device_id: payload.device_id,
+          requested_by: user.id,
+          job_id: data.id,
+          action: `create:${payload.job_type}`,
+          target_path: payload.source_path || payload.destination_path,
+          details: {
+            deliveryMode: payload.delivery_mode,
+            selectionCount: payload.selection.length,
+          },
+        });
 
-    if (action === "createJob") {
-      const payload = {
-        device_id: String(body.deviceId || "").trim(),
-        requested_by: user.id,
-        job_type: String(body.jobType || "").trim(),
-        delivery_mode: String(body.deliveryMode || "temp").trim(),
-        source_path: body.sourcePath ? String(body.sourcePath) : null,
-        destination_path: body.destinationPath ? String(body.destinationPath) : null,
-        selection: sanitizeSelection(body.selection),
-        options: body.options && typeof body.options === "object" ? body.options : {},
-        status: "pending",
-      };
-
-      const { data, error } = await service
-        .from("file_jobs")
-        .insert(payload)
-        .select("*")
-        .single();
-
-      if (error) {
-        throw error;
+        return json({ ok: true, job: data });
       }
 
-      await service.from("file_audit_logs").insert({
-        device_id: payload.device_id,
-        requested_by: user.id,
-        job_id: data.id,
-        action: `create:${payload.job_type}`,
-        target_path: payload.source_path || payload.destination_path,
-        details: {
-          deliveryMode: payload.delivery_mode,
-          selectionCount: payload.selection.length,
+      if (action === "cancelJob") {
+        const jobId = Number(body.jobId);
+        const { data, error } = await service
+          .from("file_jobs")
+          .update({
+            status: "cancelled",
+            updated_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", jobId)
+          .select("*")
+          .single();
+
+        if (error) {
+          throw error;
+        }
+
+        return json({ ok: true, job: data });
+      }
+
+      if (action === "signArtifact") {
+        const bucket = String(body.bucket || TEMP_BUCKET);
+        const objectKey = String(body.objectKey || "").trim();
+
+        if (!objectKey) {
+          throw new Error("Artifact object key is required.");
+        }
+
+        const { data, error } = await service.storage
+          .from(bucket)
+          .createSignedUrl(objectKey, 60 * 15, {
+            download: body.downloadFileName ? String(body.downloadFileName) : undefined,
+          });
+
+        if (error) {
+          throw error;
+        }
+
+        return json({ ok: true, signedUrl: data.signedUrl });
+      }
+
+      if (action === "promoteArchive") {
+        const jobId = Number(body.jobId);
+        const { data: job, error: jobError } = await service
+          .from("file_jobs")
+          .select("*")
+          .eq("id", jobId)
+          .single();
+
+        if (jobError) {
+          throw jobError;
+        }
+
+        if (!job.artifact_object_key || !job.artifact_bucket) {
+          throw new Error("Job has no artifact to promote.");
+        }
+
+        const nextKey = `${job.device_id}/${job.id}/${Date.now()}-${job.artifact_object_key.split("/").pop()}`;
+        const { data: sourceData, error: sourceError } = await service.storage
+          .from(job.artifact_bucket)
+          .download(job.artifact_object_key);
+
+        if (sourceError) {
+          throw sourceError;
+        }
+
+        const { error: uploadError } = await service.storage
+          .from(ARCHIVE_BUCKET)
+          .upload(nextKey, sourceData, {
+            upsert: true,
+            contentType: sourceData.type || "application/octet-stream",
+          });
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: updatedJob, error: updateError } = await service
+          .from("file_jobs")
+          .update({
+            delivery_mode: "persistent",
+            artifact_bucket: ARCHIVE_BUCKET,
+            artifact_object_key: nextKey,
+            artifact_expires_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", job.id)
+          .select("*")
+          .single();
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        await service.from("file_audit_logs").insert({
+          device_id: job.device_id,
+          requested_by: user.id,
+          job_id: job.id,
+          action: "promote_archive",
+          target_path: job.source_path,
+          details: {
+            fromBucket: job.artifact_bucket,
+            toBucket: ARCHIVE_BUCKET,
+            nextKey,
+          },
+        });
+
+        return json({ ok: true, job: updatedJob });
+      }
+
+      const [adminProfiles, fileJobs, fileRoots, authPolicy, guestShortcuts] = await Promise.all([
+        service.from("admin_profiles").select("user_id", { count: "exact", head: true }),
+        service.from("file_jobs").select("id", { count: "exact", head: true }),
+        service.from("file_roots").select("id", { count: "exact", head: true }),
+        getAuthPolicy(service),
+        service.from("guest_shortcuts").select("device_id", { count: "exact", head: true }),
+      ]);
+
+      return json({
+        ok: true,
+        counts: {
+          adminProfiles: adminProfiles.count || 0,
+          fileJobs: fileJobs.count || 0,
+          fileRoots: fileRoots.count || 0,
+          guestShortcuts: guestShortcuts.count || 0,
         },
+        authPolicy: authPolicy.raw || null,
       });
+    }
 
-      return json({ ok: true, job: data });
+    const actor = await requireApprovedActor(request);
+    const { service } = actor;
+
+    if (action === "listDashboard") {
+      return json(await getDashboardPayload(service, actor));
     }
 
     if (action === "listAccounts") {
-      const { data, error } = await service
-        .from("admin_profiles")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      return json({ ok: true, accounts: data || [] });
+      return json({ ok: true, accounts: await getScopedAccounts(service, actor) });
     }
 
-    if (action === "createAccount") {
-      const email = String(body.email || "").trim().toLowerCase();
-      const password = String(body.password || "").trim();
-      const role = sanitizeRole(body.role);
-      const displayName = String(body.displayName || "").trim() || null;
-      const approvalHours = sanitizeApprovalHours(body.approvalWindowHours, 24);
-      const autoApprove = Boolean(body.autoApprove);
-      const status = autoApprove ? "pending" : "approved";
-      const approvalDueAt =
-        status === "pending"
-          ? new Date(Date.now() + approvalHours * 60 * 60 * 1000).toISOString()
-          : null;
-
-      if (!email || !password) {
-        throw new Error("Email and password are required.");
-      }
-
-      const { data: created, error: createError } = await service.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-      });
-
-      if (createError || !created.user) {
-        throw createError || new Error("Failed to create user.");
-      }
-
-      const { error: profileError } = await service.from("admin_profiles").upsert({
-        user_id: created.user.id,
-        email,
-        display_name: displayName,
-        role,
-        status,
-        approval_due_at: approvalDueAt,
-        approved_at: status === "approved" ? new Date().toISOString() : null,
-        approved_by: status === "approved" ? user.id : null,
-        updated_at: new Date().toISOString(),
-      });
-
-      if (profileError) {
-        throw profileError;
-      }
-
-      return json({ ok: true, userId: created.user.id, status, approvalDueAt });
+    if (action === "listEnvironments") {
+      return json({ ok: true, environments: await getScopedEnvironments(service, actor) });
     }
 
-    if (action === "approveAccount" || action === "rejectAccount" || action === "disableAccount") {
-      const userId = String(body.userId || "").trim();
-      if (!userId) {
-        throw new Error("userId is required.");
+    if (action === "createEnvironment") {
+      if (!isSuperAdminProfile(actor.profile)) {
+        throw new Error("Hanya SuperAdmin yang dapat membuat lingkungan operator.");
       }
 
-      const patch: Record<string, unknown> = {
-        updated_at: new Date().toISOString(),
-      };
-
-      if (action === "approveAccount") {
-        patch.status = "approved";
-        patch.approved_at = new Date().toISOString();
-        patch.approved_by = user.id;
-        patch.approval_due_at = null;
-        patch.rejected_at = null;
-        patch.rejected_by = null;
-        patch.rejection_reason = null;
-        patch.disabled_at = null;
-        patch.disabled_by = null;
-      } else if (action === "rejectAccount") {
-        patch.status = "rejected";
-        patch.rejected_at = new Date().toISOString();
-        patch.rejected_by = user.id;
-        patch.rejection_reason = String(body.reason || "").trim() || "Rejected by administrator.";
-      } else {
-        patch.status = "disabled";
-        patch.disabled_at = new Date().toISOString();
-        patch.disabled_by = user.id;
+      const operatorUserId = String(body.operatorUserId || "").trim();
+      const name = String(body.name || "").trim();
+      if (!operatorUserId || !name) {
+        throw new Error("operatorUserId dan nama lingkungan wajib diisi.");
       }
 
       const { data, error } = await service
-        .from("admin_profiles")
-        .update(patch)
-        .eq("user_id", userId)
+        .from("operator_environments")
+        .upsert({
+          operator_id: operatorUserId,
+          name,
+          referral_code: await generateReferralCode(service),
+          is_active: true,
+          created_by: actor.user.id,
+          updated_at: new Date().toISOString(),
+        })
         .select("*")
         .single();
 
@@ -272,13 +751,107 @@ Deno.serve(async (request) => {
         throw error;
       }
 
-      return json({ ok: true, account: data });
+      await service
+        .from("admin_profiles")
+        .update({
+          primary_environment_id: data.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", operatorUserId);
+
+      return json({ ok: true, environment: data });
+    }
+
+    if (action === "rotateReferralCode") {
+      const requestedEnvironmentId = String(body.environmentId || actor.environment?.id || "").trim();
+      if (!requestedEnvironmentId) {
+        throw new Error("environmentId is required.");
+      }
+      if (!isSuperAdminProfile(actor.profile) && requestedEnvironmentId !== String(actor.environment?.id || "")) {
+        throw new Error("Anda tidak dapat mengubah referral code di luar lingkungan Anda.");
+      }
+
+      const { data, error } = await service
+        .from("operator_environments")
+        .update({
+          referral_code: await generateReferralCode(service),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", requestedEnvironmentId)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, environment: data });
+    }
+
+    if (action === "inviteUser") {
+      const environmentId = String(body.environmentId || actor.environment?.id || "").trim();
+      const email = String(body.email || "").trim().toLowerCase();
+      if (!environmentId || !email) {
+        throw new Error("environmentId dan email wajib diisi.");
+      }
+      if (!isSuperAdminProfile(actor.profile) && environmentId !== String(actor.environment?.id || "")) {
+        throw new Error("Anda tidak dapat membuat undangan di luar lingkungan Anda.");
+      }
+
+      const { data, error } = await service
+        .from("environment_invitations")
+        .upsert({
+          environment_id: environmentId,
+          email,
+          invite_role: "user",
+          status: "pending",
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          created_by: actor.user.id,
+          metadata: {
+            invitedByRole: actor.profile?.role,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, invitation: data });
+    }
+
+    if (action === "createAccount") {
+      return json(await createManagedAccount(service, actor, body));
+    }
+
+    if (action === "approveAccount" || action === "rejectAccount" || action === "disableAccount") {
+      return json(await updateAccountStatus(service, actor, action, body));
     }
 
     if (action === "extendApproval") {
       const userId = String(body.userId || "").trim();
       const hours = sanitizeApprovalHours(body.hours, 24);
       const dueAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+
+      if (!userId) {
+        throw new Error("userId is required.");
+      }
+
+      if (!isSuperAdminProfile(actor.profile)) {
+        const { data: membership } = await service
+          .from("environment_memberships")
+          .select("id")
+          .eq("environment_id", String(actor.environment?.id || ""))
+          .eq("user_id", userId)
+          .in("status", ["pending", "approved"])
+          .maybeSingle();
+
+        if (!membership) {
+          throw new Error("Akun target berada di luar lingkungan operator Anda.");
+        }
+      }
 
       const { data, error } = await service
         .from("admin_profiles")
@@ -299,17 +872,33 @@ Deno.serve(async (request) => {
     }
 
     if (action === "updateAuthPolicy") {
-      const approvalWindowHours = sanitizeApprovalHours(body.approvalWindowHours, 24);
-      const autoApproveEnabled = body.autoApproveEnabled !== false;
-      const passwordResetRedirectUrl =
-        String(body.passwordResetRedirectUrl || "").trim() ||
-        `${DASHBOARD_PUBLIC_URL}/reset-password`;
+      if (!isSuperAdminProfile(actor.profile)) {
+        throw new Error("Hanya SuperAdmin yang dapat mengubah policy auth.");
+      }
 
+      const current = await getAuthPolicy(service);
       const value = {
-        autoApproveEnabled,
-        approvalWindowHours,
-        maintenanceIntervalMinutes: sanitizeApprovalHours(body.maintenanceIntervalMinutes, 15),
-        passwordResetRedirectUrl,
+        ...current.raw,
+        operatorAutoApproveHours: sanitizeApprovalHours(body.operatorAutoApproveHours, current.operatorAutoApproveHours),
+        environmentUserAutoApproveHours: sanitizeApprovalHours(
+          body.environmentUserAutoApproveHours,
+          current.environmentUserAutoApproveHours
+        ),
+        standaloneUserApprovalMode:
+          String(body.standaloneUserApprovalMode || current.standaloneUserApprovalMode).trim().toLowerCase() === "auto"
+            ? "auto"
+            : "manual",
+        standaloneUserAutoApproveHours: sanitizeApprovalHours(
+          body.standaloneUserAutoApproveHours,
+          current.standaloneUserAutoApproveHours
+        ),
+        maintenanceIntervalMinutes: sanitizeApprovalHours(
+          body.maintenanceIntervalMinutes,
+          current.maintenanceIntervalMinutes
+        ),
+        passwordResetRedirectUrl:
+          String(body.passwordResetRedirectUrl || current.passwordResetRedirectUrl).trim() ||
+          `${DASHBOARD_PUBLIC_URL}/reset-password`,
       };
 
       const { error } = await service.from("app_settings").upsert({
@@ -326,19 +915,25 @@ Deno.serve(async (request) => {
     }
 
     if (action === "resetPassword") {
+      if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
+        throw new Error("Akses reset password tidak diizinkan.");
+      }
+
       const email = String(body.email || "").trim().toLowerCase();
       if (!email) {
         throw new Error("Email is required.");
       }
 
-      const { data: authPolicy } = await service
-        .from("app_settings")
-        .select("value")
-        .eq("key", "auth_policy")
-        .maybeSingle();
+      if (isOperatorProfile(actor.profile)) {
+        const scopedAccounts = await getScopedAccounts(service, actor);
+        if (!scopedAccounts.some((account) => String(account.email || "").toLowerCase() === email)) {
+          throw new Error("Email target berada di luar lingkungan operator Anda.");
+        }
+      }
 
+      const authPolicy = await getAuthPolicy(service);
       const redirectTo =
-        String(authPolicy?.value?.passwordResetRedirectUrl || "").trim() ||
+        String(authPolicy.passwordResetRedirectUrl || "").trim() ||
         `${DASHBOARD_PUBLIC_URL}/reset-password`;
       const anon = createAnonClient();
       const { error } = await anon.auth.resetPasswordForEmail(email, { redirectTo });
@@ -346,21 +941,86 @@ Deno.serve(async (request) => {
         throw error;
       }
 
-      await service.from("file_audit_logs").insert({
-        device_id: body.deviceId ? String(body.deviceId) : "auth",
-        requested_by: user.id,
-        action: "reset_password",
-        target_path: email,
-        details: { redirectTo },
-      });
-
       return json({ ok: true, email, redirectTo });
+    }
+
+    if (action === "assignDevice") {
+      const deviceId = String(body.deviceId || "").trim();
+      const userId = String(body.userId || "").trim();
+      let environmentId = String(body.environmentId || actor.environment?.id || "").trim();
+
+      if (!deviceId || !userId) {
+        throw new Error("deviceId dan userId wajib diisi.");
+      }
+
+      if (!isSuperAdminProfile(actor.profile)) {
+        if (!environmentId || environmentId !== String(actor.environment?.id || "")) {
+          throw new Error("Device assignment hanya dapat dilakukan di lingkungan operator Anda.");
+        }
+      }
+
+      if (!environmentId) {
+        const { data: targetProfile } = await service
+          .from("admin_profiles")
+          .select("primary_environment_id")
+          .eq("user_id", userId)
+          .maybeSingle();
+        environmentId = String(targetProfile?.primary_environment_id || "").trim();
+      }
+
+      const { data, error } = await service
+        .from("device_assignments")
+        .upsert({
+          device_id: deviceId,
+          user_id: userId,
+          environment_id: environmentId || null,
+          assignment_role: "owner",
+          status: "active",
+          is_primary: true,
+          assigned_by: actor.user.id,
+          updated_at: new Date().toISOString(),
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, assignment: data });
+    }
+
+    if (action === "unassignDevice") {
+      const assignmentId = String(body.assignmentId || "").trim();
+      if (!assignmentId) {
+        throw new Error("assignmentId wajib diisi.");
+      }
+
+      const { data, error } = await service
+        .from("device_assignments")
+        .update({
+          status: "revoked",
+          is_primary: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", assignmentId)
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ ok: true, assignment: data });
     }
 
     if (action === "syncGuestLink") {
       const deviceId = String(body.deviceId || "").trim();
       if (!deviceId) {
         throw new Error("deviceId is required.");
+      }
+      if (!(await canAccessDevice(service, actor, deviceId))) {
+        throw new Error("Anda tidak memiliki akses ke device ini.");
       }
 
       const guestPath = buildGuestPath(deviceId);
@@ -378,140 +1038,6 @@ Deno.serve(async (request) => {
       }
 
       return json({ ok: true, deviceId, guestPath, guestUrl });
-    }
-
-    if (action === "cancelJob") {
-      const jobId = Number(body.jobId);
-      const { data, error } = await service
-        .from("file_jobs")
-        .update({
-          status: "cancelled",
-          updated_at: new Date().toISOString(),
-          completed_at: new Date().toISOString(),
-        })
-        .eq("id", jobId)
-        .select("*")
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      return json({ ok: true, job: data });
-    }
-
-    if (action === "signArtifact") {
-      const bucket = String(body.bucket || TEMP_BUCKET);
-      const objectKey = String(body.objectKey || "").trim();
-
-      if (!objectKey) {
-        throw new Error("Artifact object key is required.");
-      }
-
-      const { data, error } = await service.storage
-        .from(bucket)
-        .createSignedUrl(objectKey, 60 * 15, {
-          download: body.downloadFileName ? String(body.downloadFileName) : undefined,
-        });
-
-      if (error) {
-        throw error;
-      }
-
-      return json({ ok: true, signedUrl: data.signedUrl });
-    }
-
-    if (action === "promoteArchive") {
-      const jobId = Number(body.jobId);
-      const { data: job, error: jobError } = await service
-        .from("file_jobs")
-        .select("*")
-        .eq("id", jobId)
-        .single();
-
-      if (jobError) {
-        throw jobError;
-      }
-
-      if (!job.artifact_object_key || !job.artifact_bucket) {
-        throw new Error("Job has no artifact to promote.");
-      }
-
-      const nextKey = `${job.device_id}/${job.id}/${Date.now()}-${job.artifact_object_key
-        .split("/")
-        .pop()}`;
-
-      const { data: sourceData, error: sourceError } = await service.storage
-        .from(job.artifact_bucket)
-        .download(job.artifact_object_key);
-
-      if (sourceError) {
-        throw sourceError;
-      }
-
-      const { error: uploadError } = await service.storage
-        .from(ARCHIVE_BUCKET)
-        .upload(nextKey, sourceData, {
-          upsert: true,
-          contentType: sourceData.type || "application/octet-stream",
-        });
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      const { data: updatedJob, error: updateError } = await service
-        .from("file_jobs")
-        .update({
-          delivery_mode: "persistent",
-          artifact_bucket: ARCHIVE_BUCKET,
-          artifact_object_key: nextKey,
-          artifact_expires_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", job.id)
-        .select("*")
-        .single();
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      await service.from("file_audit_logs").insert({
-        device_id: job.device_id,
-        requested_by: user.id,
-        job_id: job.id,
-        action: "promote_archive",
-        target_path: job.source_path,
-        details: {
-          fromBucket: job.artifact_bucket,
-          toBucket: ARCHIVE_BUCKET,
-          nextKey,
-        },
-      });
-
-      return json({ ok: true, job: updatedJob });
-    }
-
-    if (action === "setupStatus") {
-      const [adminProfiles, fileJobs, fileRoots, authPolicy, guestShortcuts] = await Promise.all([
-        service.from("admin_profiles").select("user_id", { count: "exact", head: true }),
-        service.from("file_jobs").select("id", { count: "exact", head: true }),
-        service.from("file_roots").select("id", { count: "exact", head: true }),
-        service.from("app_settings").select("value").eq("key", "auth_policy").maybeSingle(),
-        service.from("guest_shortcuts").select("device_id", { count: "exact", head: true }),
-      ]);
-
-      return json({
-        ok: true,
-        counts: {
-          adminProfiles: adminProfiles.count || 0,
-          fileJobs: fileJobs.count || 0,
-          fileRoots: fileRoots.count || 0,
-          guestShortcuts: guestShortcuts.count || 0,
-        },
-        authPolicy: authPolicy.data?.value || null,
-      });
     }
 
     throw new Error(`Unsupported action: ${action}`);

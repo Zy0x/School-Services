@@ -313,6 +313,7 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
   const password = String(body.password || "").trim();
   const role = sanitizeRole(body.role);
   const displayName = String(body.displayName || "").trim() || null;
+  const requestedDeviceId = role === "user" ? String(body.deviceId || "").trim() : "";
   const approveImmediately = Boolean(body.approveImmediately);
   const authPolicy = await getAuthPolicy(service);
   const actorIsSuperAdmin = isSuperAdminProfile(actor.profile);
@@ -354,6 +355,25 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
     } else {
       status = approveImmediately ? "approved" : "pending";
       approvalDueAt = null;
+    }
+  }
+
+  if (requestedDeviceId) {
+    if (!(await canAccessDevice(service, actor, requestedDeviceId))) {
+      throw new Error("Device awal berada di luar cakupan akun Anda.");
+    }
+
+    const { data: requestedDevice, error: requestedDeviceError } = await service
+      .from("devices")
+      .select("device_id")
+      .eq("device_id", requestedDeviceId)
+      .maybeSingle();
+
+    if (requestedDeviceError) {
+      throw requestedDeviceError;
+    }
+    if (!requestedDevice) {
+      throw new Error("Device awal tidak ditemukan.");
     }
   }
 
@@ -417,6 +437,23 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
 
     if (membershipError) {
       throw membershipError;
+    }
+  }
+
+  if (role === "user" && requestedDeviceId) {
+    const { error: assignmentError } = await service.from("device_assignments").upsert({
+      device_id: requestedDeviceId,
+      user_id: created.user.id,
+      environment_id: environmentId || null,
+      assignment_role: "owner",
+      status: "active",
+      is_primary: true,
+      assigned_by: actor.user.id,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (assignmentError) {
+      throw assignmentError;
     }
   }
 

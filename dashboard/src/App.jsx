@@ -1823,6 +1823,7 @@ export default function App() {
   const [createPassword, setCreatePassword] = useState("");
   const [createDisplayName, setCreateDisplayName] = useState("");
   const [createRole, setCreateRole] = useState("operator");
+  const [createAssignedDeviceId, setCreateAssignedDeviceId] = useState("");
   const [createApproveImmediately, setCreateApproveImmediately] = useState(true);
   const fileInputRef = useRef(null);
 
@@ -1853,6 +1854,7 @@ export default function App() {
     setCreatePassword("");
     setCreateDisplayName("");
     setCreateRole("operator");
+    setCreateAssignedDeviceId("");
     setCreateApproveImmediately(true);
   }
 
@@ -1944,6 +1946,36 @@ export default function App() {
       setCreateApproveImmediately(false);
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (createRole !== "user") {
+      if (createAssignedDeviceId) {
+        setCreateAssignedDeviceId("");
+      }
+      return;
+    }
+
+    const availableDeviceIds = deviceEntries.map((entry) => entry.deviceId).filter(Boolean);
+    if (!availableDeviceIds.length) {
+      if (createAssignedDeviceId) {
+        setCreateAssignedDeviceId("");
+      }
+      return;
+    }
+
+    if (createAssignedDeviceId && availableDeviceIds.includes(createAssignedDeviceId)) {
+      return;
+    }
+
+    const preferredDeviceId =
+      (selectedDevice?.deviceId && availableDeviceIds.includes(selectedDevice.deviceId)
+        ? selectedDevice.deviceId
+        : availableDeviceIds[0]) || "";
+
+    if (preferredDeviceId !== createAssignedDeviceId) {
+      setCreateAssignedDeviceId(preferredDeviceId);
+    }
+  }, [createRole, createAssignedDeviceId, deviceEntries, selectedDevice]);
 
   async function loadAll(background = false) {
     if (!session || guestDeviceId) {
@@ -2355,12 +2387,14 @@ export default function App() {
       role: createRole,
       approveImmediately: createApproveImmediately,
       environmentId: createRole === "user" ? environments[0]?.id || profile?.primary_environment_id || "" : "",
+      deviceId: createRole === "user" ? createAssignedDeviceId : "",
     });
 
     setCreateEmail("");
     setCreatePassword("");
     setCreateDisplayName("");
     setCreateRole("operator");
+    setCreateAssignedDeviceId("");
     setCreateApproveImmediately(true);
   }
 
@@ -3211,6 +3245,25 @@ export default function App() {
                           <option value="pending">Pending approval</option>
                         </select>
                       </label>
+                      {createRole === "user" ? (
+                        <label>
+                          <span>Device awal</span>
+                          <select
+                            value={createAssignedDeviceId}
+                            onChange={(event) => setCreateAssignedDeviceId(event.target.value)}
+                            disabled={!deviceEntries.length}
+                          >
+                            <option value="">
+                              {deviceEntries.length ? "Pilih device user" : "Belum ada device tersedia"}
+                            </option>
+                            {deviceEntries.map((device) => (
+                              <option key={device.deviceId} value={device.deviceId}>
+                                {device.deviceName} ({device.deviceId})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
                       <div className="panel-actions" style={{ alignItems: "end" }}>
                         <button type="button" className="primary-button" onClick={createManagedAccount}>
                           Create account

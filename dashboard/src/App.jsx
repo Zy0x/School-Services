@@ -333,6 +333,9 @@ function getPublicUrlLabel(service) {
 }
 
 function statusTone(status) {
+  if (status === "pending_setup") {
+    return "warn";
+  }
   if (
     [
       "running",
@@ -451,6 +454,8 @@ function getGuestStatusModel(device, service) {
   const serviceStatus =
     deviceStatus === "blocked"
       ? "blocked"
+      : deviceStatus === "pending_setup"
+        ? "pending_setup"
       : deviceStatus === "offline"
         ? "offline"
         : service?.status || "unknown";
@@ -473,6 +478,20 @@ function getGuestStatusModel(device, service) {
       runtimeLabel: "Perangkat diblokir",
       runtimeChipLabel: "blocked",
       ready,
+    };
+  }
+
+  if (deviceStatus === "pending_setup") {
+    return {
+      overallStatus: "pending_setup",
+      headline: "Menunggu perangkat pertama kali terhubung",
+      description:
+        "Shortcut sudah siap. Buka aplikasi School Services di komputer ini dan tunggu sampai agent mendaftarkan perangkat serta layanan E-Rapor.",
+      publicStatus: "disabled",
+      publicLabel: "URL publik belum tersedia",
+      runtimeLabel: "Menunggu agent",
+      runtimeChipLabel: "setup awal",
+      ready: false,
     };
   }
 
@@ -1223,11 +1242,19 @@ function GuestConsole({ deviceId }) {
           <div className="guest-hero-badges">
             <StatusChip
               status={state.device?.deviceStatus || "offline"}
-              label={`Perangkat ${state.device?.deviceStatus || "offline"}`}
+              label={
+                state.device?.deviceStatus === "pending_setup"
+                  ? "Perangkat setup awal"
+                  : `Perangkat ${state.device?.deviceStatus || "offline"}`
+              }
             />
             <StatusChip
-              status={service?.status || "offline"}
-              label={`Layanan ${service?.status || "offline"}`}
+              status={guestStatus.overallStatus === "pending_setup" ? "pending_setup" : service?.status || "offline"}
+              label={
+                guestStatus.overallStatus === "pending_setup"
+                  ? "Layanan menunggu"
+                  : `Layanan ${service?.status || "offline"}`
+              }
             />
             <StatusChip
               status={guestStatus.publicStatus}
@@ -1258,13 +1285,25 @@ function GuestConsole({ deviceId }) {
             <section className="guest-status-grid">
               <article className="metric-card guest-status-card">
                 <span>Koneksi perangkat</span>
-                <strong>{state.device?.deviceStatus === "online" ? "Terhubung" : state.device?.deviceStatus || "offline"}</strong>
-                <StatusChip status={state.device?.deviceStatus || "offline"} label={state.device?.deviceStatus === "online" ? "online" : undefined} />
+                <strong>
+                  {state.device?.deviceStatus === "online"
+                    ? "Terhubung"
+                    : state.device?.deviceStatus === "pending_setup"
+                      ? "Setup awal"
+                      : state.device?.deviceStatus || "offline"}
+                </strong>
+                <StatusChip
+                  status={state.device?.deviceStatus || "offline"}
+                  label={state.device?.deviceStatus === "online" ? "online" : undefined}
+                />
               </article>
               <article className="metric-card guest-status-card">
                 <span>Status service</span>
                 <strong>{guestStatus.runtimeLabel}</strong>
-                <StatusChip status={service?.status || "offline"} label={guestStatus.runtimeChipLabel} />
+                <StatusChip
+                  status={guestStatus.overallStatus === "pending_setup" ? "pending_setup" : service?.status || "offline"}
+                  label={guestStatus.runtimeChipLabel}
+                />
               </article>
               <article className="metric-card guest-status-card">
                 <span>Publikasi link</span>
@@ -1285,8 +1324,14 @@ function GuestConsole({ deviceId }) {
                   <div className="mono">{state.device?.deviceId}</div>
                 </div>
                 <div className="service-status-group">
-                  <StatusChip status={state.device?.deviceStatus || "offline"} label={state.device?.deviceStatus === "online" ? "device online" : undefined} />
-                  <StatusChip status={service?.status || "offline"} label={guestStatus.runtimeChipLabel} />
+                  <StatusChip
+                    status={state.device?.deviceStatus || "offline"}
+                    label={state.device?.deviceStatus === "online" ? "device online" : undefined}
+                  />
+                  <StatusChip
+                    status={guestStatus.overallStatus === "pending_setup" ? "pending_setup" : service?.status || "offline"}
+                    label={guestStatus.runtimeChipLabel}
+                  />
                   <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
                 </div>
               </div>

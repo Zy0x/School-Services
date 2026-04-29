@@ -35,11 +35,21 @@ Deno.serve(async (request) => {
       throw deviceError;
     }
 
-    if (!device) {
-      throw new Error("Guest device not found.");
-    }
-
     if (action === "status") {
+      if (!device) {
+        return json({
+          ok: true,
+          pendingSetup: true,
+          device: {
+            deviceId,
+            deviceName: deviceId,
+            deviceStatus: "pending_setup",
+            lastSeen: null,
+          },
+          service: null,
+        });
+      }
+
       const { data: serviceRow, error: serviceError } = await service
         .from("services")
         .select(
@@ -66,6 +76,14 @@ Deno.serve(async (request) => {
     }
 
     if (action === "start" || action === "stop") {
+      if (!device) {
+        return json({
+          ok: false,
+          pendingSetup: true,
+          error: "Perangkat belum terhubung. Buka aplikasi School Services di komputer ini sampai status perangkat aktif, lalu coba lagi.",
+        });
+      }
+
       const { error: commandError } = await service.from("commands").insert({
         device_id: deviceId,
         service_name: "rapor",

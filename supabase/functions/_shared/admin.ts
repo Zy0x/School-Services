@@ -59,6 +59,84 @@ export async function getAuthPolicy(service = createServiceClient()) {
   };
 }
 
+function buildOperatorEnvironmentName(profile: Record<string, unknown> | null) {
+  const displayName = String(profile?.display_name || "").trim();
+  const email = String(profile?.email || "").trim();
+  const seed = displayName || email.split("@")[0] || "Operator";
+  return `${seed} Workspace`;
+}
+
+async function ensureOperatorEnvironment(
+  service: ReturnType<typeof createServiceClient>,
+  profile: Record<string, unknown> | null
+) {
+  const userId = String(profile?.user_id || "").trim();
+  const primaryEnvironmentId = String(profile?.primary_environment_id || "").trim();
+  const role = String(profile?.role || "").trim().toLowerCase();
+
+  if (!userId || role !== "operator") {
+    return null;
+  }
+
+  const environmentQuery = service
+    .from("operator_environments")
+    .select("id, operator_id, name, referral_code, is_active, created_at, updated_at");
+
+  let environment = null;
+
+  if (primaryEnvironmentId) {
+    const { data } = await environmentQuery.eq("id", primaryEnvironmentId).maybeSingle();
+    environment = data || null;
+  }
+
+  if (!environment) {
+    const { data } = await environmentQuery.eq("operator_id", userId).maybeSingle();
+    environment = data || null;
+  }
+
+  if (!environment) {
+    const referral = await service.rpc("generate_referral_code");
+    if (referral.error) {
+      throw referral.error;
+    }
+
+    const { data, error } = await service
+      .from("operator_environments")
+      .insert({
+        operator_id: userId,
+        name: buildOperatorEnvironmentName(profile),
+        referral_code: String(referral.data || "").trim(),
+        is_active: true,
+        created_by: userId,
+        updated_at: new Date().toISOString(),
+      })
+      .select("id, operator_id, name, referral_code, is_active, created_at, updated_at")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    environment = data;
+  }
+
+  if (environment?.id && primaryEnvironmentId !== String(environment.id)) {
+    const { error } = await service
+      .from("admin_profiles")
+      .update({
+        primary_environment_id: environment.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId);
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  return environment;
+}
+
 async function loadEnvironmentContext(service: ReturnType<typeof createServiceClient>, profile: Record<string, unknown> | null) {
   const primaryEnvironmentId = String(profile?.primary_environment_id || "").trim();
   const userId = String(profile?.user_id || "").trim();
@@ -70,11 +148,14 @@ async function loadEnvironmentContext(service: ReturnType<typeof createServiceCl
     };
   }
 
+  const ensuredEnvironment = await ensureOperatorEnvironment(service, profile);
   const environmentQuery = service
     .from("operator_environments")
     .select("id, operator_id, name, referral_code, is_active, created_at, updated_at");
   const [{ data: environment }, { data: memberships }] = await Promise.all([
-    (primaryEnvironmentId
+    ensuredEnvironment
+      ? Promise.resolve({ data: ensuredEnvironment })
+      : (primaryEnvironmentId
       ? environmentQuery.eq("id", primaryEnvironmentId)
       : environmentQuery.eq("operator_id", userId)
     ).maybeSingle(),

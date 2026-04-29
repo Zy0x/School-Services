@@ -2327,6 +2327,21 @@ export default function App() {
     }
   }
 
+  async function handleDeleteAccount(account) {
+    if (!account?.user_id) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Hapus akun ${account.display_name || account.email} (${account.role}) secara permanen?`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    await handleAccountAction("deleteAccount", { userId: account.user_id });
+  }
+
   async function createManagedAccount() {
     if (!createEmail || !createPassword) {
       setError("Email dan password account wajib diisi.");
@@ -3238,6 +3253,15 @@ export default function App() {
                             <button type="button" className="secondary-button" onClick={() => handleAccountAction("resetPassword", { email: account.email })}>
                               Reset password
                             </button>
+                            {isSuperAdmin && ["operator", "user"].includes(account.role) ? (
+                              <button
+                                type="button"
+                                className="danger-button"
+                                onClick={() => handleDeleteAccount(account)}
+                              >
+                                Hapus akun
+                              </button>
+                            ) : null}
                           </div>
                         </article>
                       ))}

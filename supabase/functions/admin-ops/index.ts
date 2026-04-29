@@ -528,6 +528,113 @@ async function updateAccountStatus(service: Awaited<ReturnType<typeof getRequest
   return { ok: true, account: data };
 }
 
+async function deleteManagedAccount(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  if (!isSuperAdminProfile(actor.profile)) {
+    throw new Error("Hanya SuperAdmin yang dapat menghapus akun.");
+  }
+
+  const userId = String(body.userId || "").trim();
+  if (!userId) {
+    throw new Error("userId is required.");
+  }
+  if (userId === actor.user.id) {
+    throw new Error("Akun SuperAdmin aktif tidak dapat dihapus dari sesi ini.");
+  }
+
+  const { data: target, error: targetError } = await service
+    .from("admin_profiles")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (targetError) {
+    throw targetError;
+  }
+  if (!target) {
+    throw new Error("Akun target tidak ditemukan.");
+  }
+  if (!["operator", "user"].includes(String(target.role || ""))) {
+    throw new Error("Hanya akun Operator dan User yang dapat dihapus lewat fitur ini.");
+  }
+
+  const { data: ownedEnvironments, error: envError } = await service
+    .from("operator_environments")
+    .select("id")
+    .eq("operator_id", userId);
+
+  if (envError) {
+    throw envError;
+  }
+
+  const environmentIds = (ownedEnvironments || [])
+    .map((environment) => String(environment.id || "").trim())
+    .filter(Boolean);
+
+  if (environmentIds.length) {
+    await service
+      .from("admin_profiles")
+      .update({
+        primary_environment_id: null,
+        standalone_state: "standalone",
+        managed_by: null,
+        updated_at: new Date().toISOString(),
+      })
+      .in("primary_environment_id", environmentIds);
+
+    await service
+      .from("device_assignments")
+      .delete()
+      .in("environment_id", environmentIds);
+
+    await service
+      .from("environment_memberships")
+      .delete()
+      .in("environment_id", environmentIds);
+
+    await service
+      .from("environment_invitations")
+      .delete()
+      .in("environment_id", environmentIds);
+
+    await service
+      .from("operator_environments")
+      .delete()
+      .in("id", environmentIds);
+  }
+
+  await service
+    .from("admin_profiles")
+    .update({
+      managed_by: null,
+      primary_environment_id: null,
+      standalone_state: "standalone",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("managed_by", userId);
+
+  await service.from("device_assignments").delete().eq("user_id", userId);
+  await service.from("environment_memberships").delete().eq("user_id", userId);
+  await service.from("environment_invitations").delete().eq("created_by", userId);
+  await service.from("environment_invitations").delete().eq("accepted_by", userId);
+  await service.from("admin_profiles").delete().eq("user_id", userId);
+
+  const { error: deleteError } = await service.auth.admin.deleteUser(userId);
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  return {
+    ok: true,
+    deletedUserId: userId,
+    role: target.role,
+    email: target.email,
+  };
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -828,6 +935,10 @@ Deno.serve(async (request) => {
 
     if (action === "approveAccount" || action === "rejectAccount" || action === "disableAccount") {
       return json(await updateAccountStatus(service, actor, action, body));
+    }
+
+    if (action === "deleteAccount") {
+      return json(await deleteManagedAccount(service, actor, body));
     }
 
     if (action === "extendApproval") {

@@ -58,3 +58,13 @@ export async function requireSuperAdmin(request: Request) {
 
   return actor;
 }
+
+export async function requireAdmin(request: Request) {
+  const actor = await getRequestActor(request);
+  if (!actor.profile || !["super_admin", "operator"].includes(actor.profile.role) || actor.profile.status !== "approved") {
+    throw new Error("Admin/Operator access denied.");
+  }
+
+  return actor;
+}
+

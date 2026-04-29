@@ -1,0 +1,15 @@
+{
+  "name": "School Services Console",
+  "short_name": "SS Console",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030712",
+  "theme_color": "#0a8b75",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

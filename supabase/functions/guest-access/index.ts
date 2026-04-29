@@ -43,7 +43,7 @@ Deno.serve(async (request) => {
       const { data: serviceRow, error: serviceError } = await service
         .from("services")
         .select(
-          "device_id, service_name, port, status, desired_state, public_url, last_error, last_ping, location_status, resolved_path, location_details"
+          "device_id, service_name, status, desired_state, public_url, last_error, last_ping"
         )
         .eq("device_id", deviceId)
         .eq("service_name", "rapor")

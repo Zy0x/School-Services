@@ -617,25 +617,6 @@ function SiteFooter() {
   );
 }
 
-function SupportDock() {
-  return (
-    <div className="support-dock">
-      <button type="button" className="support-fab" aria-label="Buka menu traktir">
-        Traktir
-      </button>
-      <div className="support-flyout">
-        <a href={PAYPAL_URL} target="_blank" rel="noreferrer">
-          PayPal
-          <span>paypal.me/theamagenta</span>
-        </a>
-        <a href={TRAKTEER_URL} target="_blank" rel="noreferrer">
-          Trakteer
-          <span>trakteer.id/zy0x</span>
-        </a>
-      </div>
-    </div>
-  );
-}
 
 function PasswordField({
   label,
@@ -644,15 +625,23 @@ function PasswordField({
   placeholder,
   autoComplete,
   disabled = false,
+  visible,
+  onToggleVisibility,
 }) {
-  const [visible, setVisible] = useState(false);
+  const [internalVisible, setInternalVisible] = useState(false);
+  const isVisible = visible !== undefined ? visible : internalVisible;
+  
+  const toggle = () => {
+    if (onToggleVisibility) onToggleVisibility();
+    else setInternalVisible(v => !v);
+  };
 
   return (
     <label className="password-field">
       {label ? <span>{label}</span> : null}
       <div className="password-input-shell">
         <input
-          type={visible ? "text" : "password"}
+          type={isVisible ? "text" : "password"}
           value={value}
           onChange={onChange}
           placeholder={placeholder}
@@ -662,12 +651,12 @@ function PasswordField({
         <button
           type="button"
           className="password-toggle"
-          aria-label={visible ? "Sembunyikan password" : "Lihat password"}
-          aria-pressed={visible}
-          onClick={() => setVisible((current) => !current)}
+          aria-label={isVisible ? "Sembunyikan password" : "Lihat password"}
+          aria-pressed={isVisible}
+          onClick={toggle}
           disabled={disabled}
         >
-          {visible ? "Sembunyikan" : "Lihat"}
+          {isVisible ? "Sembunyikan" : "Lihat"}
         </button>
       </div>
     </label>
@@ -818,6 +807,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [nextPassword, setNextPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPasswordVisible, setNewPasswordVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -923,6 +913,8 @@ function ProfilePanel({ profile, session, onSignOut }) {
             placeholder="Minimal 8 karakter"
             autoComplete="new-password"
             disabled={busy}
+            visible={newPasswordVisible}
+            onToggleVisibility={() => setNewPasswordVisible(!newPasswordVisible)}
           />
           <PasswordField
             label="Konfirmasi password"
@@ -931,6 +923,8 @@ function ProfilePanel({ profile, session, onSignOut }) {
             placeholder="Ulangi password baru"
             autoComplete="new-password"
             disabled={busy}
+            visible={newPasswordVisible}
+            onToggleVisibility={() => setNewPasswordVisible(!newPasswordVisible)}
           />
           <div>
             <span>Aksi akun</span>
@@ -1077,8 +1071,8 @@ function GuestConsole({ deviceId }) {
         </div>
         <div className="guest-hero-actions">
           <StatusChip status={guestStatus.overallStatus} label={guestStatus.headline} />
-          <button type="button" className="secondary-button" onClick={loadGuest}>
-            Refresh
+          <button type="button" className={`secondary-button ${loading ? "button-busy" : ""}`} disabled={loading} onClick={loadGuest}>
+            {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </section>
@@ -1159,34 +1153,25 @@ function GuestConsole({ deviceId }) {
                   <span>Last heartbeat</span>
                   <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
                 </div>
-                <div>
-                  <span>Path status</span>
-                  <strong>{service?.location_status || "unknown"}</strong>
-                </div>
-                <div>
-                  <span>Resolved path</span>
-                  <strong className="mono">{service?.resolved_path || "-"}</strong>
-                </div>
+                
               </div>
 
-              {service?.location_details?.message ? (
-                <div className="service-note">{service.location_details.message}</div>
-              ) : null}
+              
               {service?.last_error ? <div className="job-error">{service.last_error}</div> : null}
 
               <div className="guest-cta-row">
                 <div className="panel-actions">
                   <button
                     type="button"
-                    className="primary-button"
+                    className={`primary-button ${busy ? "button-busy" : ""}`}
                     disabled={busy}
                     onClick={() => sendCommand("start")}
                   >
-                    {busy ? "Memproses..." : "Start Service"}
+                    {busy ? "Starting..." : "Start Service"}
                   </button>
                   <button
                     type="button"
-                    className="secondary-button"
+                    className={`secondary-button ${busy ? "button-busy" : ""}`}
                     disabled={busy || !isRunning}
                     onClick={() => sendCommand("stop")}
                   >
@@ -1218,7 +1203,7 @@ function GuestConsole({ deviceId }) {
         )}
       </section>
       <SiteFooter />
-      <SupportDock />
+      
     </main>
   );
 }
@@ -1226,6 +1211,7 @@ function GuestConsole({ deviceId }) {
 function PasswordResetScreen() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPasswordVisible, setNewPasswordVisible] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1302,7 +1288,10 @@ function PasswordResetScreen() {
       clearStoredAuthArtifacts();
       setPassword("");
       setConfirmPassword("");
-      setInfo("Password baru berhasil disimpan. Silakan masuk kembali dengan password baru.");
+      setInfo("Password baru berhasil disimpan. Mengalihkan ke halaman login...");
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 2000);
     } catch (error) {
       setError(formatPasswordUpdateError(error));
     } finally {
@@ -1326,7 +1315,9 @@ function PasswordResetScreen() {
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Minimal 8 karakter"
             autoComplete="new-password"
-            disabled={busy}
+            disabled={busy || !ready}
+            visible={newPasswordVisible}
+            onToggleVisibility={() => setNewPasswordVisible(!newPasswordVisible)}
           />
           <PasswordField
             label="Konfirmasi password"
@@ -1334,7 +1325,9 @@ function PasswordResetScreen() {
             onChange={(event) => setConfirmPassword(event.target.value)}
             placeholder="Ulangi password baru"
             autoComplete="new-password"
-            disabled={busy}
+            disabled={busy || !ready}
+            visible={newPasswordVisible}
+            onToggleVisibility={() => setNewPasswordVisible(!newPasswordVisible)}
           />
           {error ? <div className="error-banner">{error}</div> : null}
           {info ? <div className="explorer-warning">{info}</div> : null}
@@ -2059,7 +2052,13 @@ export default function App() {
       });
 
       if (signInError) {
-        setAuthError(signInError.message);
+        if (/invalid login credentials/i.test(signInError.message)) {
+          setAuthError("Email atau kata sandi yang Anda masukkan belum tepat.");
+        } else if (/email not confirmed/i.test(signInError.message)) {
+          setAuthError("Email belum terkonfirmasi.");
+        } else {
+          setAuthError(signInError.message);
+        }
       }
     }
 
@@ -2532,7 +2531,7 @@ export default function App() {
               ...(isSuperAdmin ? [["files", "Remote Files"]] : []),
               ["activity", "Activity"],
               ["profile", "Profile"],
-              ...(isSuperAdmin ? [["accounts", "Accounts"]] : []),
+              ...(isSuperAdmin || isOperator ? [["accounts", "Accounts"]] : []),
             ].map(([id, label]) => (
               <button
                 key={id}
@@ -2851,8 +2850,9 @@ export default function App() {
                 </section>
               ) : null}
 
-              {selectedTab === "accounts" && isSuperAdmin ? (
+              {selectedTab === "accounts" && (isSuperAdmin || isOperator) ? (
                 <section className="panel-stack">
+                  {isSuperAdmin ? (
                   <article className="service-panel">
                     <div className="panel-heading-row">
                       <h3>Approval Policy</h3>
@@ -2925,6 +2925,7 @@ export default function App() {
                       </div>
                     </div>
                   </article>
+                  ) : null}
                   <article className="jobs-panel">
                     <div className="panel-heading-row">
                       <h3>Accounts</h3>

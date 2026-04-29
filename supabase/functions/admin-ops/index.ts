@@ -1,5 +1,5 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
-import { createAnonClient, requireSuperAdmin } from "../_shared/admin.ts";
+import { createAnonClient, requireSuperAdmin, requireAdmin } from "../_shared/admin.ts";
 
 const TEMP_BUCKET = "agent-temp-artifacts";
 const ARCHIVE_BUCKET = "agent-archives";
@@ -50,9 +50,88 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const { service, user } = await requireSuperAdmin(request);
+    const actor = await requireAdmin(request);
+    const { service, user, profile } = actor;
+    const isSuperAdmin = profile.role === "super_admin";
     const body = await request.json();
     const action = String(body.action || "").trim();
+
+    if (["createJob", "cancelJob", "signArtifact", "promoteArchive", "updateAuthPolicy"].includes(action)) {
+      if (!isSuperAdmin) throw new Error("Super admin access required.");
+    }
+
+    if (action === "createEnvironment") {
+      const name = String(body.name || "").trim();
+      if (!name) throw new Error("Environment name required");
+      const operatorId = isSuperAdmin ? (body.operatorId || user.id) : user.id;
+      const { data, error } = await service.from("operator_environments").insert({
+        operator_id: operatorId,
+        name
+      }).select("*").single();
+      if (error) throw error;
+      return json({ ok: true, environment: data });
+    }
+
+    if (action === "generateReferralCode") {
+      let targetEnvId = body.environmentId;
+      if (!isSuperAdmin) {
+        const { data: env } = await service.from("operator_environments").select("id").eq("operator_id", user.id).maybeSingle();
+        if (!env) throw new Error("No environment found");
+        targetEnvId = env.id;
+      }
+      if (!targetEnvId) throw new Error("Environment ID required");
+      
+      const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      
+      const { data, error } = await service.from("environment_invitations").insert({
+        environment_id: targetEnvId,
+        referral_code: code,
+        created_by: user.id,
+        expires_at: expiresAt
+      }).select("*").single();
+      if (error) throw error;
+      return json({ ok: true, invitation: data });
+    }
+
+    if (action === "assignDevice") {
+      const targetUserId = String(body.userId || "").trim();
+      const targetDeviceId = String(body.deviceId || "").trim();
+      if (!targetUserId || !targetDeviceId) throw new Error("userId and deviceId required");
+      
+      if (!isSuperAdmin) {
+        const { data: env } = await service.from("operator_environments").select("id").eq("operator_id", user.id).maybeSingle();
+        if (!env) throw new Error("Not authorized");
+        const { data: member } = await service.from("environment_memberships").select("*").eq("environment_id", env.id).eq("user_id", targetUserId).maybeSingle();
+        if (!member && targetUserId !== user.id) throw new Error("Not authorized to manage this user");
+      }
+      
+      const { error } = await service.from("device_assignments").upsert({
+        device_id: targetDeviceId,
+        user_id: targetUserId,
+        assigned_by: user.id,
+        assigned_at: new Date().toISOString()
+      });
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    if (action === "unassignDevice") {
+      const targetUserId = String(body.userId || "").trim();
+      const targetDeviceId = String(body.deviceId || "").trim();
+      if (!isSuperAdmin) {
+        const { data: env } = await service.from("operator_environments").select("id").eq("operator_id", user.id).maybeSingle();
+        if (!env) throw new Error("Not authorized");
+        const { data: member } = await service.from("environment_memberships").select("*").eq("environment_id", env.id).eq("user_id", targetUserId).maybeSingle();
+        if (!member && targetUserId !== user.id) throw new Error("Not authorized");
+      }
+      const { error } = await service.from("device_assignments").delete().match({
+        device_id: targetDeviceId,
+        user_id: targetUserId
+      });
+      if (error) throw error;
+      return json({ ok: true });
+    }
 
     if (action === "createJob") {
       const payload = {

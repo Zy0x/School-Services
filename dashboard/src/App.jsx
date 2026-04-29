@@ -33,6 +33,18 @@ function buildGuestUrl(deviceId) {
   return `${PUBLIC_DASHBOARD_URL}${buildGuestPath(deviceId)}`;
 }
 
+function buildDashboardUrl(params = {}) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    const normalized = String(value || "").trim();
+    if (normalized) {
+      search.set(key, normalized);
+    }
+  }
+  const suffix = search.toString();
+  return `${PUBLIC_DASHBOARD_URL}/${suffix ? `?${suffix}` : ""}`;
+}
+
 function getFunctionUrl(name) {
   return `${SUPABASE_URL}/functions/v1/${name}`;
 }
@@ -1172,8 +1184,16 @@ function GuestConsole({ deviceId }) {
   const guestStatus = getGuestStatusModel(state.device, service);
   const canOpenService = guestStatus.ready;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
-  const loginUrl = `${PUBLIC_DASHBOARD_URL}/?mode=login`;
-  const registerUrl = `${PUBLIC_DASHBOARD_URL}/?mode=register`;
+  const loginUrl = buildDashboardUrl({
+    mode: "login",
+    linkDeviceId: deviceId,
+    guestDeviceId: deviceId,
+  });
+  const registerUrl = buildDashboardUrl({
+    mode: "register",
+    linkDeviceId: deviceId,
+    guestDeviceId: deviceId,
+  });
 
   return (
     <main className="console-shell guest-console-shell">
@@ -1772,9 +1792,15 @@ export default function App() {
   const resetPasswordMode =
     currentPathname === "/reset-password" ||
     /(^|[&#])type=recovery(?:[&#]|$)/.test(currentHash);
+  const currentParams =
+    typeof window !== "undefined" ? new URLSearchParams(currentSearch) : new URLSearchParams();
   const requestedAuthMode =
+    typeof window !== "undefined" ? currentParams.get("mode") : "";
+  const requestedGuestLinkDeviceId =
+    typeof window !== "undefined" ? currentParams.get("linkDeviceId") || "" : "";
+  const requestedGuestReturnDeviceId =
     typeof window !== "undefined"
-      ? new URLSearchParams(currentSearch).get("mode")
+      ? currentParams.get("guestDeviceId") || requestedGuestLinkDeviceId
       : "";
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1789,6 +1815,13 @@ export default function App() {
   const [registerReferralCode, setRegisterReferralCode] = useState("");
   const [authError, setAuthError] = useState("");
   const [authInfo, setAuthInfo] = useState("");
+  const [dashboardInfo, setDashboardInfo] = useState("");
+  const [pendingGuestLinkDeviceId, setPendingGuestLinkDeviceId] = useState(
+    requestedGuestLinkDeviceId
+  );
+  const [guestReturnDeviceId, setGuestReturnDeviceId] = useState(
+    requestedGuestReturnDeviceId
+  );
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [accounts, setAccounts] = useState([]);
@@ -1839,6 +1872,7 @@ export default function App() {
     setRoots([]);
     setLoading(true);
     setError("");
+    setDashboardInfo("");
     setSelectedDeviceId("all");
     setSelectedTab("overview");
     setBusyAction("");
@@ -1856,6 +1890,26 @@ export default function App() {
     setCreateRole("operator");
     setCreateAssignedDeviceId("");
     setCreateApproveImmediately(true);
+  }
+
+  function clearGuestLinkRequest() {
+    setPendingGuestLinkDeviceId("");
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    params.delete("linkDeviceId");
+    params.delete("mode");
+    if (guestReturnDeviceId) {
+      params.set("guestDeviceId", guestReturnDeviceId);
+    }
+    const nextSearch = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash || ""}`
+    );
   }
 
   useEffect(() => {
@@ -1946,6 +2000,16 @@ export default function App() {
       setCreateApproveImmediately(false);
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (!pendingGuestLinkDeviceId || !profile || profile.status !== "approved") {
+      return;
+    }
+    if (profile.role !== "user") {
+      setDashboardInfo("Penautan dari Guest Mode hanya tersedia untuk akun User. Akses role Anda tetap mengikuti cakupan dashboard.");
+      clearGuestLinkRequest();
+    }
+  }, [pendingGuestLinkDeviceId, profile]);
 
   async function loadAll(background = false) {
     if (!session || guestDeviceId) {
@@ -2257,9 +2321,11 @@ export default function App() {
   }
 
   async function signOut() {
+    const returnDeviceId = String(guestReturnDeviceId || pendingGuestLinkDeviceId || "").trim();
     setAuthLoading(true);
     setAuthError("");
     setAuthInfo("");
+    setDashboardInfo("");
     resetAuthenticatedState();
     try {
       const globalResult = await supabase.auth.signOut({ scope: "global" });
@@ -2271,6 +2337,9 @@ export default function App() {
     } finally {
       clearStoredAuthArtifacts();
       setAuthLoading(false);
+      if (returnDeviceId && typeof window !== "undefined") {
+        window.location.href = buildGuestPath(returnDeviceId);
+      }
     }
   }
 
@@ -2357,6 +2426,33 @@ export default function App() {
     } finally {
       setBusyAction("");
     }
+  }
+
+  async function confirmGuestDeviceLink() {
+    const deviceId = String(pendingGuestLinkDeviceId || "").trim();
+    if (!deviceId) {
+      return;
+    }
+
+    try {
+      setBusyAction(`guest-link:${deviceId}`);
+      setError("");
+      setDashboardInfo("");
+      await invokeAdmin("linkGuestDevice", { deviceId });
+      setSelectedDeviceId(deviceId);
+      clearGuestLinkRequest();
+      await loadAll(true);
+      setDashboardInfo("Device lokal berhasil ditautkan ke akun User ini.");
+    } catch (linkError) {
+      setError(formatEdgeFunctionError(linkError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function dismissGuestDeviceLink() {
+    setDashboardInfo("Penautan device lokal dilewati. Anda tetap dapat menggunakan dashboard sesuai akses akun.");
+    clearGuestLinkRequest();
   }
 
   async function handleDeleteAccount(account) {
@@ -2674,6 +2770,9 @@ export default function App() {
   const isSuperAdmin = profile.role === "super_admin";
   const isOperator = profile.role === "operator";
   const isUser = profile.role === "user";
+  const showGuestLinkPrompt =
+    isUser && Boolean(pendingGuestLinkDeviceId) && profile.status === "approved";
+  const linkingGuestDevice = busyAction === `guest-link:${pendingGuestLinkDeviceId}`;
 
   return (
     <main className="console-shell">
@@ -2703,6 +2802,36 @@ export default function App() {
       </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
+      {dashboardInfo ? <div className="service-note">{dashboardInfo}</div> : null}
+      {showGuestLinkPrompt ? (
+        <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="guest-link-title">
+          <div className="guest-modal-card">
+            <strong id="guest-link-title">Tautkan device lokal ke akun ini?</strong>
+            <p>
+              Device <span className="mono">{pendingGuestLinkDeviceId}</span> akan dimasukkan ke akses akun User ini.
+              Setelah tertaut, dashboard akan menampilkan layanan lokal sesuai batas hak akses User.
+            </p>
+            <div className="guest-modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={linkingGuestDevice}
+                onClick={dismissGuestDeviceLink}
+              >
+                Lewati
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={linkingGuestDevice}
+                onClick={confirmGuestDeviceLink}
+              >
+                {linkingGuestDevice ? "Menautkan..." : "Tautkan device"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="console-grid">
         <aside className="sidebar">

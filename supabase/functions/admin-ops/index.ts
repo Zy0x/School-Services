@@ -126,6 +126,57 @@ async function canAccessDevice(service: Awaited<ReturnType<typeof getRequestActo
   return accessible === null || accessible.includes(deviceId);
 }
 
+async function ensureDeviceExists(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  deviceId: string
+) {
+  const { data, error } = await service
+    .from("devices")
+    .select("device_id, device_name, status")
+    .eq("device_id", deviceId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+  if (!data) {
+    throw new Error("Device tidak ditemukan atau belum pernah terhubung ke School Services.");
+  }
+
+  return data;
+}
+
+async function assertDeviceLinkAvailable(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  deviceId: string,
+  userId: string
+) {
+  const { data, error } = await service
+    .from("device_assignments")
+    .select("user_id")
+    .eq("device_id", deviceId)
+    .eq("status", "active")
+    .eq("is_primary", true)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+  if (data?.user_id && String(data.user_id) !== userId) {
+    throw new Error("Device ini sudah tertaut ke akun lain. Minta Operator atau SuperAdmin untuk memindahkan aksesnya.");
+  }
+}
+
+function getActorEnvironmentId(actor: Awaited<ReturnType<typeof getRequestActor>>) {
+  return String(
+    actor.profile?.primary_environment_id ||
+      actor.environment?.id ||
+      actor.memberships?.find((membership: Record<string, unknown>) => membership.status === "approved")
+        ?.environment_id ||
+      ""
+  ).trim();
+}
+
 async function getScopedAccounts(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
   if (isSuperAdminProfile(actor.profile)) {
     const [{ data: profiles, error: profileError }, { data: memberships, error: membershipError }] =
@@ -322,6 +373,12 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
   if (!email || !password) {
     throw new Error("Email dan password wajib diisi.");
   }
+  if (!actorIsSuperAdmin && !actorIsOperator) {
+    throw new Error("Hanya SuperAdmin atau Operator yang dapat membuat akun.");
+  }
+  if (role === "operator" && !actorIsSuperAdmin) {
+    throw new Error("Hanya SuperAdmin yang dapat membuat akun Operator.");
+  }
   if (actorIsOperator && role !== "user") {
     throw new Error("Operator hanya dapat membuat akun user.");
   }
@@ -363,18 +420,8 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
       throw new Error("Device awal berada di luar cakupan akun Anda.");
     }
 
-    const { data: requestedDevice, error: requestedDeviceError } = await service
-      .from("devices")
-      .select("device_id")
-      .eq("device_id", requestedDeviceId)
-      .maybeSingle();
-
-    if (requestedDeviceError) {
-      throw requestedDeviceError;
-    }
-    if (!requestedDevice) {
-      throw new Error("Device awal tidak ditemukan.");
-    }
+    await ensureDeviceExists(service, requestedDeviceId);
+    await assertDeviceLinkAvailable(service, requestedDeviceId, "");
   }
 
   const { data: created, error: createError } = await service.auth.admin.createUser({
@@ -469,6 +516,9 @@ async function updateAccountStatus(service: Awaited<ReturnType<typeof getRequest
   const userId = String(body.userId || "").trim();
   if (!userId) {
     throw new Error("userId is required.");
+  }
+  if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
+    throw new Error("Hanya SuperAdmin atau Operator yang dapat mengubah status akun.");
   }
 
   const { data: target, error: targetError } = await service
@@ -669,6 +719,58 @@ async function deleteManagedAccount(
     deletedUserId: userId,
     role: target.role,
     email: target.email,
+  };
+}
+
+async function linkGuestDevice(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  const deviceId = String(body.deviceId || "").trim();
+  if (!deviceId) {
+    throw new Error("deviceId wajib diisi.");
+  }
+  if (String(actor.profile?.role || "") !== "user") {
+    throw new Error("Penautan dari Guest Mode hanya tersedia untuk akun User.");
+  }
+
+  const device = await ensureDeviceExists(service, deviceId);
+  await assertDeviceLinkAvailable(service, deviceId, actor.user.id);
+
+  const environmentId = getActorEnvironmentId(actor);
+  const { data, error } = await service
+    .from("device_assignments")
+    .upsert({
+      device_id: deviceId,
+      user_id: actor.user.id,
+      environment_id: environmentId || null,
+      assignment_role: "owner",
+      status: "active",
+      is_primary: true,
+      assigned_by: actor.user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  await service
+    .from("admin_profiles")
+    .update({
+      standalone_state: environmentId ? "linked" : "standalone",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", actor.user.id)
+    .eq("role", "user");
+
+  return {
+    ok: true,
+    device,
+    assignment: data,
   };
 }
 
@@ -970,6 +1072,10 @@ Deno.serve(async (request) => {
       return json(await createManagedAccount(service, actor, body));
     }
 
+    if (action === "linkGuestDevice") {
+      return json(await linkGuestDevice(service, actor, body));
+    }
+
     if (action === "approveAccount" || action === "rejectAccount" || action === "disableAccount") {
       return json(await updateAccountStatus(service, actor, action, body));
     }
@@ -985,6 +1091,9 @@ Deno.serve(async (request) => {
 
       if (!userId) {
         throw new Error("userId is required.");
+      }
+      if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
+        throw new Error("Hanya SuperAdmin atau Operator yang dapat memperpanjang approval akun.");
       }
 
       if (!isSuperAdminProfile(actor.profile)) {
@@ -1100,6 +1209,9 @@ Deno.serve(async (request) => {
       if (!deviceId || !userId) {
         throw new Error("deviceId dan userId wajib diisi.");
       }
+      if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
+        throw new Error("Hanya SuperAdmin atau Operator yang dapat menautkan device ke akun lain.");
+      }
 
       if (!isSuperAdminProfile(actor.profile)) {
         if (!environmentId || environmentId !== String(actor.environment?.id || "")) {
@@ -1143,17 +1255,24 @@ Deno.serve(async (request) => {
       if (!assignmentId) {
         throw new Error("assignmentId wajib diisi.");
       }
+      if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
+        throw new Error("Hanya SuperAdmin atau Operator yang dapat melepas assignment device.");
+      }
 
-      const { data, error } = await service
+      let assignmentQuery = service
         .from("device_assignments")
         .update({
           status: "revoked",
           is_primary: false,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", assignmentId)
-        .select("*")
-        .single();
+        .eq("id", assignmentId);
+
+      if (!isSuperAdminProfile(actor.profile)) {
+        assignmentQuery = assignmentQuery.eq("environment_id", String(actor.environment?.id || ""));
+      }
+
+      const { data, error } = await assignmentQuery.select("*").single();
 
       if (error) {
         throw error;

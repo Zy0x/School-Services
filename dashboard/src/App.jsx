@@ -24,6 +24,90 @@ const PAYPAL_URL = "https://paypal.me/theamagenta";
 const TRAKTEER_URL = "https://trakteer.id/zy0x";
 const GITHUB_PROFILE_URL = "https://github.com/Zy0x";
 const GUEST_BRAND_ICON = "/icon.png";
+const DASHBOARD_SECTIONS = new Set(["overview", "devices", "files", "activity", "accounts", "profile"]);
+
+function parseAppRoute(pathname = "") {
+  const path = String(pathname || "").replace(/\/+$/, "") || "/dashboard";
+  const parts = path.split("/").filter(Boolean);
+  if (parts[0] !== "dashboard") {
+    return { section: "overview", deviceId: "" };
+  }
+
+  const section = DASHBOARD_SECTIONS.has(parts[1]) ? parts[1] : "overview";
+  return {
+    section,
+    deviceId: section === "devices" ? decodeURIComponent(parts[2] || "") : "",
+  };
+}
+
+function buildRoutePath(section = "overview", params = {}) {
+  const safeSection = DASHBOARD_SECTIONS.has(section) ? section : "overview";
+  if (safeSection === "devices" && params.deviceId) {
+    return `/dashboard/devices/${encodeURIComponent(params.deviceId)}`;
+  }
+  return `/dashboard/${safeSection}`;
+}
+
+function getAllowedDashboardSections(role) {
+  const sections = new Set(["overview", "devices", "activity", "profile"]);
+  if (role === "super_admin") {
+    sections.add("files");
+    sections.add("accounts");
+  }
+  if (role === "operator") {
+    sections.add("accounts");
+  }
+  return sections;
+}
+
+function getRouteCopy(section, role) {
+  const fallback = {
+    title: "Dashboard",
+    subtitle: "Pantau status perangkat, layanan, dan aktivitas akun sesuai hak akses Anda.",
+    kicker: "School Services",
+  };
+  const copies = {
+    overview: {
+      title: "Ringkasan Operasional",
+      subtitle:
+        role === "super_admin"
+          ? "Pantau kesehatan fleet, akun, transfer data, dan layanan penting dari satu tempat."
+          : role === "operator"
+            ? "Kelola perangkat dan akun user di lingkungan Anda dengan batas akses yang aman."
+            : "Lihat status device lokal, layanan yang tersedia, dan akses publik yang aktif.",
+      kicker: role === "super_admin" ? "SuperAdmin Console" : role === "operator" ? "Operator Console" : "User Console",
+    },
+    devices: {
+      title: "Perangkat & Layanan",
+      subtitle: "Buka detail device, ubah alias pribadi, dan jalankan kontrol layanan sesuai role akun.",
+      kicker: "Device Center",
+    },
+    files: {
+      title: "File Remote",
+      subtitle: "Akses file remote khusus SuperAdmin untuk preview, upload, dan download terkontrol.",
+      kicker: "SuperAdmin Only",
+    },
+    activity: {
+      title: "Aktivitas Sistem",
+      subtitle: "Tinjau log operasional dan status job terbaru dengan filter yang mudah dibaca.",
+      kicker: "Monitoring",
+    },
+    accounts: {
+      title: role === "operator" ? "Akun Lingkungan" : "Akun & Lingkungan",
+      subtitle:
+        role === "operator"
+          ? "Kelola referral, user, dan approval yang berada dalam lingkungan operator Anda."
+          : "Atur policy approval, operator environment, akun user, dan akses perangkat.",
+      kicker: "Access Control",
+    },
+    profile: {
+      title: "Profil Akun",
+      subtitle: "Periksa identitas akun, role, sesi aktif, dan pengaturan password Anda.",
+      kicker: "Account",
+    },
+  };
+  return copies[section] || fallback;
+}
 
 function buildGuestPath(deviceId) {
   return `/guest/${encodeURIComponent(String(deviceId || "").trim())}`;
@@ -413,6 +497,171 @@ function ActionButton({
       {busy ? <span className="button-spinner" aria-hidden="true" /> : null}
       <span>{children}</span>
     </button>
+  );
+}
+
+function NavIcon({ section }) {
+  const paths = {
+    overview: "M4 13h6V4H4v9Zm10 7h6V4h-6v16ZM4 20h6v-5H4v5Zm10 0h6v-8h-6v8Z",
+    devices: "M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v8A2.5 2.5 0 0 1 16.5 17H14v2h2.5a1 1 0 1 1 0 2h-9a1 1 0 1 1 0-2H10v-2H7.5A2.5 2.5 0 0 1 5 14.5v-8Zm2.5-.5a.5.5 0 0 0-.5.5v8a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5v-8a.5.5 0 0 0-.5-.5h-9Z",
+    files: "M4 6.5A2.5 2.5 0 0 1 6.5 4h4.2l2 2H17.5A2.5 2.5 0 0 1 20 8.5v7A2.5 2.5 0 0 1 17.5 18h-11A2.5 2.5 0 0 1 4 15.5v-9Z",
+    activity: "M5 12h3l2-6 4 12 2-6h3a1 1 0 1 0 0-2h-4.4l-.6 1.8L10 0 6.6 10H5a1 1 0 1 0 0 2Z",
+    accounts: "M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM3 18.5C3 15.5 5.5 13 8.5 13s5.5 2.5 5.5 5.5V20H3v-1.5Zm12.5.2c0-1.7-.6-3.3-1.7-4.5.5-.1 1.1-.2 1.7-.2A4.5 4.5 0 0 1 20 18.5V20h-4.5v-1.3Z",
+    profile: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z",
+  };
+
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d={paths[section] || paths.overview} />
+    </svg>
+  );
+}
+
+function getDashboardNavItems({ isSuperAdmin, isOperator, deviceCount, pendingAccounts, runningJobs }) {
+  return [
+    { id: "overview", label: "Ringkasan", helper: "Status utama", badge: deviceCount },
+    { id: "devices", label: "Perangkat", helper: "Alias, service, link", badge: deviceCount },
+    ...(isSuperAdmin ? [{ id: "files", label: "File Remote", helper: "Akses khusus", badge: runningJobs }] : []),
+    { id: "activity", label: "Aktivitas", helper: "Log dan job", badge: runningJobs },
+    ...((isSuperAdmin || isOperator)
+      ? [{ id: "accounts", label: "Akun", helper: "User dan referral", badge: pendingAccounts }]
+      : []),
+    { id: "profile", label: "Profil", helper: "Akun dan password" },
+  ];
+}
+
+function SidebarNav({ profile, activeSection, items, onNavigate, onTransferHistory }) {
+  return (
+    <aside className="app-sidebar" aria-label="Navigasi dashboard">
+      <div className="app-sidebar-brand">
+        <img src={GUEST_BRAND_ICON} alt="" aria-hidden="true" />
+        <div>
+          <strong>School Services</strong>
+          <span>{profile.role.replace(/_/g, " ")}</span>
+        </div>
+      </div>
+      <nav className="app-nav-list">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`app-nav-item ${activeSection === item.id ? "app-nav-item-active" : ""}`}
+            aria-current={activeSection === item.id ? "page" : undefined}
+            onClick={() => onNavigate(item.id)}
+          >
+            <NavIcon section={item.id} />
+            <span className="app-nav-copy">
+              <strong>{item.label}</strong>
+              <small>{item.helper}</small>
+            </span>
+            {Number(item.badge || 0) > 0 ? <span className="app-nav-badge">{item.badge}</span> : null}
+          </button>
+        ))}
+      </nav>
+      {profile.role === "super_admin" ? (
+        <button type="button" className="app-sidebar-cta" onClick={onTransferHistory}>
+          <span>Riwayat Transfer</span>
+          <small>Lihat upload dan download terbaru</small>
+        </button>
+      ) : null}
+    </aside>
+  );
+}
+
+function MobileNav({ activeSection, items, onNavigate }) {
+  return (
+    <nav className="mobile-nav" aria-label="Navigasi mobile">
+      {items.slice(0, 5).map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className={`mobile-nav-item ${activeSection === item.id ? "mobile-nav-item-active" : ""}`}
+          aria-current={activeSection === item.id ? "page" : undefined}
+          onClick={() => onNavigate(item.id)}
+        >
+          <NavIcon section={item.id} />
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+function RouteHeader({ route, profile, channelState, loading, authLoading, onRefresh, onSignOut }) {
+  const copy = getRouteCopy(route.section, profile.role);
+  return (
+    <header className="app-route-header">
+      <div>
+        <div className="route-kicker">{copy.kicker}</div>
+        <h1>{copy.title}</h1>
+        <p>{copy.subtitle}</p>
+      </div>
+      <div className="topbar-actions">
+        <StatusChip status={channelState || "connecting"} label={channelState || "connecting"} />
+        <ActionButton className="secondary-button" busy={loading} onClick={onRefresh}>
+          Refresh
+        </ActionButton>
+        <ActionButton className="secondary-button" busy={authLoading} onClick={onSignOut}>
+          Log Out
+        </ActionButton>
+      </div>
+    </header>
+  );
+}
+
+function DashboardStats({ devices, fileJobs, accounts, now }) {
+  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline").length;
+  const runningServices = devices.reduce((total, device) => total + device.runningCount, 0);
+  const issueCount = devices.reduce((total, device) => total + device.issueCount, 0);
+  const runningJobs = fileJobs.filter((job) => ["pending", "running"].includes(job.status)).length;
+  const pendingAccounts = accounts.filter((account) => account.status === "pending").length;
+
+  return (
+    <section className="dashboard-stats-grid" aria-label="Ringkasan dashboard">
+      {[
+        ["Device aktif", `${onlineDevices}/${devices.length}`, "Perangkat yang masih mengirim heartbeat."],
+        ["Service running", runningServices, "Total service lokal yang sedang berjalan."],
+        ["Perlu perhatian", issueCount, "Service atau device yang offline, error, atau path belum lengkap."],
+        ["Transfer berjalan", runningJobs, "Job upload/download yang masih diproses."],
+        ["Akun pending", pendingAccounts, "Akun yang menunggu approval."],
+      ].map(([label, value, helper]) => (
+        <article key={label} className="dashboard-stat-card">
+          <span>{label}</span>
+          <strong>{value}</strong>
+          <small>{helper}</small>
+        </article>
+      ))}
+      <article className="dashboard-stat-card">
+        <span>Update data</span>
+        <strong>{formatRelativeTime(new Date(now).toISOString(), now)}</strong>
+        <small>Dashboard refresh otomatis tanpa mengganti halaman.</small>
+      </article>
+    </section>
+  );
+}
+
+function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
+  return (
+    <section className="device-grid" aria-label="Daftar perangkat">
+      {devices.map((device) => (
+        <button
+          key={device.deviceId}
+          type="button"
+          className={`device-grid-card ${selectedDeviceId === device.deviceId ? "device-grid-card-active" : ""}`}
+          onClick={() => onOpen(device.deviceId)}
+        >
+          <span className="device-grid-top">
+            <strong>{device.deviceName}</strong>
+            <StatusChip status={device.deviceStatus} />
+          </span>
+          <span className="mono">{device.deviceId}</span>
+          <span className="device-grid-meta">
+            {device.runningCount} service running · {device.issueCount} perlu perhatian ·{" "}
+            {formatRelativeTime(device.deviceRecord?.last_seen, now)}
+          </span>
+        </button>
+      ))}
+    </section>
   );
 }
 
@@ -2044,7 +2293,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedDeviceId, setSelectedDeviceId] = useState("all");
-  const [selectedTab, setSelectedTab] = useState("overview");
+  const [appRoute, setAppRoute] = useState(() =>
+    typeof window === "undefined" ? { section: "overview", deviceId: "" } : parseAppRoute(window.location.pathname)
+  );
   const [now, setNow] = useState(Date.now());
   const [busyAction, setBusyAction] = useState("");
   const [currentPath, setCurrentPath] = useState("");
@@ -2083,7 +2334,7 @@ export default function App() {
     setError("");
     setDashboardInfo("");
     setSelectedDeviceId("all");
-    setSelectedTab("overview");
+    setAppRoute({ section: "overview", deviceId: "" });
     setBusyAction("");
     setCurrentPath("");
     setDirectoryJobId(null);
@@ -2126,6 +2377,39 @@ export default function App() {
     );
   }
 
+  const selectedTab = appRoute.section;
+
+  function navigateRoute(section, params = {}, options = {}) {
+    const nextRoute = {
+      section: DASHBOARD_SECTIONS.has(section) ? section : "overview",
+      deviceId: section === "devices" ? String(params.deviceId || "").trim() : "",
+    };
+    setAppRoute(nextRoute);
+    if (nextRoute.deviceId) {
+      setSelectedDeviceId(nextRoute.deviceId);
+    } else if (nextRoute.section === "devices" && params.selectAll) {
+      setSelectedDeviceId("all");
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const nextPath = buildRoutePath(nextRoute.section, { deviceId: nextRoute.deviceId });
+    const routeSearchParams = new URLSearchParams(window.location.search);
+    routeSearchParams.delete("mode");
+    routeSearchParams.delete("linkDeviceId");
+    const nextSearch = routeSearchParams.toString();
+    const nextUrl = `${nextPath}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash || ""}`;
+    if (window.location.pathname !== nextPath) {
+      window.history[options.replace ? "replaceState" : "pushState"](null, "", nextUrl);
+    }
+  }
+
+  function setSelectedTab(section) {
+    navigateRoute(section);
+  }
+
   useEffect(() => {
     if (guestDeviceId) {
       setAuthLoading(false);
@@ -2159,6 +2443,23 @@ export default function App() {
       active = false;
       subscription.unsubscribe();
     };
+  }, [guestDeviceId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || guestDeviceId) {
+      return undefined;
+    }
+
+    const handlePopState = () => {
+      const nextRoute = parseAppRoute(window.location.pathname);
+      setAppRoute(nextRoute);
+      if (nextRoute.section === "devices" && nextRoute.deviceId) {
+        setSelectedDeviceId(nextRoute.deviceId);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, [guestDeviceId]);
 
   useEffect(() => {
@@ -2277,22 +2578,37 @@ export default function App() {
   }, [session, profile, guestDeviceId]);
 
   useEffect(() => {
+    if (appRoute.section === "devices" && appRoute.deviceId) {
+      return;
+    }
     if (selectedDeviceId !== "all" && !services.some((row) => row.device_id === selectedDeviceId)) {
       setSelectedDeviceId("all");
     }
-  }, [services, selectedDeviceId]);
+  }, [services, selectedDeviceId, appRoute]);
 
   useEffect(() => {
     if (!profile) {
       return;
     }
-    if (profile.role !== "super_admin" && selectedTab === "files") {
-      setSelectedTab("overview");
+    const allowedSections = getAllowedDashboardSections(profile.role);
+    if (!allowedSections.has(selectedTab)) {
+      setDashboardInfo("Halaman tersebut tidak tersedia untuk role akun ini.");
+      navigateRoute("overview", {}, { replace: true });
+      return;
     }
-    if (!["super_admin", "operator"].includes(profile.role) && selectedTab === "accounts") {
-      setSelectedTab("overview");
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname === "/dashboard" || !window.location.pathname.startsWith("/dashboard"))
+    ) {
+      navigateRoute("overview", {}, { replace: true });
     }
   }, [profile, selectedTab]);
+
+  useEffect(() => {
+    if (appRoute.section === "devices" && appRoute.deviceId && appRoute.deviceId !== selectedDeviceId) {
+      setSelectedDeviceId(appRoute.deviceId);
+    }
+  }, [appRoute, selectedDeviceId]);
 
   const deviceEntries = useMemo(() => {
     const grouped = new Map();
@@ -2341,7 +2657,9 @@ export default function App() {
   }, [services, fileJobs, deviceAliases]);
 
   const selectedDevice =
-    selectedDeviceId === "all"
+    appRoute.section === "devices" && appRoute.deviceId
+      ? deviceEntries.find((entry) => entry.deviceId === appRoute.deviceId) || null
+      : selectedDeviceId === "all"
       ? deviceEntries[0] || null
       : deviceEntries.find((entry) => entry.deviceId === selectedDeviceId) || null;
   const aliasModalDevice =
@@ -3047,33 +3365,40 @@ export default function App() {
   const showGuestLinkPrompt =
     (isUser || isOperator) && Boolean(pendingGuestLinkDeviceId) && profile.status === "approved";
   const linkingGuestDevice = busyAction === `guest-link:${pendingGuestLinkDeviceId}`;
+  const activeRunningJobs = fileJobs.filter((job) => ["pending", "running"].includes(job.status)).length;
+  const pendingAccountCount = accounts.filter((account) => account.status === "pending").length;
+  const dashboardNavItems = getDashboardNavItems({
+    isSuperAdmin,
+    isOperator,
+    deviceCount: deviceEntries.length,
+    pendingAccounts: pendingAccountCount,
+    runningJobs: activeRunningJobs,
+  });
+
+  function openDeviceRoute(deviceId) {
+    navigateRoute("devices", { deviceId });
+  }
 
   return (
-    <main className={`console-shell role-${profile.role}`}>
-      <header className="topbar app-hero">
-        <div>
-          <div className="section-eyebrow">
-            {isSuperAdmin ? "SuperAdmin Command Center" : isOperator ? "Operator Workspace" : "User Workspace"}
-          </div>
-          <h1>School Services Remote Control</h1>
-          <p>
-            {isSuperAdmin
-              ? "Pantau seluruh perangkat, akses akun, transfer data, dan kesehatan layanan dari satu pusat kendali."
-              : isOperator
-                ? "Kelola perangkat dan akun user di lingkungan Anda dengan kontrol operasional yang aman dan terukur."
-                : "Pantau device milik Anda, buka link publik, dan kendalikan layanan lokal yang tersedia."}
-          </p>
-        </div>
-        <div className="topbar-actions">
-          <StatusChip status={channelState || "connecting"} label={channelState || "connecting"} />
-          <ActionButton className="secondary-button" busy={loading} onClick={() => loadAll()}>
-            Refresh
-          </ActionButton>
-          <ActionButton className="secondary-button" busy={authLoading} onClick={signOut}>
-            Log Out
-          </ActionButton>
-        </div>
-      </header>
+    <main className={`console-shell app-shell-page role-${profile.role}`}>
+      <div className="app-shell">
+        <SidebarNav
+          profile={profile}
+          activeSection={selectedTab}
+          items={dashboardNavItems}
+          onNavigate={navigateRoute}
+          onTransferHistory={openTransferHistory}
+        />
+        <section className="app-content">
+          <RouteHeader
+            route={appRoute}
+            profile={profile}
+            channelState={channelState}
+            loading={loading}
+            authLoading={authLoading}
+            onRefresh={() => loadAll()}
+            onSignOut={signOut}
+          />
 
       {error ? <div className="error-banner">{error}</div> : null}
       {dashboardInfo ? <div className="service-note">{dashboardInfo}</div> : null}
@@ -3125,47 +3450,49 @@ export default function App() {
         onDownload={handleArtifactDownload}
       />
 
-      <div className="console-grid">
-        <aside className="sidebar">
+      <div className="console-grid dashboard-workspace-grid">
+        <aside className="sidebar fleet-sidebar">
           <div className="sidebar-header">
             <h2>Fleet</h2>
-            <button type="button" className="utility-button" onClick={() => setSelectedDeviceId("all")}>
+            <button type="button" className="utility-button" onClick={() => navigateRoute("devices", { selectAll: true })}>
               All
             </button>
           </div>
           <DeviceList
             devices={deviceEntries}
             selectedDeviceId={selectedDeviceId}
-            onSelect={setSelectedDeviceId}
+            onSelect={openDeviceRoute}
             now={now}
           />
         </aside>
 
         <section className="workspace">
-          <nav className="tabbar">
-            {[
-              ["overview", "Overview"],
-              ...(isSuperAdmin ? [["files", "Remote Files"]] : []),
-              ["activity", "Activity"],
-              ["profile", "Profile"],
-              ...((isSuperAdmin || isOperator) ? [["accounts", "Accounts"]] : []),
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className={`tab-button ${selectedTab === id ? "tab-button-active" : ""}`}
-                onClick={() => setSelectedTab(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-
+          {["overview", "devices"].includes(selectedTab) ? (
+            <>
+              <DashboardStats devices={deviceEntries} fileJobs={fileJobs} accounts={accounts} now={now} />
+              {selectedTab === "devices" ? (
+                deviceEntries.length ? (
+                  <DeviceGrid
+                    devices={deviceEntries}
+                    selectedDeviceId={selectedDevice?.deviceId || selectedDeviceId}
+                    onOpen={openDeviceRoute}
+                    now={now}
+                  />
+                ) : (
+                  <div className="empty-state">Belum ada device yang aktif untuk akun ini.</div>
+                )
+              ) : null}
+            </>
+          ) : null}
           {selectedTab === "profile" ? (
             <ProfilePanel profile={profile} session={session} onSignOut={signOut} />
-          ) : selectedDevice || selectedTab === "activity" || (selectedTab === "accounts" && (isSuperAdmin || isOperator)) ? (
+          ) : selectedDevice ||
+            selectedTab === "activity" ||
+            selectedTab === "devices" ||
+            (selectedTab === "files" && isSuperAdmin) ||
+            (selectedTab === "accounts" && (isSuperAdmin || isOperator)) ? (
             <>
-              {selectedTab === "overview" ? (
+              {["overview", "devices"].includes(selectedTab) && selectedDevice ? (
                 <section className="panel-stack">
                   <article className="device-panel">
                     <div className="device-panel-top">
@@ -3337,6 +3664,10 @@ export default function App() {
                     </div>
                   </article>
                 </section>
+              ) : null}
+
+              {selectedTab === "devices" && !selectedDevice ? (
+                <div className="empty-state">Device belum tersedia atau berada di luar akses akun ini.</div>
               ) : null}
 
               {selectedTab === "files" && isSuperAdmin ? (
@@ -3776,6 +4107,9 @@ export default function App() {
           )}
         </section>
       </div>
+        </section>
+      </div>
+      <MobileNav activeSection={selectedTab} items={dashboardNavItems} onNavigate={navigateRoute} />
     </main>
   );
 }

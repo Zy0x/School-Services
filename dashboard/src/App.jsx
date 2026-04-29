@@ -1947,36 +1947,6 @@ export default function App() {
     }
   }, [profile]);
 
-  useEffect(() => {
-    if (createRole !== "user") {
-      if (createAssignedDeviceId) {
-        setCreateAssignedDeviceId("");
-      }
-      return;
-    }
-
-    const availableDeviceIds = deviceEntries.map((entry) => entry.deviceId).filter(Boolean);
-    if (!availableDeviceIds.length) {
-      if (createAssignedDeviceId) {
-        setCreateAssignedDeviceId("");
-      }
-      return;
-    }
-
-    if (createAssignedDeviceId && availableDeviceIds.includes(createAssignedDeviceId)) {
-      return;
-    }
-
-    const preferredDeviceId =
-      (selectedDevice?.deviceId && availableDeviceIds.includes(selectedDevice.deviceId)
-        ? selectedDevice.deviceId
-        : availableDeviceIds[0]) || "";
-
-    if (preferredDeviceId !== createAssignedDeviceId) {
-      setCreateAssignedDeviceId(preferredDeviceId);
-    }
-  }, [createRole, createAssignedDeviceId, deviceEntries, selectedDevice]);
-
   async function loadAll(background = false) {
     if (!session || guestDeviceId) {
       return;
@@ -2089,6 +2059,36 @@ export default function App() {
       ? deviceEntries[0] || null
       : deviceEntries.find((entry) => entry.deviceId === selectedDeviceId) || null;
   const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
+
+  useEffect(() => {
+    if (createRole !== "user") {
+      if (createAssignedDeviceId) {
+        setCreateAssignedDeviceId("");
+      }
+      return;
+    }
+
+    const availableDeviceIds = deviceEntries.map((entry) => entry.deviceId).filter(Boolean);
+    if (!availableDeviceIds.length) {
+      if (createAssignedDeviceId) {
+        setCreateAssignedDeviceId("");
+      }
+      return;
+    }
+
+    if (createAssignedDeviceId && availableDeviceIds.includes(createAssignedDeviceId)) {
+      return;
+    }
+
+    const preferredDeviceId =
+      (selectedDevice?.deviceId && availableDeviceIds.includes(selectedDevice.deviceId)
+        ? selectedDevice.deviceId
+        : availableDeviceIds[0]) || "";
+
+    if (preferredDeviceId !== createAssignedDeviceId) {
+      setCreateAssignedDeviceId(preferredDeviceId);
+    }
+  }, [createRole, createAssignedDeviceId, deviceEntries, selectedDevice]);
 
   const visibleServices = useMemo(() => {
     if (!selectedDevice) {

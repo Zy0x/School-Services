@@ -66,48 +66,48 @@ function getAllowedDashboardSections(role) {
 
 function getRouteCopy(section, role) {
   const fallback = {
-    title: "Dashboard",
-    subtitle: "Pantau status perangkat, layanan, dan aktivitas akun sesuai hak akses Anda.",
+    title: "Ringkasan",
+    subtitle: "Lihat kondisi perangkat dan layanan yang tersedia.",
     kicker: "School Services",
   };
   const copies = {
     overview: {
-      title: "Ringkasan Operasional",
+      title: "Ringkasan",
       subtitle:
         role === "super_admin"
-          ? "Pantau kesehatan fleet, akun, transfer data, dan layanan penting dari satu tempat."
+          ? "Lihat kondisi perangkat, akun, dan layanan sekolah dari satu tempat."
           : role === "operator"
-            ? "Kelola perangkat dan akun user di lingkungan Anda dengan batas akses yang aman."
-            : "Lihat status device lokal, layanan yang tersedia, dan akses publik yang aktif.",
-      kicker: role === "super_admin" ? "SuperAdmin Console" : role === "operator" ? "Operator Console" : "User Console",
+            ? "Kelola perangkat dan akun pengguna di lingkungan Anda."
+            : "Lihat status perangkat dan layanan yang dapat Anda akses.",
+      kicker: role === "super_admin" ? "SuperAdmin" : role === "operator" ? "Operator" : "User",
     },
     devices: {
-      title: "Perangkat & Layanan",
-      subtitle: "Buka detail device, ubah alias pribadi, dan jalankan kontrol layanan sesuai role akun.",
-      kicker: "Device Center",
+      title: "Perangkat",
+      subtitle: "Kelola nama tampilan dan layanan pada perangkat yang tersedia untuk akun Anda.",
+      kicker: "Layanan",
     },
     files: {
-      title: "File Remote",
-      subtitle: "Akses file remote khusus SuperAdmin untuk preview, upload, dan download terkontrol.",
-      kicker: "SuperAdmin Only",
+      title: "Berkas",
+      subtitle: "Lihat dan kelola berkas pada perangkat yang dipilih.",
+      kicker: "SuperAdmin",
     },
     activity: {
-      title: "Aktivitas Sistem",
-      subtitle: "Tinjau log operasional dan status job terbaru dengan filter yang mudah dibaca.",
-      kicker: "Monitoring",
+      title: "Aktivitas",
+      subtitle: "Lihat riwayat tindakan dan perubahan terbaru.",
+      kicker: "Riwayat",
     },
     accounts: {
       title: role === "operator" ? "Akun Lingkungan" : "Akun & Lingkungan",
       subtitle:
         role === "operator"
-          ? "Kelola referral, user, dan approval yang berada dalam lingkungan operator Anda."
-          : "Atur policy approval, operator environment, akun user, dan akses perangkat.",
-      kicker: "Access Control",
+          ? "Kelola akun pengguna dan kode akses lingkungan Anda."
+          : "Kelola akun, lingkungan, dan akses perangkat.",
+      kicker: "Akses",
     },
     profile: {
-      title: "Profil Akun",
-      subtitle: "Periksa identitas akun, role, sesi aktif, dan pengaturan password Anda.",
-      kicker: "Account",
+      title: "Profil",
+      subtitle: "Kelola informasi akun dan password Anda.",
+      kicker: "Akun",
     },
   };
   return copies[section] || fallback;
@@ -271,15 +271,15 @@ function formatBytes(value) {
 
 function getJobStatusDetail(job) {
   if (job?.status === "running" && job?.result?.pendingUpload) {
-    return "Local archive is ready. Waiting for internet connection to upload.";
+    return "Berkas sudah siap. Menunggu koneksi internet untuk dikirim.";
   }
 
   if (job?.status === "completed" && Array.isArray(job?.result?.parts) && job.result.parts.length > 1) {
-    return `Archive is ready in ${job.result.parts.length} parts. Download all parts to reconstruct the full backup.`;
+    return `Berkas tersedia dalam ${job.result.parts.length} bagian. Unduh semua bagian untuk menyusunnya kembali.`;
   }
 
   if (job?.status === "completed" && job?.artifact_bucket && job?.artifact_object_key) {
-    return "Artifact uploaded and ready to download.";
+    return "Berkas siap diunduh.";
   }
 
   return "";
@@ -406,18 +406,18 @@ function deriveServiceStatus(row, deviceStatus) {
 
 function getPublicUrlLabel(service) {
   if (!service?.public_url) {
-    return "Public URL";
+    return "Tautan akses";
   }
 
   if (service.serviceStatus === "offline") {
-    return "Last known URL";
+    return "Tautan terakhir";
   }
 
   if (service.serviceStatus === "waiting_retry" || service.serviceStatus === "starting") {
-    return "Reconnecting URL";
+    return "Tautan disiapkan";
   }
 
-  return "Public URL";
+  return "Tautan akses";
 }
 
 function statusTone(status) {
@@ -472,10 +472,69 @@ function statusTone(status) {
   return "neutral";
 }
 
+function getStatusLabel(status) {
+  const normalized = String(status || "unknown").trim();
+  const labels = {
+    unknown: "Belum diketahui",
+    online: "Terhubung",
+    offline: "Terputus",
+    running: "Aktif",
+    ready: "Siap",
+    completed: "Selesai",
+    approved: "Disetujui",
+    available: "Tersedia",
+    connected: "Terhubung",
+    active: "Aktif",
+    inactive: "Nonaktif",
+    pending_setup: "Disiapkan",
+    waiting_retry: "Menunggu",
+    starting: "Menyiapkan",
+    partial: "Sebagian",
+    pending: "Menunggu",
+    running_job: "Diproses",
+    reconnecting: "Menyambung",
+    stopped: "Berhenti",
+    idle: "Siaga",
+    degraded: "Perlu dicek",
+    error: "Gangguan",
+    failed: "Gagal",
+    blocked: "Dibatasi",
+    missing: "Belum lengkap",
+    cancelled: "Dibatalkan",
+    expired: "Kedaluwarsa",
+    disabled: "Nonaktif",
+    rejected: "Ditolak",
+    unavailable: "Tidak tersedia",
+    super_admin: "SuperAdmin",
+    operator: "Operator",
+    user: "User",
+  };
+  return labels[normalized] || normalized.replace(/_/g, " ");
+}
+
+function getActivityLabel(value) {
+  const normalized = String(value || "").trim();
+  const labels = {
+    list_directory: "Buka folder",
+    discover_roots: "Muat lokasi",
+    preview_file: "Lihat file",
+    download_file: "Unduh file",
+    archive_paths: "Siapkan arsip",
+    upload_place: "Unggah file",
+    transfer: "Aktivitas berkas",
+    activity: "Aktivitas",
+    complete_preview_file: "Pratinjau selesai",
+    complete_download_file: "Unduhan selesai",
+    complete_archive_paths: "Arsip selesai",
+    complete_upload_place: "Unggahan selesai",
+  };
+  return labels[normalized] || normalized.replace(/_/g, " ");
+}
+
 function StatusChip({ status, label }) {
   return (
     <span className={`status-chip tone-${statusTone(status)}`}>
-      {label || String(status || "unknown").replace(/_/g, " ")}
+      {label || getStatusLabel(status)}
     </span>
   );
 }
@@ -523,14 +582,14 @@ function NavIcon({ section }) {
 
 function getDashboardNavItems({ isSuperAdmin, isOperator, deviceCount, pendingAccounts, runningJobs }) {
   return [
-    { id: "overview", label: "Ringkasan", helper: "Status utama", badge: deviceCount },
-    { id: "devices", label: "Perangkat", helper: "Alias, service, link", badge: deviceCount },
-    ...(isSuperAdmin ? [{ id: "files", label: "File Remote", helper: "Akses khusus", badge: runningJobs }] : []),
-    { id: "activity", label: "Aktivitas", helper: "Log dan job", badge: runningJobs },
+    { id: "overview", label: "Ringkasan", helper: "Kondisi utama", badge: deviceCount },
+    { id: "devices", label: "Perangkat", helper: "Nama dan layanan", badge: deviceCount },
+    ...(isSuperAdmin ? [{ id: "files", label: "Berkas", helper: "Kelola berkas", badge: runningJobs }] : []),
+    { id: "activity", label: "Aktivitas", helper: "Riwayat terbaru", badge: runningJobs },
     ...((isSuperAdmin || isOperator)
-      ? [{ id: "accounts", label: "Akun", helper: "User dan referral", badge: pendingAccounts }]
+      ? [{ id: "accounts", label: "Akun", helper: "Pengguna dan akses", badge: pendingAccounts }]
       : []),
-    { id: "profile", label: "Profil", helper: "Akun dan password" },
+    { id: "profile", label: "Profil", helper: "Data akun" },
   ];
 }
 
@@ -541,7 +600,7 @@ function SidebarNav({ profile, activeSection, items, onNavigate, onTransferHisto
         <img src={GUEST_BRAND_ICON} alt="" aria-hidden="true" />
         <div>
           <strong>School Services</strong>
-          <span>{profile.role.replace(/_/g, " ")}</span>
+          <span>{getStatusLabel(profile.role)}</span>
         </div>
       </div>
       <nav className="app-nav-list">
@@ -564,8 +623,8 @@ function SidebarNav({ profile, activeSection, items, onNavigate, onTransferHisto
       </nav>
       {profile.role === "super_admin" ? (
         <button type="button" className="app-sidebar-cta" onClick={onTransferHistory}>
-          <span>Riwayat Transfer</span>
-          <small>Lihat upload dan download terbaru</small>
+          <span>Riwayat Berkas</span>
+          <small>Lihat aktivitas berkas terbaru</small>
         </button>
       ) : null}
     </aside>
@@ -623,11 +682,11 @@ function DashboardStats({ devices, fileJobs, accounts, now }) {
   return (
     <section className="dashboard-stats-grid" aria-label="Ringkasan dashboard">
       {[
-        ["Device aktif", `${onlineDevices}/${devices.length}`, "Perangkat yang masih mengirim heartbeat."],
-        ["Service running", runningServices, "Total service lokal yang sedang berjalan."],
-        ["Perlu perhatian", issueCount, "Service atau device yang offline, error, atau path belum lengkap."],
-        ["Transfer berjalan", runningJobs, "Job upload/download yang masih diproses."],
-        ["Akun pending", pendingAccounts, "Akun yang menunggu approval."],
+        ["Perangkat aktif", `${onlineDevices}/${devices.length}`, "Perangkat yang tersambung saat ini."],
+        ["Layanan aktif", runningServices, "Layanan yang siap digunakan."],
+        ["Perlu perhatian", issueCount, "Perangkat atau layanan yang perlu dicek."],
+        ["Proses berkas", runningJobs, "Aktivitas berkas yang sedang berlangsung."],
+        ["Akun menunggu", pendingAccounts, "Akun yang menunggu persetujuan."],
       ].map(([label, value, helper]) => (
         <article key={label} className="dashboard-stat-card">
           <span>{label}</span>
@@ -638,7 +697,7 @@ function DashboardStats({ devices, fileJobs, accounts, now }) {
       <article className="dashboard-stat-card">
         <span>Update data</span>
         <strong>{formatRelativeTime(new Date(now).toISOString(), now)}</strong>
-        <small>Dashboard refresh otomatis tanpa mengganti halaman.</small>
+        <small>Data diperbarui otomatis tanpa memuat ulang halaman.</small>
       </article>
     </section>
   );
@@ -660,7 +719,7 @@ function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
           </span>
           <span className="mono">{device.deviceId}</span>
           <span className="device-grid-meta">
-            {device.runningCount} service running · {device.issueCount} perlu perhatian ·{" "}
+            {device.runningCount} layanan aktif · {device.issueCount} perlu perhatian ·{" "}
             {formatRelativeTime(device.deviceRecord?.last_seen, now)}
           </span>
         </button>
@@ -699,7 +758,7 @@ async function copyTextToClipboard(text) {
   textArea.remove();
 }
 
-function buildWhatsAppShareUrl(url, label = "Link publik") {
+function buildWhatsAppShareUrl(url, label = "Tautan akses") {
   const text = `${label}\n${url}`;
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }
@@ -727,11 +786,11 @@ function getGuestStatusModel(device, service) {
       overallStatus: "blocked",
       headline: "Akses perangkat dibatasi",
       description:
-        "Perangkat terdeteksi tetapi aksesnya sedang dibatasi. Hubungi pengelola sistem untuk mengaktifkan kembali layanan publik.",
+        "Perangkat tersedia, tetapi aksesnya sedang dibatasi. Hubungi pengelola untuk mengaktifkannya kembali.",
       publicStatus: "disabled",
-      publicLabel: "Akses publik dibatasi",
+      publicLabel: "Tautan dibatasi",
       runtimeLabel: "Perangkat diblokir",
-      runtimeChipLabel: "blocked",
+      runtimeChipLabel: "dibatasi",
       ready,
     };
   }
@@ -739,12 +798,12 @@ function getGuestStatusModel(device, service) {
   if (deviceStatus === "pending_setup") {
     return {
       overallStatus: "pending_setup",
-      headline: "Menunggu perangkat pertama kali terhubung",
+      headline: "Perangkat sedang disiapkan",
       description:
-        "Shortcut sudah siap. Buka aplikasi School Services di komputer ini dan tunggu sampai agent mendaftarkan perangkat serta layanan E-Rapor.",
+        "Perangkat sedang disiapkan. Tunggu beberapa saat, lalu segarkan halaman ini.",
       publicStatus: "disabled",
-      publicLabel: "URL publik belum tersedia",
-      runtimeLabel: "Menunggu agent",
+      publicLabel: "Tautan belum tersedia",
+      runtimeLabel: "Menunggu perangkat",
       runtimeChipLabel: "setup awal",
       ready: false,
     };
@@ -755,10 +814,10 @@ function getGuestStatusModel(device, service) {
       overallStatus: "offline",
       headline: "Perangkat belum terhubung",
       description:
-        "Sistem belum menerima heartbeat terbaru dari perangkat. Pastikan aplikasi School Services berjalan dan koneksi jaringan perangkat stabil.",
+        "Pastikan aplikasi School Services sedang berjalan dan perangkat memiliki koneksi internet.",
       publicStatus: hasPublicUrl ? "unavailable" : "disabled",
-      publicLabel: hasPublicUrl ? "URL terakhir tersimpan" : "URL publik belum tersedia",
-      runtimeLabel: "Agent belum terhubung",
+      publicLabel: hasPublicUrl ? "Tautan terakhir tersedia" : "Tautan belum tersedia",
+      runtimeLabel: "Belum tersambung",
       runtimeChipLabel: "offline",
       ready,
     };
@@ -769,11 +828,11 @@ function getGuestStatusModel(device, service) {
       overallStatus: "ready",
       headline: "E-Rapor siap digunakan",
       description:
-        "Perangkat terhubung, layanan E-Rapor sedang berjalan, dan tautan publik siap dibuka dari browser mana pun yang memiliki izin akses.",
+        "Perangkat tersambung dan layanan E-Rapor siap dibuka.",
       publicStatus: "ready",
-      publicLabel: "URL publik aktif",
-      runtimeLabel: "Layanan running",
-      runtimeChipLabel: "running",
+      publicLabel: "Tautan aktif",
+      runtimeLabel: "Layanan aktif",
+      runtimeChipLabel: "aktif",
       ready,
     };
   }
@@ -783,11 +842,11 @@ function getGuestStatusModel(device, service) {
       overallStatus: "starting",
       headline: "E-Rapor sedang disiapkan",
       description:
-        "Permintaan start sudah diterima. Agent sedang menyiapkan proses lokal dan menunggu layanan siap menerima koneksi.",
+        "Permintaan diterima. Layanan sedang dinyalakan.",
       publicStatus: hasPublicUrl ? "reconnecting" : "starting",
-      publicLabel: hasPublicUrl ? "URL lama masih tersimpan" : "Menunggu URL publik",
+      publicLabel: hasPublicUrl ? "Tautan lama tersedia" : "Menunggu tautan",
       runtimeLabel: "Sedang memulai layanan",
-      runtimeChipLabel: "starting",
+      runtimeChipLabel: "menyiapkan",
       ready,
     };
   }
@@ -795,13 +854,13 @@ function getGuestStatusModel(device, service) {
   if (serviceStatus === "waiting_retry") {
     return {
       overallStatus: "reconnecting",
-      headline: "Tautan publik sedang dipulihkan",
+      headline: "Tautan akses sedang disiapkan",
       description:
-        "Layanan lokal sudah merespons, tetapi koneksi publik masih melakukan pemulihan. Halaman ini akan menampilkan status terbaru secara berkala.",
+        "Layanan sudah aktif. Tautan akses sedang disiapkan.",
       publicStatus: "waiting_retry",
-      publicLabel: "Tunnel sedang retry",
-      runtimeLabel: "Layanan lokal tersedia",
-      runtimeChipLabel: "waiting retry",
+      publicLabel: "Tautan disiapkan",
+      runtimeLabel: "Layanan aktif",
+      runtimeChipLabel: "menunggu tautan",
       ready,
     };
   }
@@ -809,13 +868,13 @@ function getGuestStatusModel(device, service) {
   if (serviceStatus === "running" && !hasPublicUrl) {
     return {
       overallStatus: "degraded",
-      headline: "Layanan aktif, tautan publik belum siap",
+      headline: "Layanan aktif, tautan belum siap",
       description:
-        "Proses utama E-Rapor sudah berjalan di perangkat, tetapi publikasi tautan akses masih menunggu sinkronisasi.",
+        "E-Rapor sudah berjalan. Tautan akses akan tampil setelah siap.",
       publicStatus: "starting",
-      publicLabel: "Menunggu URL publik",
-      runtimeLabel: "Service running",
-      runtimeChipLabel: "running",
+      publicLabel: "Menunggu tautan",
+      runtimeLabel: "Layanan aktif",
+      runtimeChipLabel: "aktif",
       ready,
     };
   }
@@ -825,11 +884,11 @@ function getGuestStatusModel(device, service) {
       overallStatus: "error",
       headline: "Layanan memerlukan perhatian",
       description:
-        "Sistem mendeteksi gangguan pada layanan atau koneksi publik. Periksa ringkasan error di bawah untuk langkah tindak lanjut.",
+        "Layanan belum dapat dibuka. Periksa informasi di bawah atau hubungi pengelola.",
       publicStatus: hasPublicUrl ? "unavailable" : "disabled",
-      publicLabel: hasPublicUrl ? "URL publik belum stabil" : "URL publik belum tersedia",
-      runtimeLabel: "Layanan mengalami error",
-      runtimeChipLabel: "error",
+      publicLabel: hasPublicUrl ? "Tautan belum stabil" : "Tautan belum tersedia",
+      runtimeLabel: "Perlu dicek",
+      runtimeChipLabel: "perlu dicek",
       ready,
     };
   }
@@ -839,11 +898,11 @@ function getGuestStatusModel(device, service) {
       overallStatus: "stopped",
       headline: "Layanan belum dijalankan",
       description:
-        "Perangkat sudah online, tetapi layanan E-Rapor belum aktif. Tekan Start Service untuk menyalakan layanan dari halaman ini.",
+        "Perangkat tersambung. Tekan Mulai untuk menyalakan E-Rapor.",
       publicStatus: hasPublicUrl ? "unavailable" : "disabled",
-      publicLabel: hasPublicUrl ? "URL lama tersimpan" : "Belum ada URL publik",
+      publicLabel: hasPublicUrl ? "Tautan terakhir tersedia" : "Tautan belum tersedia",
       runtimeLabel: "Layanan berhenti",
-      runtimeChipLabel: "stopped",
+      runtimeChipLabel: "berhenti",
       ready,
     };
   }
@@ -852,9 +911,9 @@ function getGuestStatusModel(device, service) {
     overallStatus: serviceStatus,
     headline: "Status layanan sedang diperiksa",
     description:
-      "Halaman ini memantau heartbeat perangkat, kesiapan layanan, dan status tautan publik untuk membantu pengguna mengetahui kondisi akses terbaru.",
+      "Status layanan sedang diperbarui. Tunggu beberapa saat lalu segarkan halaman.",
     publicStatus: hasPublicUrl ? "available" : "disabled",
-    publicLabel: hasPublicUrl ? "URL publik tersedia" : "Belum ada URL publik",
+    publicLabel: hasPublicUrl ? "Tautan tersedia" : "Tautan belum tersedia",
     runtimeLabel: "Menunggu pembaruan status",
     runtimeChipLabel: serviceStatus,
     ready,
@@ -863,7 +922,7 @@ function getGuestStatusModel(device, service) {
 
 function PublicLinkActions({
   url,
-  label = "Link publik",
+  label = "Tautan akses",
   compact = false,
   onActionComplete = null,
 }) {
@@ -911,7 +970,7 @@ function PublicLinkActions({
           disabled={disabled}
           onClick={handleCopy}
         >
-          Salin link
+          Salin tautan
         </button>
         <button
           type="button"
@@ -919,7 +978,7 @@ function PublicLinkActions({
           disabled={disabled}
           onClick={handleWhatsAppShare}
         >
-          Bagikan WA
+          Bagikan WhatsApp
         </button>
       </div>
       {feedback ? <div className="micro-feedback">{feedback}</div> : null}
@@ -933,14 +992,13 @@ function SiteFooter() {
       <div className="site-footer-copy">
         <strong>School Services v2.0.0</strong>
         <p>
-          Monitor layanan sekolah dan akses publik E-Rapor dalam satu panel yang rapi,
-          responsif, dan mudah dipahami oleh tim operasional maupun pengguna umum.
+          Akses layanan sekolah dan pantau status E-Rapor dengan tampilan yang ringkas.
         </p>
       </div>
       <div className="support-cluster">
         <div className="support-cluster-copy">
           <span className="section-eyebrow">Buy Me a Coffee</span>
-          <strong>Dukung pengembangan School Services</strong>
+          <strong>Dukung School Services</strong>
         </div>
         <div className="site-footer-actions">
         <a
@@ -1052,23 +1110,22 @@ function LoginScreen({
         <section className="auth-visual-panel">
           <div>
             <Avatar3D />
-            <div className="login-eyebrow">School Services Access</div>
-            <h2>Kontrol layanan sekolah yang rapi dan aman</h2>
+            <div className="login-eyebrow">School Services</div>
+            <h2>Akses E-Rapor lebih mudah</h2>
             <p>
-              Pantau perangkat, kelola akses, dan buka layanan E-Rapor lewat satu portal web yang responsif.
+              Buka layanan sekolah dan lihat status perangkat melalui halaman yang ringkas.
             </p>
           </div>
           <div className="auth-visual-list" aria-label="Fitur akses">
-            <span>Role SuperAdmin, Operator, dan User tetap terpisah jelas.</span>
-            <span>Device lokal dapat ditautkan setelah pengguna login.</span>
-            <span>Status layanan tampil real-time dengan fallback yang mudah dipahami.</span>
+            <span>Akses mengikuti jenis akun Anda.</span>
+            <span>Status layanan ditampilkan dengan jelas.</span>
           </div>
         </section>
         <section className="auth-form-panel">
-        <div className="login-eyebrow">{mode === "register" ? "Request Access" : "Welcome Back"}</div>
-        <h1>{mode === "register" ? "Ajukan akses akun" : "Masuk ke Web App"}</h1>
+        <div className="login-eyebrow">{mode === "register" ? "Daftar Akun" : "Selamat Datang"}</div>
+        <h1>{mode === "register" ? "Ajukan akun" : "Masuk"}</h1>
         <p>
-          Gunakan akun yang sudah disetujui untuk mengelola perangkat dan layanan sesuai hak akses Anda.
+          Gunakan akun yang telah terdaftar untuk melanjutkan.
         </p>
         <form
           className="login-form"
@@ -1083,23 +1140,23 @@ function LoginScreen({
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="admin@example.com"
+              placeholder="nama@email.com"
               autoComplete="username"
             />
           </label>
           {mode === "register" ? (
             <>
               <label>
-                <span>Display name</span>
+                <span>Nama</span>
                 <input
                   type="text"
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="Nama pengguna"
+                  placeholder="Nama lengkap"
                 />
               </label>
               <label>
-                <span>Peran akun</span>
+                <span>Jenis akun</span>
                 <select value={role} onChange={(event) => setRole(event.target.value)}>
                   <option value="operator">Operator</option>
                   <option value="user">User</option>
@@ -1113,13 +1170,13 @@ function LoginScreen({
                       value={registrationMode}
                       onChange={(event) => setRegistrationMode(event.target.value)}
                     >
-                      <option value="referral_code">Gabung ke lingkungan operator</option>
-                      <option value="direct_superadmin">Daftar langsung ke SuperAdmin</option>
+                      <option value="referral_code">Gunakan kode lingkungan</option>
+                      <option value="direct_superadmin">Ajukan langsung</option>
                     </select>
                   </label>
                   {registrationMode === "referral_code" ? (
                     <label>
-                      <span>Kode lingkungan operator</span>
+                      <span>Kode lingkungan</span>
                       <input
                         type="text"
                         value={referralCode}
@@ -1136,7 +1193,7 @@ function LoginScreen({
             label="Password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder={mode === "register" ? "Buat password akun" : "Password super admin"}
+            placeholder={mode === "register" ? "Buat password" : "Masukkan password"}
             autoComplete={mode === "register" ? "new-password" : "current-password"}
             disabled={loading}
           />
@@ -1145,10 +1202,10 @@ function LoginScreen({
           <button className="primary-button login-button" disabled={loading} type="submit">
             {loading
               ? mode === "register"
-                ? "Memproses pendaftaran..."
+                ? "Mengirim..."
                 : "Masuk..."
               : mode === "register"
-                ? "Ajukan akses"
+                ? "Ajukan akun"
                 : "Masuk"}
           </button>
           <button
@@ -1156,7 +1213,7 @@ function LoginScreen({
             className="secondary-button"
             onClick={() => setMode(mode === "register" ? "login" : "register")}
           >
-            {mode === "register" ? "Kembali ke login" : "Belum punya akun?"}
+            {mode === "register" ? "Kembali ke masuk" : "Ajukan akun"}
           </button>
           {mode === "login" ? (
             <button
@@ -1188,8 +1245,8 @@ function AccountStatusScreen({ profile, onSignOut }) {
   return (
     <main className="login-shell">
       <div className="login-card auth-simple-card">
-        <div className="login-eyebrow">Account Access</div>
-        <h1>{profile?.display_name || profile?.email || "Account"}</h1>
+        <div className="login-eyebrow">Status Akun</div>
+        <h1>{profile?.display_name || profile?.email || "Akun"}</h1>
         <p>{label}</p>
         {profile?.approval_due_at ? (
           <div className="explorer-warning">
@@ -1278,7 +1335,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
     <section className="panel-stack">
       <article className="service-panel">
         <div className="panel-heading-row">
-          <h3>Profil Akun</h3>
+          <h3>Profil</h3>
           <div className="service-status-group">
             <StatusChip status={profile?.status || "unknown"} />
             {profile?.role ? <StatusChip status={profile.role} /> : null}
@@ -1294,7 +1351,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
             <strong>{profile?.email || session?.user?.email || "-"}</strong>
           </div>
           <div>
-            <span>User ID</span>
+            <span>ID akun</span>
             <strong className="mono">{session?.user?.id || "-"}</strong>
           </div>
         </div>
@@ -1345,7 +1402,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
                 {busy ? "Menyimpan..." : "Simpan password"}
               </button>
               <button type="button" className="secondary-button" disabled={busy} onClick={onSignOut}>
-                Logout bersih
+                Log Out
               </button>
             </div>
           </div>
@@ -1385,7 +1442,7 @@ function GuestConsole({ deviceId }) {
         throw invokeError;
       }
       if (!data?.ok) {
-        throw new Error(data?.error || "Guest access failed.");
+        throw new Error(data?.error || "Status perangkat belum dapat dimuat.");
       }
       setState({ device: data.device, service: data.service });
       setError("");
@@ -1432,11 +1489,11 @@ function GuestConsole({ deviceId }) {
       setCommandModal({
         open: true,
         action,
-        title: action === "start" ? "Menyalakan layanan E-Rapor" : "Menghentikan layanan E-Rapor",
+        title: action === "start" ? "Menyalakan E-Rapor" : "Menghentikan E-Rapor",
         message:
           action === "start"
-            ? "Permintaan sedang dikirim ke perangkat. Status halaman akan diperbarui otomatis setelah agent merespons."
-            : "Perintah stop sedang dikirim. Tunggu beberapa saat sampai status layanan berubah.",
+            ? "Permintaan sedang diproses. Status halaman akan diperbarui otomatis."
+            : "Permintaan sedang diproses. Tunggu beberapa saat sampai status berubah.",
       });
       const { data, error: invokeError } = await supabase.functions.invoke("guest-access", {
         body: { action, deviceId },
@@ -1445,15 +1502,15 @@ function GuestConsole({ deviceId }) {
         throw invokeError;
       }
       if (!data?.ok) {
-        throw new Error(data?.error || "Guest command failed.");
+        throw new Error(data?.error || "Permintaan belum dapat diproses.");
       }
       await loadGuest({ silent: true });
       setCommandModal((current) => ({
         ...current,
         message:
           action === "start"
-            ? "Permintaan start sudah diterima. Jika koneksi perangkat aktif, badge status akan segera berubah menjadi siap."
-            : "Permintaan stop sudah diterima. Halaman akan menampilkan status terbaru begitu agent selesai memproses.",
+            ? "E-Rapor sedang dinyalakan. Status akan berubah setelah layanan siap."
+            : "E-Rapor sedang dihentikan. Status akan diperbarui setelah selesai.",
       }));
       window.setTimeout(() => {
         setCommandModal((current) => ({ ...current, open: false }));
@@ -1492,22 +1549,22 @@ function GuestConsole({ deviceId }) {
           <Avatar3D size="sm" />
           <div>
             <div className="section-eyebrow">School Services</div>
-            <strong>Guest Access Monitor</strong>
+            <strong>Akses Perangkat</strong>
           </div>
         </div>
         <div className="guest-nav-actions">
           <a className="secondary-button footer-link-button" href={loginUrl}>
-            Login
+            Masuk
           </a>
           <a className="primary-button footer-link-button" href={registerUrl}>
-            Register
+            Daftar
           </a>
         </div>
       </header>
 
       <section className="guest-hero">
         <div className="guest-hero-copy">
-          <div className="section-eyebrow">Guest Device Monitor</div>
+          <div className="section-eyebrow">Status Layanan</div>
           <h1>{state.device?.deviceName || deviceId}</h1>
           <p>{guestStatus.description}</p>
           <div className="guest-hero-badges">
@@ -1541,7 +1598,7 @@ function GuestConsole({ deviceId }) {
             onClick={() => loadGuest({ silent: true })}
             disabled={refreshing}
           >
-            {refreshing ? "Menyegarkan..." : "Refresh"}
+            {refreshing ? "Menyegarkan..." : "Segarkan"}
           </button>
         </div>
       </section>
@@ -1550,7 +1607,7 @@ function GuestConsole({ deviceId }) {
 
       <section className="workspace guest-workspace" style={{ marginTop: 18 }}>
         {loading ? (
-          <div className="empty-state">Loading guest device status...</div>
+          <div className="empty-state">Memuat status perangkat...</div>
         ) : (
           <>
             <section className="guest-status-grid">
@@ -1560,16 +1617,16 @@ function GuestConsole({ deviceId }) {
                   {state.device?.deviceStatus === "online"
                     ? "Terhubung"
                     : state.device?.deviceStatus === "pending_setup"
-                      ? "Setup awal"
+                      ? "Disiapkan"
                       : state.device?.deviceStatus || "offline"}
                 </strong>
                 <StatusChip
                   status={state.device?.deviceStatus || "offline"}
-                  label={state.device?.deviceStatus === "online" ? "online" : undefined}
+                  label={state.device?.deviceStatus === "online" ? "terhubung" : undefined}
                 />
               </article>
               <article className="metric-card guest-status-card">
-                <span>Status service</span>
+                <span>Status layanan</span>
                 <strong>{guestStatus.runtimeLabel}</strong>
                 <StatusChip
                   status={guestStatus.overallStatus === "pending_setup" ? "pending_setup" : service?.status || "offline"}
@@ -1577,7 +1634,7 @@ function GuestConsole({ deviceId }) {
                 />
               </article>
               <article className="metric-card guest-status-card">
-                <span>Publikasi link</span>
+                <span>Tautan akses</span>
                 <strong>{guestStatus.publicLabel}</strong>
                 <StatusChip status={guestStatus.publicStatus} />
               </article>
@@ -1597,7 +1654,7 @@ function GuestConsole({ deviceId }) {
                 <div className="service-status-group">
                   <StatusChip
                     status={state.device?.deviceStatus || "offline"}
-                    label={state.device?.deviceStatus === "online" ? "device online" : undefined}
+                    label={state.device?.deviceStatus === "online" ? "perangkat aktif" : undefined}
                   />
                   <StatusChip
                     status={guestStatus.overallStatus === "pending_setup" ? "pending_setup" : service?.status || "offline"}
@@ -1617,35 +1674,35 @@ function GuestConsole({ deviceId }) {
 
               <div className="service-detail-grid guest-detail-grid">
                 <div>
-                  <span>Public URL</span>
+                  <span>Tautan E-Rapor</span>
                   <strong className="service-link mono">
                     {service?.public_url ? (
                       <a href={service.public_url} target="_blank" rel="noreferrer">
                         {service.public_url}
                       </a>
                     ) : (
-                      "belum tersedia"
+                      "Belum tersedia"
                     )}
                   </strong>
                 </div>
                 <div>
-                  <span>Status target</span>
-                  <strong>{service?.desired_state === "running" ? "Dijaga tetap running" : service?.desired_state || "-"}</strong>
+                  <span>Kondisi layanan</span>
+                  <strong>{service?.desired_state === "running" ? "Siap dijalankan" : service?.desired_state || "-"}</strong>
                 </div>
                 <div>
-                  <span>Ping service</span>
+                  <span>Terakhir diperbarui</span>
                   <strong>{formatRelativeTime(service?.last_ping)}</strong>
                 </div>
                 <div>
-                  <span>Heartbeat agent</span>
+                  <span>Terakhir tersambung</span>
                   <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
                 </div>
                 <div>
-                  <span>Kesiapan direktori</span>
+                  <span>Kesiapan aplikasi</span>
                   <strong>{service?.location_status || "unknown"}</strong>
                 </div>
                 <div>
-                  <span>Lokasi layanan</span>
+                  <span>Lokasi aplikasi</span>
                   <strong className="mono">{service?.resolved_path || "-"}</strong>
                 </div>
               </div>
@@ -1663,7 +1720,7 @@ function GuestConsole({ deviceId }) {
                     disabled={busy}
                     onClick={() => sendCommand("start")}
                   >
-                    {busy ? "Memproses..." : "Start Service"}
+                    {busy ? "Memproses..." : "Mulai"}
                   </button>
                   <button
                     type="button"
@@ -1671,7 +1728,7 @@ function GuestConsole({ deviceId }) {
                     disabled={busy || !isRunning}
                     onClick={() => sendCommand("stop")}
                   >
-                    Stop Service
+                    Hentikan
                   </button>
                   <a
                     className={`primary-button footer-link-button ${canOpenService ? "" : "button-disabled-link"}`}
@@ -1690,7 +1747,7 @@ function GuestConsole({ deviceId }) {
                 </div>
                 <PublicLinkActions
                   url={service?.public_url || ""}
-                  label={`Akses publik E-Rapor untuk ${state.device?.deviceName || deviceId}`}
+                  label={`Tautan E-Rapor untuk ${state.device?.deviceName || deviceId}`}
                   onActionComplete={setError}
                 />
               </div>
@@ -1808,11 +1865,10 @@ function PasswordResetScreen() {
   return (
     <main className="login-shell">
       <div className="login-card auth-simple-card">
-        <div className="login-eyebrow">Lupa Password</div>
+        <div className="login-eyebrow">Reset Password</div>
         <h1>Buat password baru</h1>
         <p>
-          Buka halaman ini dari tautan verifikasi yang dikirim ke email Anda, lalu masukkan password baru untuk
-          menyelesaikan pemulihan akun dashboard.
+          Masukkan password baru untuk melanjutkan akses akun Anda.
         </p>
         <div className="login-form">
           <PasswordField
@@ -1867,7 +1923,7 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
             <strong>{device.deviceName}</strong>
             <StatusChip status={device.deviceStatus} />
           </div>
-          {device.deviceAlias ? <div className="device-list-meta">Alias personal</div> : null}
+          {device.deviceAlias ? <div className="device-list-meta">Nama tampilan</div> : null}
           <div className="device-list-meta mono">{device.deviceId}</div>
           <div className="device-list-foot">
             <span>{device.runningCount} aktif</span>
@@ -1882,7 +1938,7 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
 
 function RootGrid({ roots, onOpen }) {
   if (roots.length === 0) {
-    return <div className="empty-state">Belum ada root path yang dilaporkan agent.</div>;
+    return <div className="empty-state">Belum ada lokasi berkas yang tersedia.</div>;
   }
 
   return (
@@ -1937,7 +1993,7 @@ function FileTable({
       <div className="explorer-toolbar">
         <div className="explorer-breadcrumbs">
           <button type="button" className="utility-button" onClick={onOpenParent}>
-            Up
+            Naik
           </button>
           {breadcrumbs.map((crumb) => (
             <button
@@ -1953,9 +2009,9 @@ function FileTable({
           ))}
         </div>
         <div className="explorer-summary">
-          <span>{folderCount} folders</span>
-          <span>{fileCount} files</span>
-          {warnings?.length ? <span>{warnings.length} skipped</span> : null}
+          <span>{folderCount} folder</span>
+          <span>{fileCount} file</span>
+          {warnings?.length ? <span>{warnings.length} dilewati</span> : null}
         </div>
       </div>
 
@@ -1969,11 +2025,11 @@ function FileTable({
       <div className="file-table-scroll">
         <div className="file-table">
           <div className="file-table-head">
-            <span>Name</span>
-            <span>Type</span>
-            <span>Size</span>
-            <span>Modified</span>
-            <span>Action</span>
+            <span>Nama</span>
+            <span>Jenis</span>
+            <span>Ukuran</span>
+            <span>Diubah</span>
+            <span>Aksi</span>
           </div>
           {items.map((item) => {
             const selected = selectedPaths.includes(item.path);
@@ -2026,7 +2082,7 @@ function FileTable({
                     item.type === "directory" ? onOpen(item.path) : onPreview(item)
                   }
                 >
-                  {item.type === "directory" ? "Open folder" : "Preview"}
+                  {item.type === "directory" ? "Buka folder" : "Lihat"}
                 </button>
               </div>
             );
@@ -2039,7 +2095,7 @@ function FileTable({
 
 function JobList({ jobs, onDownload, onPromote, onCancel }) {
   if (jobs.length === 0) {
-    return <div className="empty-state">Belum ada file job untuk device ini.</div>;
+    return <div className="empty-state">Belum ada aktivitas berkas untuk perangkat ini.</div>;
   }
 
   return (
@@ -2048,7 +2104,7 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
         <article key={job.id} className={`job-card tone-${statusTone(job.status)}`}>
           <div className="job-card-top">
             <div>
-              <strong>{job.job_type.replace(/_/g, " ")}</strong>
+              <strong>{getActivityLabel(job.job_type)}</strong>
               <div className="mono">#{job.id}</div>
             </div>
             <StatusChip status={job.status} />
@@ -2059,8 +2115,8 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
           ) : null}
           <div className="job-card-meta">
             <span>{formatDate(job.created_at)}</span>
-            <span>{job.progress_total ? `${job.progress_current}/${job.progress_total}` : "progress n/a"}</span>
-            <span>{job.delivery_mode}</span>
+            <span>{job.progress_total ? `${job.progress_current}/${job.progress_total}` : "proses belum tersedia"}</span>
+            <span>{job.delivery_mode === "temp" ? "Sementara" : job.delivery_mode || "-"}</span>
             {Array.isArray(job.result?.parts) && job.result.parts.length > 1 ? (
               <span>{job.result.parts.length} parts</span>
             ) : null}
@@ -2074,8 +2130,8 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
             {job.status === "completed" && job.artifact_bucket && job.artifact_object_key ? (
               <button type="button" className="primary-button" onClick={() => onDownload(job)}>
                 {Array.isArray(job.result?.parts) && job.result.parts.length > 1
-                  ? "Download parts"
-                  : "Download"}
+                  ? "Unduh bagian"
+                  : "Unduh"}
               </button>
             ) : null}
             {job.status === "completed" &&
@@ -2083,12 +2139,12 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
             job.artifact_bucket &&
             !Array.isArray(job.result?.parts) ? (
               <button type="button" className="secondary-button" onClick={() => onPromote(job)}>
-                Make persistent
+                Simpan permanen
               </button>
             ) : null}
             {["pending", "running"].includes(job.status) ? (
               <button type="button" className="secondary-button" onClick={() => onCancel(job)}>
-                Cancel
+                Batalkan
               </button>
             ) : null}
           </div>
@@ -2113,13 +2169,13 @@ function DeviceAliasModal({
   return (
     <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="device-alias-title">
       <div className="guest-modal-card dashboard-modal-card">
-        <strong id="device-alias-title">Ubah nama tampilan device</strong>
+        <strong id="device-alias-title">Ubah nama tampilan perangkat</strong>
         <p>
-          Alias hanya berlaku untuk akun Anda. Nama asli device tetap tersimpan sebagai{" "}
+          Nama tampilan hanya berlaku untuk akun Anda. Nama asli perangkat tetap tersimpan sebagai{" "}
           <span className="mono">{device.deviceRecord?.device_name || device.deviceId}</span>.
         </p>
         <label className="modal-field">
-          <span>Alias device</span>
+          <span>Nama tampilan</span>
           <input
             value={value}
             maxLength={80}
@@ -2133,7 +2189,7 @@ function DeviceAliasModal({
             Batal
           </ActionButton>
           <ActionButton className="primary-button" busy={busy} onClick={onSave}>
-            Simpan alias
+            Simpan
           </ActionButton>
         </div>
       </div>
@@ -2156,41 +2212,41 @@ function TransferHistoryModal({
 
   const jobs = history?.jobs || [];
   const audits = history?.auditLogs || [];
-  const contextLabel = device?.deviceName || deviceId || "Semua device";
+  const contextLabel = device?.deviceName || deviceId || "Semua perangkat";
 
   return (
     <div className="guest-modal-backdrop modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="transfer-history-title">
       <div className="guest-modal-card transfer-modal-card">
         <div className="modal-title-row">
           <div>
-            <strong id="transfer-history-title">Riwayat Transfer Data</strong>
-            <p>File yang berhasil diambil atau dikirim untuk <span className="mono">{contextLabel}</span>.</p>
+            <strong id="transfer-history-title">Riwayat Berkas</strong>
+            <p>Berkas yang pernah diproses untuk <span className="mono">{contextLabel}</span>.</p>
           </div>
           <ActionButton className="secondary-button" onClick={onClose}>
             Tutup
           </ActionButton>
         </div>
         {loading ? (
-          <div className="empty-state compact-empty">Memuat riwayat transfer...</div>
+          <div className="empty-state compact-empty">Memuat riwayat berkas...</div>
         ) : !jobs.length && !audits.length ? (
-          <div className="empty-state compact-empty">Belum ada riwayat transfer untuk cakupan ini.</div>
+          <div className="empty-state compact-empty">Belum ada riwayat berkas untuk perangkat ini.</div>
         ) : (
           <div className="transfer-history-grid">
             <section className="transfer-files-section">
-              <h4>File dari device</h4>
+              <h4>Berkas Perangkat</h4>
               <div className="job-stack">
                 {jobs.map((job) => (
                   <article key={job.id} className={`job-card tone-${statusTone(job.status)}`}>
                     <div className="job-card-top">
                       <div>
-                        <strong>{String(job.job_type || "transfer").replace(/_/g, " ")}</strong>
-                        <div className="mono">Job #{job.id} · {job.device_id}</div>
+                        <strong>{getActivityLabel(job.job_type || "transfer")}</strong>
+                        <div className="mono">Aktivitas #{job.id} · {job.device_id}</div>
                       </div>
                       <StatusChip status={job.status} />
                     </div>
                     <div className="job-card-meta">
                       <span>{formatDate(job.created_at)}</span>
-                      <span>{job.delivery_mode || "temp"}</span>
+                      <span>{job.delivery_mode === "temp" || !job.delivery_mode ? "Sementara" : job.delivery_mode}</span>
                       <span>{formatBytes(Number(job.artifact_size || job.result?.size || 0))}</span>
                     </div>
                     <div className="root-card-note">
@@ -2199,7 +2255,7 @@ function TransferHistoryModal({
                     {job.artifact_bucket && job.artifact_object_key ? (
                       <div className="job-actions">
                         <ActionButton className="primary-button" onClick={() => onDownload(job)}>
-                          Download artifact
+                          Unduh berkas
                         </ActionButton>
                       </div>
                     ) : null}
@@ -2208,14 +2264,14 @@ function TransferHistoryModal({
               </div>
             </section>
             <section className="transfer-audit-section">
-              <h4>Audit</h4>
+              <h4>Catatan</h4>
               <div className="job-stack">
                 {audits.map((audit) => (
                   <article key={audit.id} className="job-card">
                     <div className="job-card-top">
                       <div>
-                        <strong>{String(audit.action || "activity").replace(/_/g, " ")}</strong>
-                        <div className="mono">{audit.device_id} · {audit.job_id ? `Job #${audit.job_id}` : "system"}</div>
+                        <strong>{getActivityLabel(audit.action || "activity")}</strong>
+                        <div className="mono">{audit.device_id} · {audit.job_id ? `Aktivitas #${audit.job_id}` : "sistem"}</div>
                       </div>
                     </div>
                     <div className="job-card-meta">
@@ -2522,7 +2578,7 @@ export default function App() {
       return;
     }
     if (!["user", "operator"].includes(profile.role)) {
-      setDashboardInfo("Penautan dari Guest Mode tersedia untuk akun User atau Operator. Akses role Anda tetap mengikuti cakupan dashboard.");
+      setDashboardInfo("Penautan perangkat tersedia untuk akun User atau Operator.");
       clearGuestLinkRequest();
     }
   }, [pendingGuestLinkDeviceId, profile]);
@@ -2762,7 +2818,7 @@ export default function App() {
       setPreviewResult(job.result);
       setPreviewJobId(null);
     } else if (job.status === "failed") {
-      setError(job.error || "Preview failed.");
+      setError(job.error || "Pratinjau belum berhasil dimuat.");
       setPreviewJobId(null);
     }
   }, [previewJobId, fileJobs]);
@@ -2984,7 +3040,7 @@ export default function App() {
       setSelectedDeviceId(deviceId);
       clearGuestLinkRequest();
       await loadAll(true);
-      setDashboardInfo("Device lokal berhasil ditautkan ke akun ini.");
+      setDashboardInfo("Perangkat berhasil ditautkan ke akun ini.");
     } catch (linkError) {
       setError(formatEdgeFunctionError(linkError));
     } finally {
@@ -3045,7 +3101,7 @@ export default function App() {
   }
 
   function dismissGuestDeviceLink() {
-    setDashboardInfo("Penautan device lokal dilewati. Anda tetap dapat menggunakan dashboard sesuai akses akun.");
+    setDashboardInfo("Penautan perangkat dilewati. Anda tetap dapat menggunakan halaman ini sesuai akses akun.");
     clearGuestLinkRequest();
   }
 
@@ -3407,10 +3463,10 @@ export default function App() {
       {showGuestLinkPrompt ? (
         <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="guest-link-title">
           <div className="guest-modal-card">
-            <strong id="guest-link-title">Tautkan device lokal ke akun ini?</strong>
+            <strong id="guest-link-title">Tautkan perangkat ini ke akun Anda?</strong>
             <p>
-              Device <span className="mono">{pendingGuestLinkDeviceId}</span> akan dimasukkan ke akses akun User ini.
-              Setelah tertaut, dashboard akan menampilkan layanan lokal sesuai batas hak akses User.
+              Perangkat <span className="mono">{pendingGuestLinkDeviceId}</span> akan ditambahkan ke akses akun ini.
+              Setelah tertaut, Anda dapat melihat layanan yang tersedia.
             </p>
             <div className="guest-modal-actions">
               <button
@@ -3427,7 +3483,7 @@ export default function App() {
                 disabled={linkingGuestDevice}
                 onClick={confirmGuestDeviceLink}
               >
-                {linkingGuestDevice ? "Menautkan..." : "Tautkan device"}
+                {linkingGuestDevice ? "Menautkan..." : "Tautkan perangkat"}
               </button>
             </div>
           </div>
@@ -3457,9 +3513,9 @@ export default function App() {
       <div className="console-grid dashboard-workspace-grid">
         <aside className="sidebar fleet-sidebar">
           <div className="sidebar-header">
-            <h2>Fleet</h2>
+            <h2>Perangkat</h2>
             <button type="button" className="utility-button" onClick={() => navigateRoute("devices", { selectAll: true })}>
-              All
+              Semua
             </button>
           </div>
           <DeviceList
@@ -3483,7 +3539,7 @@ export default function App() {
                     now={now}
                   />
                 ) : (
-                  <div className="empty-state">Belum ada device yang aktif untuk akun ini.</div>
+                  <div className="empty-state">Belum ada perangkat aktif untuk akun ini.</div>
                 )
               ) : null}
             </>
@@ -3516,19 +3572,19 @@ export default function App() {
                     </div>
                     <div className="metric-grid">
                       <div className="metric-card">
-                        <span>Heartbeat <InfoHint text="Waktu terakhir agent device mengirim tanda aktif ke dashboard." /></span>
+                        <span>Terakhir tersambung <InfoHint text="Waktu terakhir perangkat mengirim status terbaru." /></span>
                         <strong>{formatRelativeTime(selectedDevice.deviceRecord?.last_seen, now)}</strong>
                       </div>
                       <div className="metric-card">
-                        <span>Service aktif <InfoHint text="Jumlah layanan lokal yang sedang berjalan dan siap dipantau." /></span>
+                        <span>Layanan aktif <InfoHint text="Jumlah layanan yang sedang berjalan." /></span>
                         <strong>{selectedDevice.runningCount}</strong>
                       </div>
                       <div className="metric-card">
-                        <span>Transfer berjalan <InfoHint text="Jumlah pekerjaan transfer file yang masih pending atau running." /></span>
+                        <span>Proses berkas <InfoHint text="Jumlah aktivitas berkas yang masih berlangsung." /></span>
                         <strong>{selectedDevice.fileJobCount}</strong>
                       </div>
                       <div className="metric-card">
-                        <span>Perlu perhatian <InfoHint text="Jumlah service yang offline, error, blocked, atau path lokalnya belum lengkap." /></span>
+                        <span>Perlu perhatian <InfoHint text="Jumlah layanan yang perlu dicek." /></span>
                         <strong>{selectedDevice.issueCount}</strong>
                       </div>
                     </div>
@@ -3536,7 +3592,7 @@ export default function App() {
 
                   <article className="service-panel">
                     <div className="panel-heading-row">
-                      <h3>Kontrol layanan <InfoHint text="Start/Stop mengatur service lokal. Stop agent menghentikan koneksi agent sampai service dijalankan lagi dari perangkat." /></h3>
+                      <h3>Layanan <InfoHint text="Mulai atau hentikan layanan pada perangkat yang dipilih." /></h3>
                       <div className="panel-actions device-control-actions">
                         {isSuperAdmin || isOperator ? (
                           <ActionButton
@@ -3545,7 +3601,7 @@ export default function App() {
                             disabled={busyAction !== "" && busyAction !== `${selectedDevice.deviceId}:device:kill`}
                             onClick={() => queueCommand(selectedDevice.deviceId, null, "kill")}
                           >
-                            Stop agent
+                            Hentikan koneksi
                           </ActionButton>
                         ) : null}
                         {isSuperAdmin ? (
@@ -3561,7 +3617,7 @@ export default function App() {
                                 )
                               }
                             >
-                              {selectedDevice.deviceStatus === "blocked" ? "Unblock device" : "Block device"}
+                              {selectedDevice.deviceStatus === "blocked" ? "Aktifkan perangkat" : "Batasi perangkat"}
                             </ActionButton>
                             <ActionButton
                               className="secondary-button"
@@ -3578,14 +3634,14 @@ export default function App() {
                           disabled={busyAction !== "" && busyAction !== `guest:${selectedDevice.deviceId}`}
                           onClick={() => copyGuestLink(selectedDevice.deviceId)}
                         >
-                          Salin link Guest
+                          Salin tautan
                         </ActionButton>
                       </div>
                     </div>
 
                     {isSuperAdmin || isOperator || isUser ? (
                       <div className="metric-card guest-monitor-card">
-                        <span>Link monitor publik <InfoHint text="Link ini membuka halaman Guest khusus device ini untuk melihat status dan link E-Rapor." /></span>
+                        <span>Tautan akses <InfoHint text="Tautan ini membuka halaman status perangkat dan E-Rapor." /></span>
                         <strong className="service-link mono">
                           <a href={selectedGuestUrl} target="_blank" rel="noreferrer">
                             {selectedGuestUrl}
@@ -3593,7 +3649,7 @@ export default function App() {
                         </strong>
                         <PublicLinkActions
                           url={selectedGuestUrl}
-                          label={`Guest monitor untuk ${selectedDevice.deviceName}`}
+                          label={`Tautan akses untuk ${selectedDevice.deviceName}`}
                           compact
                           onActionComplete={setError}
                         />
@@ -3614,28 +3670,28 @@ export default function App() {
                             </div>
                             <div className="service-status-group">
                               <StatusChip status={service.serviceStatus} />
-                              <StatusChip status={service.location_status || "unknown"} label={`path ${service.location_status || "unknown"}`} />
+                              <StatusChip status={service.location_status || "unknown"} label={service.location_status === "ready" ? "lokasi siap" : "lokasi perlu dicek"} />
                             </div>
                           </div>
                           <div className="service-detail-grid">
                             <div>
-                              <span>{getPublicUrlLabel(service)} <InfoHint text="Tautan publik yang dibuat agent agar layanan lokal dapat dibuka dari luar jaringan lokal." /></span>
+                              <span>{getPublicUrlLabel(service)} <InfoHint text="Tautan untuk membuka layanan E-Rapor dari browser." /></span>
                               <strong className="service-link">
                                 {service.public_url ? (
                                   <a href={service.public_url} target="_blank" rel="noreferrer">
                                     {service.public_url}
                                   </a>
                                 ) : (
-                                  "disabled"
+                                  "Belum tersedia"
                                 )}
                               </strong>
                             </div>
                             <div>
-                              <span>Path lokal <InfoHint text="Lokasi file atau folder service yang berhasil ditemukan agent di device." /></span>
+                              <span>Lokasi aplikasi <InfoHint text="Lokasi aplikasi yang ditemukan pada perangkat." /></span>
                               <strong className="mono">{service.resolved_path || "-"}</strong>
                             </div>
                             <div>
-                              <span>Ping terakhir <InfoHint text="Waktu terakhir status service ini diperbarui oleh agent." /></span>
+                              <span>Terakhir diperbarui <InfoHint text="Waktu terakhir status layanan diperbarui." /></span>
                               <strong>{formatRelativeTime(service.last_ping, now)}</strong>
                             </div>
                           </div>
@@ -3645,7 +3701,7 @@ export default function App() {
                           {service.last_error ? <div className="job-error">{service.last_error}</div> : null}
                           <PublicLinkActions
                             url={service.public_url || ""}
-                            label={`${service.service_name} public URL untuk ${selectedDevice.deviceName}`}
+                            label={`Tautan ${service.service_name} untuk ${selectedDevice.deviceName}`}
                             compact
                             onActionComplete={setError}
                           />
@@ -3656,7 +3712,7 @@ export default function App() {
                               disabled={busyAction !== "" || runningNow}
                               onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "start")}
                             >
-                              Start
+                              Mulai
                             </ActionButton>
                             <ActionButton
                               className="secondary-button"
@@ -3664,7 +3720,7 @@ export default function App() {
                               disabled={busyAction !== "" || !runningNow}
                               onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "stop")}
                             >
-                              Stop
+                              Hentikan
                             </ActionButton>
                           </div>
                         </article>
@@ -3675,19 +3731,19 @@ export default function App() {
               ) : null}
 
               {selectedTab === "devices" && !selectedDevice ? (
-                <div className="empty-state">Device belum tersedia atau berada di luar akses akun ini.</div>
+                <div className="empty-state">Perangkat belum tersedia atau berada di luar akses akun ini.</div>
               ) : null}
 
               {selectedTab === "files" && isSuperAdmin ? (
                 <section className="files-shell">
                   <article className="files-toolbar">
                     <div>
-                      <h3>Remote Files</h3>
-                      <div className="mono">{currentPath || "Select a root path"}</div>
+                      <h3>Berkas Perangkat</h3>
+                      <div className="mono">{currentPath || "Pilih lokasi berkas"}</div>
                     </div>
                     <div className="panel-actions">
                       <button type="button" className="secondary-button" onClick={refreshRoots}>
-                        Refresh roots
+                        Segarkan lokasi
                       </button>
                       <button
                         type="button"
@@ -3695,7 +3751,7 @@ export default function App() {
                         disabled={!currentPath}
                         onClick={() => fileInputRef.current?.click()}
                       >
-                        Upload here
+                        Unggah ke sini
                       </button>
                       <button
                         type="button"
@@ -3703,7 +3759,7 @@ export default function App() {
                         disabled={selectedPaths.length === 0}
                         onClick={queueDownloadSelection}
                       >
-                        Download selected
+                        Unduh pilihan
                       </button>
                     </div>
                     <input
@@ -3719,8 +3775,8 @@ export default function App() {
                   <div className="files-grid">
                     <article className="files-panel">
                       <div className="panel-heading-row">
-                        <h3>Explorer</h3>
-                        {directoryJobId ? <StatusChip status="running_job" label="loading" /> : null}
+                        <h3>Daftar Berkas</h3>
+                        {directoryJobId ? <StatusChip status="running_job" label="memuat" /> : null}
                       </div>
                       <FileTable
                         currentPath={currentPath}
@@ -3737,11 +3793,11 @@ export default function App() {
 
                     <article className="preview-panel">
                       <div className="panel-heading-row">
-                        <h3>Preview</h3>
-                        {previewJobId ? <StatusChip status="running_job" label="preparing" /> : null}
+                        <h3>Pratinjau</h3>
+                        {previewJobId ? <StatusChip status="running_job" label="menyiapkan" /> : null}
                       </div>
                       {!previewResult ? (
-                        <div className="empty-state">Pilih file untuk melihat preview atau metadata.</div>
+                        <div className="empty-state">Pilih file untuk melihat pratinjau atau detailnya.</div>
                       ) : previewResult.previewType === "text" ? (
                         <pre className="preview-text">{previewResult.content}</pre>
                       ) : (
@@ -3760,7 +3816,7 @@ export default function App() {
                               })
                             }
                           >
-                            Open preview artifact
+                            Buka pratinjau
                           </button>
                         </div>
                       )}
@@ -3769,8 +3825,8 @@ export default function App() {
 
                   <article className="jobs-panel">
                     <div className="panel-heading-row">
-                      <h3>File Jobs</h3>
-                      <StatusChip status={selectedDeviceJobs.filter((job) => ["pending", "running"].includes(job.status)).length ? "running_job" : "ready"} label={`${selectedDeviceJobs.length} jobs`} />
+                      <h3>Aktivitas Berkas</h3>
+                      <StatusChip status={selectedDeviceJobs.filter((job) => ["pending", "running"].includes(job.status)).length ? "running_job" : "ready"} label={`${selectedDeviceJobs.length} aktivitas`} />
                     </div>
                     <JobList
                       jobs={selectedDeviceJobs}
@@ -3786,13 +3842,13 @@ export default function App() {
                 <section className="activity-shell">
                   <article className="jobs-panel">
                     <div className="panel-heading-row">
-                      <h3>Operational Activity</h3>
+                      <h3>Aktivitas Terbaru</h3>
                       <StatusChip status={channelState} />
                       <select value={logLevelFilter} onChange={(event) => setLogLevelFilter(event.target.value)}>
-                        <option value="all">all levels</option>
-                        <option value="error">error only</option>
-                        <option value="warn">warn only</option>
-                        <option value="info">info only</option>
+                        <option value="all">Semua</option>
+                        <option value="error">Perlu dicek</option>
+                        <option value="warn">Peringatan</option>
+                        <option value="info">Informasi</option>
                       </select>
                     </div>
                     <div className="log-stack">
@@ -3824,19 +3880,19 @@ export default function App() {
                   {isSuperAdmin ? (
                     <article className="service-panel">
                       <div className="panel-heading-row">
-                        <h3>Approval Policy</h3>
+                        <h3>Aturan Persetujuan</h3>
                         <StatusChip
                           status={authPolicy.standaloneUserApprovalMode === "auto" ? "running" : "warn"}
                           label={
                             authPolicy.standaloneUserApprovalMode === "auto"
-                              ? "standalone auto"
-                              : "standalone manual"
+                              ? "otomatis"
+                              : "manual"
                           }
                         />
                       </div>
                       <div className="service-detail-grid">
                         <label>
-                          <span>Operator auto approval</span>
+                          <span>Persetujuan Operator</span>
                           <input
                             type="number"
                             min="1"
@@ -3850,7 +3906,7 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          <span>User lingkungan</span>
+                          <span>Pengguna lingkungan</span>
                           <input
                             type="number"
                             min="1"
@@ -3864,7 +3920,7 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          <span>User standalone</span>
+                          <span>Pengguna mandiri</span>
                           <select
                             value={authPolicy.standaloneUserApprovalMode}
                             onChange={(event) =>
@@ -3874,12 +3930,12 @@ export default function App() {
                               }))
                             }
                           >
-                            <option value="manual">Manual approval</option>
-                            <option value="auto">Auto approval</option>
+                            <option value="manual">Manual</option>
+                            <option value="auto">Otomatis</option>
                           </select>
                         </label>
                         <label>
-                          <span>Auto approval standalone</span>
+                          <span>Waktu persetujuan mandiri</span>
                           <input
                             type="number"
                             min="1"
@@ -3893,7 +3949,7 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          <span>Maintenance interval</span>
+                          <span>Interval pemeriksaan</span>
                           <input
                             type="number"
                             min="1"
@@ -3907,7 +3963,7 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          <span>Reset redirect</span>
+                          <span>Halaman reset password</span>
                           <input
                             value={authPolicy.passwordResetRedirectUrl}
                             onChange={(event) =>
@@ -3924,7 +3980,7 @@ export default function App() {
                             busy={busyAction === "account:updateAuthPolicy"}
                             onClick={() => handleAccountAction("updateAuthPolicy", authPolicy)}
                           >
-                            Simpan policy
+                            Simpan aturan
                           </ActionButton>
                         </div>
                       </div>
@@ -3933,7 +3989,7 @@ export default function App() {
                   {environments.length ? (
                     <article className="service-panel">
                       <div className="panel-heading-row">
-                        <h3>{isSuperAdmin ? "Operator Environments" : "Lingkungan Operator"}</h3>
+                        <h3>Lingkungan Operator</h3>
                         <StatusChip status="ready" label={`${environments.length} lingkungan`} />
                       </div>
                       <div className="job-stack">
@@ -3945,7 +4001,7 @@ export default function App() {
                                 <div className="mono">{environment.referral_code}</div>
                               </div>
                               <div className="service-status-group">
-                                <StatusChip status={environment.is_active ? "ready" : "disabled"} label={environment.is_active ? "active" : "inactive"} />
+                                <StatusChip status={environment.is_active ? "ready" : "disabled"} label={environment.is_active ? "aktif" : "nonaktif"} />
                               </div>
                             </div>
                             <div className="job-actions">
@@ -3954,14 +4010,14 @@ export default function App() {
                                 className="secondary-button"
                                 onClick={() => copyTextToClipboard(environment.referral_code).then(() => setError("")).catch((copyError) => setError(formatEdgeFunctionError(copyError)))}
                               >
-                                Salin kode referral
+                                Salin kode lingkungan
                               </button>
                               <button
                                 type="button"
                                 className="secondary-button"
                                 onClick={() => handleAccountAction("rotateReferralCode", { environmentId: environment.id })}
                               >
-                                Putar referral code
+                                Ganti kode
                               </button>
                             </div>
                           </article>
@@ -3971,26 +4027,26 @@ export default function App() {
                   ) : (
                     <article className="service-panel">
                       <div className="panel-heading-row">
-                        <h3>{isSuperAdmin ? "Operator Environments" : "Lingkungan Operator"}</h3>
+                        <h3>Lingkungan Operator</h3>
                         <StatusChip status="warn" label="belum tersedia" />
                       </div>
                       <div className="empty-state">
-                        Kode lingkungan belum tersedia pada sesi ini. Refresh dashboard untuk memuat ulang environment operator.
+                        Kode lingkungan belum tersedia. Segarkan halaman untuk memuat ulang data.
                       </div>
                     </article>
                   )}
                   <article className="jobs-panel">
                     <div className="panel-heading-row">
-                      <h3>Accounts</h3>
-                      <StatusChip status="ready" label={`${accounts.length} accounts`} />
+                      <h3>Akun</h3>
+                      <StatusChip status="ready" label={`${accounts.length} akun`} />
                     </div>
                     <div className="service-detail-grid" style={{ marginBottom: 16 }}>
                       <label>
                         <span>Email</span>
-                        <input value={createEmail} onChange={(event) => setCreateEmail(event.target.value)} placeholder="user@example.com" />
+                        <input value={createEmail} onChange={(event) => setCreateEmail(event.target.value)} placeholder="nama@email.com" />
                       </label>
                       <label>
-                        <span>Display name</span>
+                        <span>Nama</span>
                         <input value={createDisplayName} onChange={(event) => setCreateDisplayName(event.target.value)} placeholder="Nama pengguna" />
                       </label>
                       <PasswordField
@@ -4001,7 +4057,7 @@ export default function App() {
                         autoComplete="new-password"
                       />
                       <label>
-                        <span>Role</span>
+                        <span>Jenis akun</span>
                         {isSuperAdmin ? (
                           <select value={createRole} onChange={(event) => setCreateRole(event.target.value)}>
                             <option value="operator">Operator</option>
@@ -4012,22 +4068,22 @@ export default function App() {
                         )}
                       </label>
                       <label>
-                        <span>Create as</span>
+                        <span>Status awal</span>
                         <select value={createApproveImmediately ? "approved" : "pending"} onChange={(event) => setCreateApproveImmediately(event.target.value === "approved")}>
-                          <option value="approved">Approved now</option>
-                          <option value="pending">Pending approval</option>
+                          <option value="approved">Aktif sekarang</option>
+                          <option value="pending">Menunggu persetujuan</option>
                         </select>
                       </label>
                       {createRole === "user" ? (
                         <label>
-                          <span>Device awal</span>
+                          <span>Perangkat awal</span>
                           <select
                             value={createAssignedDeviceId}
                             onChange={(event) => setCreateAssignedDeviceId(event.target.value)}
                             disabled={!deviceEntries.length}
                           >
                             <option value="">
-                              {deviceEntries.length ? "Pilih device user" : "Belum ada device tersedia"}
+                              {deviceEntries.length ? "Pilih perangkat" : "Belum ada perangkat tersedia"}
                             </option>
                             {deviceEntries.map((device) => (
                               <option key={device.deviceId} value={device.deviceId}>
@@ -4058,36 +4114,36 @@ export default function App() {
                             <div className="service-status-group">
                               <StatusChip status={account.role} />
                               <StatusChip status={account.status} />
-                              {account.membership?.status ? <StatusChip status={account.membership.status} label={`env ${account.membership.status}`} /> : null}
+                              {account.membership?.status ? <StatusChip status={account.membership.status} label={`lingkungan ${getStatusLabel(account.membership.status)}`} /> : null}
                             </div>
                           </div>
                           <div className="job-card-meta">
-                            <span>created {formatDate(account.created_at)}</span>
+                            <span>dibuat {formatDate(account.created_at)}</span>
                             {account.approval_due_at ? (
-                              <span>approval {formatRelativeTime(account.approval_due_at)}</span>
+                              <span>persetujuan {formatRelativeTime(account.approval_due_at)}</span>
                             ) : null}
-                            {account.membership?.joined_via ? <span>via {String(account.membership.joined_via).replace(/_/g, " ")}</span> : null}
+                            {account.membership?.joined_via ? <span>melalui {String(account.membership.joined_via).replace(/_/g, " ")}</span> : null}
                           </div>
                           {account.rejection_reason ? <div className="job-error">{account.rejection_reason}</div> : null}
                           <div className="job-actions">
                             {account.status !== "approved" ? (
                               <ActionButton className="primary-button" busy={busyAction === "account:approveAccount"} onClick={() => handleAccountAction("approveAccount", { userId: account.user_id })}>
-                                Approve
+                                Setujui
                               </ActionButton>
                             ) : null}
                             {account.status === "pending" ? (
                               <>
                                 <ActionButton className="secondary-button" busy={busyAction === "account:extendApproval"} onClick={() => handleAccountAction("extendApproval", { userId: account.user_id, hours: account.role === "operator" ? authPolicy.operatorAutoApproveHours : authPolicy.environmentUserAutoApproveHours })}>
-                                  Extend
+                                  Perpanjang
                                 </ActionButton>
                                 <ActionButton className="danger-button" busy={busyAction === "account:rejectAccount"} onClick={() => handleAccountAction("rejectAccount", { userId: account.user_id, reason: "Permintaan akun belum dapat disetujui." })}>
-                                  Reject
+                                  Tolak
                                 </ActionButton>
                               </>
                             ) : null}
                             {account.status !== "disabled" ? (
                               <ActionButton className="secondary-button" busy={busyAction === "account:disableAccount"} onClick={() => handleAccountAction("disableAccount", { userId: account.user_id })}>
-                                Disable
+                                Nonaktifkan
                               </ActionButton>
                             ) : null}
                             <ActionButton className="secondary-button" busy={busyAction === "account:resetPassword"} onClick={() => handleAccountAction("resetPassword", { email: account.email })}>
@@ -4111,7 +4167,7 @@ export default function App() {
               ) : null}
             </>
           ) : (
-            <div className="empty-state">Belum ada device yang aktif.</div>
+            <div className="empty-state">Belum ada perangkat aktif.</div>
           )}
         </section>
       </div>

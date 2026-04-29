@@ -2708,7 +2708,7 @@ export default function App() {
 
           {selectedTab === "profile" ? (
             <ProfilePanel profile={profile} session={session} onSignOut={signOut} />
-          ) : selectedDevice ? (
+          ) : selectedDevice || selectedTab === "activity" || (selectedTab === "accounts" && (isSuperAdmin || isOperator)) ? (
             <>
               {selectedTab === "overview" ? (
                 <section className="panel-stack">
@@ -3161,7 +3161,17 @@ export default function App() {
                         ))}
                       </div>
                     </article>
-                  ) : null}
+                  ) : (
+                    <article className="service-panel">
+                      <div className="panel-heading-row">
+                        <h3>{isSuperAdmin ? "Operator Environments" : "Lingkungan Operator"}</h3>
+                        <StatusChip status="warn" label="belum tersedia" />
+                      </div>
+                      <div className="empty-state">
+                        Kode lingkungan belum tersedia pada sesi ini. Refresh dashboard untuk memuat ulang environment operator.
+                      </div>
+                    </article>
+                  )}
                   <article className="jobs-panel">
                     <div className="panel-heading-row">
                       <h3>Accounts</h3>

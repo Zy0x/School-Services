@@ -55,6 +55,12 @@ npm run dashboard:build
 
 Hasil build Web App berada di `Output/web-app/`.
 
+Untuk menjalankan preview lokal setelah build:
+
+```bash
+npm run dashboard:preview
+```
+
 5. Build agent Windows:
 
 ```powershell

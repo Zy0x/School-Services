@@ -1,0 +1,122 @@
+.guest-console-shell {
+  max-width: 1380px;
+}
+
+.guest-nav,
+.guest-hero,
+.site-footer,
+.guest-workspace {
+  border-color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 20px 54px rgba(15, 23, 42, 0.08);
+}
+
+.guest-nav {
+  border-radius: 30px;
+  padding: 18px 20px;
+}
+
+.guest-brand {
+  min-width: 0;
+}
+
+.guest-brand-image {
+  width: 48px;
+  height: 48px;
+  border-radius: 18px;
+  padding: 7px;
+  background: linear-gradient(145deg, #ffffff, #eef4ff);
+  box-shadow: 0 16px 26px rgba(15, 23, 42, 0.1);
+}
+
+.guest-hero {
+  align-items: stretch;
+  margin-top: 18px;
+  padding: clamp(24px, 4vw, 42px);
+  border-radius: 34px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.62)),
+    radial-gradient(circle at 88% 16%, rgba(10, 132, 255, 0.14), transparent 28%);
+}
+
+.guest-hero-copy h1 {
+  color: var(--text);
+}
+
+.guest-hero-actions {
+  min-width: min(100%, 260px);
+  align-content: start;
+  justify-content: stretch;
+}
+
+.guest-hero-actions > * {
+  width: 100%;
+}
+
+.guest-status-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.guest-status-card {
+  min-height: 142px;
+  display: grid;
+  align-content: space-between;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+}
+
+.guest-service-panel {
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.08);
+}
+
+.guest-callout {
+  border: 1px solid rgba(10, 132, 255, 0.12);
+  background:
+    linear-gradient(135deg, rgba(10, 132, 255, 0.08), rgba(255, 255, 255, 0.86));
+}
+
+.guest-detail-grid > div {
+  min-width: 0;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--surface-muted);
+}
+
+.guest-cta-row {
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.guest-cta-row .panel-actions,
+.guest-cta-row .public-link-actions {
+  align-items: center;
+}
+
+.support-link-button img,
+.support-link-button svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  object-fit: contain;
+}
+
+@media (max-width: 960px) {
+  .guest-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .guest-nav-actions,
+  .guest-cta-row .panel-actions,
+  .guest-cta-row .public-link-actions {
+    width: 100%;
+  }
+
+  .guest-nav-actions > *,
+  .guest-cta-row .panel-actions > *,
+  .guest-cta-row .public-link-actions > * {
+    flex: 1 1 100%;
+  }
+}

@@ -1,7 +1,7 @@
 # ── Build Settings ──
 [build]
   command = "npm run build"
-  publish = "dist"
+  publish = "../Output/web-app"
 
 # ── SPA Redirect (wajib untuk React Router) ──
 [[redirects]]

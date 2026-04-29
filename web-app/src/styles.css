@@ -1,0 +1,6 @@
+@import "./styles/index.css";
+@import "./styles/auth.css";
+@import "./styles/guest.css";
+@import "./styles/dashboard.css";
+@import "./styles/components.css";
+@import "./styles/responsive.css";

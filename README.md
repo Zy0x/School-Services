@@ -1,4 +1,4 @@
-# E-Rapor Agent and Dashboard
+# E-Rapor Agent and Web App
 
 Repository ini berisi source yang aman untuk dipublikasikan dan dibuild sendiri.
 
@@ -17,7 +17,7 @@ Untuk instalasi Windows yang umum, agent sekarang mencoba langsung:
 ## Isi Repo
 
 - `agent/`: source agent Windows
-- `dashboard/`: source dashboard React/Vite
+- `web-app/`: source Web App React/Vite untuk Auth, Guest Mode, dan Dashboard
 - `supabase/`: migrations dan Edge Functions
 - `agent.runtime.example.json`: template konfigurasi agent
 - `.env.example`: template environment variable
@@ -47,11 +47,13 @@ Copy-Item agent.runtime.example.json agent.runtime.json
 
 3. Untuk instalasi yang umum, Anda bisa langsung build tanpa mengedit apa pun. `agent.runtime.json` dan `.env` hanya diperlukan jika Anda ingin override deteksi default, memakai path custom, atau menjalankan operasi admin/deploy Supabase.
 
-4. Build dashboard:
+4. Build Web App:
 
 ```powershell
 npm run dashboard:build
 ```
+
+Hasil build Web App berada di `Output/web-app/`.
 
 5. Build agent Windows:
 

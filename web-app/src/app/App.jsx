@@ -1,5 +1,9 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "./supabase";
+import { supabase } from "../supabase";
+import Avatar3D from "../components/Avatar3D.jsx";
+import githubIcon from "../assets/icons/github.png";
+import paypalIcon from "../assets/icons/paypal.png";
+import trakteerIcon from "../assets/icons/trakteer.png";
 
 const HEARTBEAT_STALE_MS = Number(import.meta.env.VITE_HEARTBEAT_STALE_MS || 20000);
 const REFRESH_INTERVAL_MS = Number(import.meta.env.VITE_DASHBOARD_REFRESH_MS || 5000);
@@ -666,34 +670,12 @@ function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
 }
 
 function SupportIcon({ kind }) {
-  if (kind === "github") {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.21.68-.47v-1.66c-2.77.6-3.35-1.17-3.35-1.17-.45-1.13-1.1-1.43-1.1-1.43-.9-.61.07-.6.07-.6 1 .07 1.52 1 1.52 1 .88 1.51 2.3 1.07 2.87.82.09-.63.35-1.07.63-1.31-2.21-.25-4.54-1.11-4.54-4.94 0-1.09.39-1.99 1.03-2.69-.1-.25-.45-1.28.1-2.66 0 0 .84-.27 2.75 1.03a9.45 9.45 0 0 1 5 0c1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.41.1 2.66.64.7 1.03 1.6 1.03 2.69 0 3.84-2.33 4.69-4.56 4.94.36.31.68.92.68 1.85v2.74c0 .26.18.57.69.47A10 10 0 0 0 12 2Z"
-        />
-      </svg>
-    );
-  }
-  if (kind === "paypal") {
-    return (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M7.22 20.48H3.8a.78.78 0 0 1-.77-.9L5.7 3.14A1.33 1.33 0 0 1 7 2h6.17c2.21 0 3.87.47 4.93 1.4.92.82 1.35 2.01 1.35 3.55 0 1.66-.49 3.02-1.45 4.04-.97 1.02-2.37 1.65-4.17 1.87-.14.02-.26.11-.29.25l-.13.72-.93 5.83a1 1 0 0 1-.98.82H8.86l.48-3.03a.78.78 0 0 1 .77-.66h1.26c2.79 0 4.97-1.14 5.61-4.44.02-.1.03-.2.04-.29-.61.29-1.34.47-2.21.57-.84.1-1.68.15-2.52.15H9.66a.78.78 0 0 0-.77.66l-1.67 10.44Z"
-        />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M12.01 2c2.48 0 4.46.62 5.93 1.87 1.48 1.25 2.22 2.95 2.22 5.1 0 1.95-.58 3.44-1.74 4.48-1.16 1.04-2.75 1.55-4.79 1.55h-.88l-.4 2.48h-2.8l1.94-12.32h3.95c1.77 0 2.66.7 2.66 2.1 0 .95-.31 1.73-.93 2.32-.62.59-1.47.89-2.55.89h-1.26l-.23 1.43h.62c2.84 0 4.26-1.18 4.26-3.53 0-1-.33-1.74-1-2.22-.67-.48-1.62-.72-2.87-.72h-4.9L6.35 22h5.52l.65-4.05h1.08c2.93 0 5.22-.76 6.88-2.28 1.66-1.52 2.49-3.7 2.49-6.54 0-2.39-.95-4.31-2.86-5.75C18.21 1.46 15.53.74 12.01.74V2Z"
-      />
-    </svg>
-  );
+  const icons = {
+    github: githubIcon,
+    paypal: paypalIcon,
+    trakteer: trakteerIcon,
+  };
+  return <img src={icons[kind] || trakteerIcon} alt="" aria-hidden="true" />;
 }
 
 async function copyTextToClipboard(text) {
@@ -1067,11 +1049,26 @@ function LoginScreen({
   return (
     <main className="login-shell">
       <div className="login-card">
-        <div className="login-eyebrow">School Services Access</div>
-        <h1>Kelola akses perangkat dan layanan sekolah</h1>
+        <section className="auth-visual-panel">
+          <div>
+            <Avatar3D />
+            <div className="login-eyebrow">School Services Access</div>
+            <h2>Kontrol layanan sekolah yang rapi dan aman</h2>
+            <p>
+              Pantau perangkat, kelola akses, dan buka layanan E-Rapor lewat satu portal web yang responsif.
+            </p>
+          </div>
+          <div className="auth-visual-list" aria-label="Fitur akses">
+            <span>Role SuperAdmin, Operator, dan User tetap terpisah jelas.</span>
+            <span>Device lokal dapat ditautkan setelah pengguna login.</span>
+            <span>Status layanan tampil real-time dengan fallback yang mudah dipahami.</span>
+          </div>
+        </section>
+        <section className="auth-form-panel">
+        <div className="login-eyebrow">{mode === "register" ? "Request Access" : "Welcome Back"}</div>
+        <h1>{mode === "register" ? "Ajukan akses akun" : "Masuk ke Web App"}</h1>
         <p>
-          Masuk untuk memantau status layanan, mengelola akses perangkat sesuai peran,
-          dan membuka E-Rapor dengan kontrol yang sesuai kebutuhan operasional Anda.
+          Gunakan akun yang sudah disetujui untuk mengelola perangkat dan layanan sesuai hak akses Anda.
         </p>
         <form
           className="login-form"
@@ -1172,6 +1169,7 @@ function LoginScreen({
             </button>
           ) : null}
         </form>
+        </section>
       </div>
     </main>
   );
@@ -1189,7 +1187,7 @@ function AccountStatusScreen({ profile, onSignOut }) {
 
   return (
     <main className="login-shell">
-      <div className="login-card">
+      <div className="login-card auth-simple-card">
         <div className="login-eyebrow">Account Access</div>
         <h1>{profile?.display_name || profile?.email || "Account"}</h1>
         <p>{label}</p>
@@ -1491,7 +1489,7 @@ function GuestConsole({ deviceId }) {
     <main className="console-shell guest-console-shell">
       <header className="guest-nav">
         <div className="guest-brand">
-          <img className="guest-brand-mark guest-brand-image" src={GUEST_BRAND_ICON} alt="School Services" />
+          <Avatar3D size="sm" />
           <div>
             <div className="section-eyebrow">School Services</div>
             <strong>Guest Access Monitor</strong>
@@ -1809,7 +1807,7 @@ function PasswordResetScreen() {
 
   return (
     <main className="login-shell">
-      <div className="login-card">
+      <div className="login-card auth-simple-card">
         <div className="login-eyebrow">Lupa Password</div>
         <h1>Buat password baru</h1>
         <p>

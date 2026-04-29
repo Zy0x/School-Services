@@ -1,6 +1,9 @@
 node_modules/
 dist/
 dashboard/dist/
+web-app/dist/
+web-app/assets/
+Output/
 agent/dist/
 .env
 .env.local

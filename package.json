@@ -3,13 +3,15 @@
   "private": true,
   "workspaces": [
     "agent",
-    "dashboard"
+    "web-app"
   ],
   "scripts": {
     "agent:dev": "npm --workspace agent run dev",
     "agent:build": "npm --workspace agent run build",
-    "dashboard:dev": "npm --workspace dashboard run dev",
-    "dashboard:build": "npm --workspace dashboard run build",
+    "dashboard:dev": "npm --workspace web-app run dev",
+    "dashboard:build": "npm --workspace web-app run build",
+    "web-app:dev": "npm --workspace web-app run dev",
+    "web-app:build": "npm --workspace web-app run build",
     "supabase:apply": "node scripts/supabase-orchestrator.mjs apply",
     "supabase:verify": "node scripts/supabase-orchestrator.mjs verify",
     "supabase:seed-admin": "node scripts/supabase-orchestrator.mjs seed-admin",

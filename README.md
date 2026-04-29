@@ -1,6 +1,6 @@
 # School Services
 
-School Services membantu membuka akses E-Rapor dari perangkat sekolah dan menampilkan status layanan melalui Web App yang mudah digunakan.
+School Services merupakan solusi yang memungkinkan akses E-Rapor & Dapodik yang sebelumnya hanya dapat digunakan dalam jaringan lokal (LAN) menjadi dapat diakses secara online. Dengan sistem ini, layanan E-Rapor & Dapodik dapat diakses dari luar jaringan sekolah, dengan syarat Laptop/Server E-Rapor & Dapodik harus dalam kondisi aktif atau terhubung (online) ke dalam jaringan.
 
 Aplikasi ini menyediakan portal Guest untuk pengguna umum, halaman login untuk akun terdaftar, serta dashboard sesuai hak akses akun.
 

@@ -1100,7 +1100,7 @@ function GuestConsole({ deviceId }) {
 
   useEffect(() => {
     loadGuest();
-    const refreshId = window.setInterval(loadGuest, REFRESH_INTERVAL_MS);
+    const refreshId = window.setInterval(() => loadGuest({ silent: true }), REFRESH_INTERVAL_MS);
     return () => window.clearInterval(refreshId);
   }, [deviceId]);
 
@@ -1110,12 +1110,12 @@ function GuestConsole({ deviceId }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "devices", filter: `device_id=eq.${deviceId}` },
-        () => loadGuest()
+        () => loadGuest({ silent: true })
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "services", filter: `device_id=eq.${deviceId}` },
-        () => loadGuest()
+        () => loadGuest({ silent: true })
       )
       .subscribe();
 

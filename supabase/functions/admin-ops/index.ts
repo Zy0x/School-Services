@@ -10,6 +10,7 @@ const TEMP_BUCKET = "agent-temp-artifacts";
 const ARCHIVE_BUCKET = "agent-archives";
 const LOG_LIMIT = 120;
 const JOB_LIMIT = 80;
+const TRANSFER_HISTORY_LIMIT = 120;
 const DASHBOARD_PUBLIC_URL =
   (Deno.env.get("DASHBOARD_PUBLIC_URL") || "https://school-services.netlify.app").replace(/\/+$/, "");
 
@@ -124,6 +125,39 @@ async function getAccessibleDeviceIds(service: Awaited<ReturnType<typeof getRequ
 async function canAccessDevice(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>, deviceId: string) {
   const accessible = await getAccessibleDeviceIds(service, actor);
   return accessible === null || accessible.includes(deviceId);
+}
+
+async function requireDeviceAccess(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  deviceId: string
+) {
+  if (!deviceId) {
+    throw new Error("deviceId wajib diisi.");
+  }
+  if (!(await canAccessDevice(service, actor, deviceId))) {
+    throw new Error("Anda tidak memiliki akses ke device ini.");
+  }
+}
+
+function sanitizeCommandAction(value: unknown) {
+  const action = String(value || "").trim().toLowerCase();
+  if (["start", "stop", "kill"].includes(action)) {
+    return action;
+  }
+  throw new Error("Aksi command tidak dikenali.");
+}
+
+function sanitizeDeviceStatus(value: unknown) {
+  const status = String(value || "").trim().toLowerCase();
+  if (["active", "blocked"].includes(status)) {
+    return status;
+  }
+  throw new Error("Status device tidak dikenali.");
+}
+
+function sanitizeDeviceAlias(value: unknown) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 80);
 }
 
 async function ensureDeviceExists(
@@ -269,6 +303,30 @@ async function getScopedEnvironments(service: Awaited<ReturnType<typeof getReque
   return [actor.environment];
 }
 
+async function getDeviceAliases(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  accessibleDeviceIds: string[] | null
+) {
+  let query = service
+    .from("device_aliases")
+    .select("device_id, alias, updated_at")
+    .eq("user_id", actor.user.id);
+
+  if (accessibleDeviceIds !== null) {
+    if (!accessibleDeviceIds.length) {
+      return [];
+    }
+    query = query.in("device_id", accessibleDeviceIds);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw error;
+  }
+  return data || [];
+}
+
 async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
   const accessibleDeviceIds = await getAccessibleDeviceIds(service, actor);
   const superAdmin = isSuperAdminProfile(actor.profile);
@@ -294,6 +352,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     accounts,
     environments,
     authPolicy,
+    aliases,
   ] = await Promise.all([
     buildQuery("services")
       .select(
@@ -317,6 +376,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     getScopedAccounts(service, actor),
     getScopedEnvironments(service, actor),
     superAdmin ? getAuthPolicy(service) : Promise.resolve(null),
+    getDeviceAliases(service, actor, accessibleDeviceIds),
   ]);
 
   if (servicesResult.error) {
@@ -356,6 +416,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     accounts,
     environments,
     authPolicy: authPolicy?.raw || null,
+    deviceAliases: aliases,
   };
 }
 
@@ -731,8 +792,9 @@ async function linkGuestDevice(
   if (!deviceId) {
     throw new Error("deviceId wajib diisi.");
   }
-  if (String(actor.profile?.role || "") !== "user") {
-    throw new Error("Penautan dari Guest Mode hanya tersedia untuk akun User.");
+  const role = String(actor.profile?.role || "");
+  if (!["user", "operator"].includes(role)) {
+    throw new Error("Penautan dari Guest Mode hanya tersedia untuk akun User atau Operator.");
   }
 
   const device = await ensureDeviceExists(service, deviceId);
@@ -765,12 +827,156 @@ async function linkGuestDevice(
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", actor.user.id)
-    .eq("role", "user");
+    .in("role", ["user", "operator"]);
 
   return {
     ok: true,
     device,
     assignment: data,
+  };
+}
+
+async function updateDeviceAlias(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  const deviceId = String(body.deviceId || "").trim();
+  const alias = sanitizeDeviceAlias(body.alias);
+  await requireDeviceAccess(service, actor, deviceId);
+
+  if (!alias) {
+    const { error } = await service
+      .from("device_aliases")
+      .delete()
+      .eq("user_id", actor.user.id)
+      .eq("device_id", deviceId);
+    if (error) {
+      throw error;
+    }
+    return { ok: true, deviceId, alias: "" };
+  }
+
+  const { data, error } = await service
+    .from("device_aliases")
+    .upsert({
+      user_id: actor.user.id,
+      device_id: deviceId,
+      alias,
+      updated_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return { ok: true, alias: data };
+}
+
+async function queueScopedCommand(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  const deviceId = String(body.deviceId || "").trim();
+  const action = sanitizeCommandAction(body.commandAction || body.command || body.actionName);
+  const serviceName = action === "kill" ? null : String(body.serviceName || "").trim();
+  await requireDeviceAccess(service, actor, deviceId);
+
+  if (action !== "kill" && !serviceName) {
+    throw new Error("Nama service wajib diisi untuk aksi start/stop.");
+  }
+  if (action === "kill" && !isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
+    throw new Error("Hanya SuperAdmin atau Operator yang dapat menghentikan agent.");
+  }
+
+  const { data, error } = await service
+    .from("commands")
+    .insert({
+      device_id: deviceId,
+      service_name: serviceName,
+      action,
+      status: "pending",
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return { ok: true, command: data };
+}
+
+async function updateScopedDeviceStatus(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  if (!isSuperAdminProfile(actor.profile)) {
+    throw new Error("Hanya SuperAdmin yang dapat memblokir atau membuka blokir device.");
+  }
+
+  const deviceId = String(body.deviceId || "").trim();
+  const status = sanitizeDeviceStatus(body.status);
+  await requireDeviceAccess(service, actor, deviceId);
+
+  const { data, error } = await service
+    .from("devices")
+    .update({ status })
+    .eq("device_id", deviceId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return { ok: true, device: data };
+}
+
+async function listTransferHistory(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  if (!isSuperAdminProfile(actor.profile)) {
+    throw new Error("Riwayat transfer data hanya tersedia untuk SuperAdmin.");
+  }
+
+  const deviceId = String(body.deviceId || "").trim();
+  let jobsQuery = service
+    .from("file_jobs")
+    .select("*")
+    .in("status", ["completed", "failed", "cancelled"])
+    .order("created_at", { ascending: false })
+    .limit(TRANSFER_HISTORY_LIMIT);
+  let auditQuery = service
+    .from("file_audit_logs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(TRANSFER_HISTORY_LIMIT);
+
+  if (deviceId) {
+    await requireDeviceAccess(service, actor, deviceId);
+    jobsQuery = jobsQuery.eq("device_id", deviceId);
+    auditQuery = auditQuery.eq("device_id", deviceId);
+  }
+
+  const [jobsResult, auditResult] = await Promise.all([jobsQuery, auditQuery]);
+  if (jobsResult.error) {
+    throw jobsResult.error;
+  }
+  if (auditResult.error) {
+    throw auditResult.error;
+  }
+
+  return {
+    ok: true,
+    jobs: jobsResult.data || [],
+    auditLogs: auditResult.data || [],
   };
 }
 
@@ -1074,6 +1280,22 @@ Deno.serve(async (request) => {
 
     if (action === "linkGuestDevice") {
       return json(await linkGuestDevice(service, actor, body));
+    }
+
+    if (action === "updateDeviceAlias") {
+      return json(await updateDeviceAlias(service, actor, body));
+    }
+
+    if (action === "queueCommand") {
+      return json(await queueScopedCommand(service, actor, body));
+    }
+
+    if (action === "updateDeviceStatus") {
+      return json(await updateScopedDeviceStatus(service, actor, body));
+    }
+
+    if (action === "listTransferHistory") {
+      return json(await listTransferHistory(service, actor, body));
     }
 
     if (action === "approveAccount" || action === "rejectAccount" || action === "disableAccount") {

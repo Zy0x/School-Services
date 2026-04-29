@@ -392,6 +392,30 @@ function StatusChip({ status, label }) {
   );
 }
 
+function InfoHint({ text }) {
+  return (
+    <span className="info-hint" tabIndex={0} aria-label={text}>
+      i
+      <span className="info-hint-bubble">{text}</span>
+    </span>
+  );
+}
+
+function ActionButton({
+  children,
+  busy = false,
+  className = "secondary-button",
+  disabled = false,
+  ...props
+}) {
+  return (
+    <button type="button" className={`${className} action-button`} disabled={disabled || busy} {...props}>
+      {busy ? <span className="button-spinner" aria-hidden="true" /> : null}
+      <span>{children}</span>
+    </button>
+  );
+}
+
 function SupportIcon({ kind }) {
   if (kind === "github") {
     return (
@@ -930,9 +954,9 @@ function AccountStatusScreen({ profile, onSignOut }) {
           {profile?.role ? <StatusChip status={profile.role} /> : null}
         </div>
         <div className="panel-actions" style={{ marginTop: 20 }}>
-          <button type="button" className="secondary-button" onClick={onSignOut}>
-            Sign out
-          </button>
+          <ActionButton className="secondary-button" onClick={onSignOut}>
+            Log Out
+          </ActionButton>
         </div>
       </div>
     </main>
@@ -1596,10 +1620,11 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
             <strong>{device.deviceName}</strong>
             <StatusChip status={device.deviceStatus} />
           </div>
+          {device.deviceAlias ? <div className="device-list-meta">Alias personal</div> : null}
           <div className="device-list-meta mono">{device.deviceId}</div>
           <div className="device-list-foot">
-            <span>{device.runningCount} running</span>
-            <span>{device.fileJobCount} jobs</span>
+            <span>{device.runningCount} aktif</span>
+            <span>{device.fileJobCount} transfer</span>
             <span>{formatRelativeTime(device.deviceRecord?.last_seen, now)}</span>
           </div>
         </button>
@@ -1826,6 +1851,138 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
   );
 }
 
+function DeviceAliasModal({
+  device,
+  value,
+  onChange,
+  onClose,
+  onSave,
+  busy,
+}) {
+  if (!device) {
+    return null;
+  }
+
+  return (
+    <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="device-alias-title">
+      <div className="guest-modal-card dashboard-modal-card">
+        <strong id="device-alias-title">Ubah nama tampilan device</strong>
+        <p>
+          Alias hanya berlaku untuk akun Anda. Nama asli device tetap tersimpan sebagai{" "}
+          <span className="mono">{device.deviceRecord?.device_name || device.deviceId}</span>.
+        </p>
+        <label className="modal-field">
+          <span>Alias device</span>
+          <input
+            value={value}
+            maxLength={80}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder="Contoh: Server TU, Laptop Operator, PC Lab"
+            autoFocus
+          />
+        </label>
+        <div className="guest-modal-actions">
+          <ActionButton className="secondary-button" disabled={busy} onClick={onClose}>
+            Batal
+          </ActionButton>
+          <ActionButton className="primary-button" busy={busy} onClick={onSave}>
+            Simpan alias
+          </ActionButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TransferHistoryModal({
+  open,
+  loading,
+  history,
+  onClose,
+  onDownload,
+}) {
+  if (!open) {
+    return null;
+  }
+
+  const jobs = history?.jobs || [];
+  const audits = history?.auditLogs || [];
+
+  return (
+    <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="transfer-history-title">
+      <div className="guest-modal-card transfer-modal-card">
+        <div className="panel-heading-row">
+          <div>
+            <strong id="transfer-history-title">Riwayat Transfer Data</strong>
+            <p>Data yang berhasil diambil dari device atau dikirim kembali lewat kontrol SuperAdmin.</p>
+          </div>
+          <ActionButton className="secondary-button" onClick={onClose}>
+            Tutup
+          </ActionButton>
+        </div>
+        {loading ? (
+          <div className="empty-state compact-empty">Memuat riwayat transfer...</div>
+        ) : !jobs.length && !audits.length ? (
+          <div className="empty-state compact-empty">Belum ada riwayat transfer untuk cakupan ini.</div>
+        ) : (
+          <div className="transfer-history-grid">
+            <section>
+              <h4>File jobs</h4>
+              <div className="job-stack">
+                {jobs.map((job) => (
+                  <article key={job.id} className={`job-card tone-${statusTone(job.status)}`}>
+                    <div className="job-card-top">
+                      <div>
+                        <strong>{String(job.job_type || "transfer").replace(/_/g, " ")}</strong>
+                        <div className="mono">Job #{job.id} · {job.device_id}</div>
+                      </div>
+                      <StatusChip status={job.status} />
+                    </div>
+                    <div className="job-card-meta">
+                      <span>{formatDate(job.created_at)}</span>
+                      <span>{job.delivery_mode || "temp"}</span>
+                      <span>{formatBytes(Number(job.artifact_size || job.result?.size || 0))}</span>
+                    </div>
+                    <div className="root-card-note">
+                      {job.source_path || job.destination_path || job.result?.fileName || "Detail path tidak tersedia."}
+                    </div>
+                    {job.artifact_bucket && job.artifact_object_key ? (
+                      <div className="job-actions">
+                        <ActionButton className="primary-button" onClick={() => onDownload(job)}>
+                          Download artifact
+                        </ActionButton>
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+            <section>
+              <h4>Audit</h4>
+              <div className="job-stack">
+                {audits.map((audit) => (
+                  <article key={audit.id} className="job-card">
+                    <div className="job-card-top">
+                      <div>
+                        <strong>{String(audit.action || "activity").replace(/_/g, " ")}</strong>
+                        <div className="mono">{audit.device_id} · {audit.job_id ? `Job #${audit.job_id}` : "system"}</div>
+                      </div>
+                    </div>
+                    <div className="job-card-meta">
+                      <span>{formatDate(audit.created_at)}</span>
+                      <span>{audit.target_path || "target tidak tersedia"}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const currentPathname = typeof window !== "undefined" ? window.location.pathname : "/";
   const currentSearch = typeof window !== "undefined" ? window.location.search : "";
@@ -1883,6 +2040,7 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [fileJobs, setFileJobs] = useState([]);
   const [roots, setRoots] = useState([]);
+  const [deviceAliases, setDeviceAliases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedDeviceId, setSelectedDeviceId] = useState("all");
@@ -1903,6 +2061,11 @@ export default function App() {
   const [createRole, setCreateRole] = useState("operator");
   const [createAssignedDeviceId, setCreateAssignedDeviceId] = useState("");
   const [createApproveImmediately, setCreateApproveImmediately] = useState(true);
+  const [aliasModalDeviceId, setAliasModalDeviceId] = useState("");
+  const [aliasDraft, setAliasDraft] = useState("");
+  const [transferHistoryOpen, setTransferHistoryOpen] = useState(false);
+  const [transferHistoryLoading, setTransferHistoryLoading] = useState(false);
+  const [transferHistory, setTransferHistory] = useState({ jobs: [], auditLogs: [] });
   const fileInputRef = useRef(null);
 
   function resetAuthenticatedState() {
@@ -1915,6 +2078,7 @@ export default function App() {
     setLogs([]);
     setFileJobs([]);
     setRoots([]);
+    setDeviceAliases([]);
     setLoading(true);
     setError("");
     setDashboardInfo("");
@@ -1935,6 +2099,11 @@ export default function App() {
     setCreateRole("operator");
     setCreateAssignedDeviceId("");
     setCreateApproveImmediately(true);
+    setAliasModalDeviceId("");
+    setAliasDraft("");
+    setTransferHistoryOpen(false);
+    setTransferHistoryLoading(false);
+    setTransferHistory({ jobs: [], auditLogs: [] });
   }
 
   function clearGuestLinkRequest() {
@@ -2050,8 +2219,8 @@ export default function App() {
     if (!pendingGuestLinkDeviceId || !profile || profile.status !== "approved") {
       return;
     }
-    if (profile.role !== "user") {
-      setDashboardInfo("Penautan dari Guest Mode hanya tersedia untuk akun User. Akses role Anda tetap mengikuti cakupan dashboard.");
+    if (!["user", "operator"].includes(profile.role)) {
+      setDashboardInfo("Penautan dari Guest Mode tersedia untuk akun User atau Operator. Akses role Anda tetap mengikuti cakupan dashboard.");
       clearGuestLinkRequest();
     }
   }, [pendingGuestLinkDeviceId, profile]);
@@ -2074,6 +2243,7 @@ export default function App() {
         setRoots(dashboard.roots || []);
         setAccounts(dashboard.accounts || []);
         setEnvironments(dashboard.environments || []);
+        setDeviceAliases(dashboard.deviceAliases || []);
         if (dashboard.authPolicy) {
           setAuthPolicy((current) => ({ ...current, ...dashboard.authPolicy }));
         }
@@ -2126,15 +2296,22 @@ export default function App() {
 
   const deviceEntries = useMemo(() => {
     const grouped = new Map();
+    const aliasMap = new Map(
+      deviceAliases.map((entry) => [String(entry.device_id || ""), String(entry.alias || "").trim()])
+    );
     for (const row of services) {
       const deviceRecord = Array.isArray(row.devices) ? row.devices[0] : row.devices;
       const deviceStatus = deriveDeviceStatus(deviceRecord);
       const serviceStatus = deriveServiceStatus(row, deviceStatus);
+      const rawDeviceName = deviceRecord?.device_name || row.device_id;
+      const deviceAlias = aliasMap.get(String(row.device_id)) || "";
 
       if (!grouped.has(row.device_id)) {
         grouped.set(row.device_id, {
           deviceId: row.device_id,
-          deviceName: deviceRecord?.device_name || row.device_id,
+          deviceName: deviceAlias || rawDeviceName,
+          deviceAlias,
+          rawDeviceName,
           deviceStatus,
           deviceRecord,
           services: [],
@@ -2161,12 +2338,14 @@ export default function App() {
           ["missing", "partial"].includes(service.location_status)
       ).length,
     }));
-  }, [services, fileJobs]);
+  }, [services, fileJobs, deviceAliases]);
 
   const selectedDevice =
     selectedDeviceId === "all"
       ? deviceEntries[0] || null
       : deviceEntries.find((entry) => entry.deviceId === selectedDeviceId) || null;
+  const aliasModalDevice =
+    deviceEntries.find((entry) => entry.deviceId === aliasModalDeviceId) || null;
   const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
 
   useEffect(() => {
@@ -2391,32 +2570,31 @@ export default function App() {
   async function queueCommand(deviceId, serviceName, action) {
     setBusyAction(`${deviceId}:${serviceName || "device"}:${action}`);
     setError("");
-    const { error: insertError } = await supabase.from("commands").insert({
-      device_id: deviceId,
-      service_name: serviceName,
-      action,
-      status: "pending",
-    });
-    setBusyAction("");
-    if (insertError) {
-      setError(formatEdgeFunctionError(insertError));
-      return;
+    try {
+      await invokeAdmin("queueCommand", {
+        deviceId,
+        serviceName,
+        commandAction: action,
+      });
+      loadAll(true);
+    } catch (commandError) {
+      setError(formatEdgeFunctionError(commandError));
+    } finally {
+      setBusyAction("");
     }
-    loadAll(true);
   }
 
   async function updateDeviceStatus(deviceId, status) {
     setBusyAction(`${deviceId}:${status}`);
-    const { error: updateError } = await supabase
-      .from("devices")
-      .update({ status })
-      .eq("device_id", deviceId);
-    setBusyAction("");
-    if (updateError) {
-      setError(formatEdgeFunctionError(updateError));
-      return;
+    setError("");
+    try {
+      await invokeAdmin("updateDeviceStatus", { deviceId, status });
+      loadAll(true);
+    } catch (statusError) {
+      setError(formatEdgeFunctionError(statusError));
+    } finally {
+      setBusyAction("");
     }
-    loadAll(true);
   }
 
   async function createFileJob(jobType, payload = {}) {
@@ -2487,11 +2665,62 @@ export default function App() {
       setSelectedDeviceId(deviceId);
       clearGuestLinkRequest();
       await loadAll(true);
-      setDashboardInfo("Device lokal berhasil ditautkan ke akun User ini.");
+      setDashboardInfo("Device lokal berhasil ditautkan ke akun ini.");
     } catch (linkError) {
       setError(formatEdgeFunctionError(linkError));
     } finally {
       setBusyAction("");
+    }
+  }
+
+  function openAliasModal(device) {
+    setAliasModalDeviceId(device.deviceId);
+    setAliasDraft(device.deviceAlias || "");
+  }
+
+  async function saveDeviceAlias() {
+    if (!aliasModalDevice) {
+      return;
+    }
+
+    try {
+      setBusyAction(`alias:${aliasModalDevice.deviceId}`);
+      setError("");
+      await invokeAdmin("updateDeviceAlias", {
+        deviceId: aliasModalDevice.deviceId,
+        alias: aliasDraft,
+      });
+      setAliasModalDeviceId("");
+      setAliasDraft("");
+      await loadAll(true);
+    } catch (aliasError) {
+      setError(formatEdgeFunctionError(aliasError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function openTransferHistory() {
+    if (profile?.role !== "super_admin") {
+      return;
+    }
+
+    try {
+      setTransferHistoryOpen(true);
+      setTransferHistoryLoading(true);
+      setError("");
+      const data = await invokeAdmin("listTransferHistory", {
+        deviceId: selectedDeviceId === "all" ? "" : selectedDeviceId,
+      });
+      setTransferHistory({
+        jobs: data.jobs || [],
+        auditLogs: data.auditLogs || [],
+      });
+    } catch (historyError) {
+      setError(formatEdgeFunctionError(historyError));
+      setTransferHistory({ jobs: [], auditLogs: [] });
+    } finally {
+      setTransferHistoryLoading(false);
     }
   }
 
@@ -2816,33 +3045,33 @@ export default function App() {
   const isOperator = profile.role === "operator";
   const isUser = profile.role === "user";
   const showGuestLinkPrompt =
-    isUser && Boolean(pendingGuestLinkDeviceId) && profile.status === "approved";
+    (isUser || isOperator) && Boolean(pendingGuestLinkDeviceId) && profile.status === "approved";
   const linkingGuestDevice = busyAction === `guest-link:${pendingGuestLinkDeviceId}`;
 
   return (
-    <main className="console-shell">
-      <header className="topbar">
+    <main className={`console-shell role-${profile.role}`}>
+      <header className="topbar app-hero">
         <div>
           <div className="section-eyebrow">
-            {isSuperAdmin ? "Authenticated Admin Console" : isOperator ? "Operator Console" : "User Console"}
+            {isSuperAdmin ? "SuperAdmin Command Center" : isOperator ? "Operator Workspace" : "User Workspace"}
           </div>
           <h1>School Services Remote Control</h1>
           <p>
             {isSuperAdmin
-              ? "Pantau seluruh trafik, persetujuan akun, lingkungan operator, dan akses perangkat dari satu console terpusat."
+              ? "Pantau seluruh perangkat, akses akun, transfer data, dan kesehatan layanan dari satu pusat kendali."
               : isOperator
-                ? "Kelola perangkat dan akun user di lingkungan Anda tanpa membuka akses yang khusus untuk SuperAdmin."
-                : "Pantau perangkat yang terhubung ke akun Anda dan gunakan kontrol layanan yang relevan untuk device sendiri."}
+                ? "Kelola perangkat dan akun user di lingkungan Anda dengan kontrol operasional yang aman dan terukur."
+                : "Pantau device milik Anda, buka link publik, dan kendalikan layanan lokal yang tersedia."}
           </p>
         </div>
         <div className="topbar-actions">
           <StatusChip status={channelState || "connecting"} label={channelState || "connecting"} />
-          <button type="button" className="secondary-button" onClick={() => loadAll()}>
+          <ActionButton className="secondary-button" busy={loading} onClick={() => loadAll()}>
             Refresh
-          </button>
-          <button type="button" className="secondary-button" onClick={signOut}>
-            Sign out
-          </button>
+          </ActionButton>
+          <ActionButton className="secondary-button" busy={authLoading} onClick={signOut}>
+            Log Out
+          </ActionButton>
         </div>
       </header>
 
@@ -2877,6 +3106,24 @@ export default function App() {
           </div>
         </div>
       ) : null}
+      <DeviceAliasModal
+        device={aliasModalDevice}
+        value={aliasDraft}
+        onChange={setAliasDraft}
+        onClose={() => {
+          setAliasModalDeviceId("");
+          setAliasDraft("");
+        }}
+        onSave={saveDeviceAlias}
+        busy={busyAction === `alias:${aliasModalDevice?.deviceId}`}
+      />
+      <TransferHistoryModal
+        open={transferHistoryOpen}
+        loading={transferHistoryLoading}
+        history={transferHistory}
+        onClose={() => setTransferHistoryOpen(false)}
+        onDownload={handleArtifactDownload}
+      />
 
       <div className="console-grid">
         <aside className="sidebar">
@@ -2925,24 +3172,32 @@ export default function App() {
                       <div>
                         <h2>{selectedDevice.deviceName}</h2>
                         <div className="mono">{selectedDevice.deviceId}</div>
+                        {selectedDevice.deviceAlias ? (
+                          <div className="root-card-note">Nama asli: {selectedDevice.rawDeviceName}</div>
+                        ) : null}
                       </div>
-                      <StatusChip status={selectedDevice.deviceStatus} />
+                      <div className="service-status-group">
+                        <StatusChip status={selectedDevice.deviceStatus} />
+                        <ActionButton className="secondary-button" onClick={() => openAliasModal(selectedDevice)}>
+                          Edit alias
+                        </ActionButton>
+                      </div>
                     </div>
                     <div className="metric-grid">
                       <div className="metric-card">
-                        <span>Heartbeat</span>
+                        <span>Heartbeat <InfoHint text="Waktu terakhir agent device mengirim tanda aktif ke dashboard." /></span>
                         <strong>{formatRelativeTime(selectedDevice.deviceRecord?.last_seen, now)}</strong>
                       </div>
                       <div className="metric-card">
-                        <span>Services running</span>
+                        <span>Service aktif <InfoHint text="Jumlah layanan lokal yang sedang berjalan dan siap dipantau." /></span>
                         <strong>{selectedDevice.runningCount}</strong>
                       </div>
                       <div className="metric-card">
-                        <span>Active file jobs</span>
+                        <span>Transfer berjalan <InfoHint text="Jumlah pekerjaan transfer file yang masih pending atau running." /></span>
                         <strong>{selectedDevice.fileJobCount}</strong>
                       </div>
                       <div className="metric-card">
-                        <span>Needs attention</span>
+                        <span>Perlu perhatian <InfoHint text="Jumlah service yang offline, error, blocked, atau path lokalnya belum lengkap." /></span>
                         <strong>{selectedDevice.issueCount}</strong>
                       </div>
                     </div>
@@ -2950,22 +3205,24 @@ export default function App() {
 
                   <article className="service-panel">
                     <div className="panel-heading-row">
-                      <h3>Service Control</h3>
+                      <h3>Kontrol layanan <InfoHint text="Start/Stop mengatur service lokal. Stop agent menghentikan koneksi agent sampai service dijalankan lagi dari perangkat." /></h3>
                       <div className="panel-actions">
+                        {isSuperAdmin || isOperator ? (
+                          <ActionButton
+                            className="secondary-button"
+                            busy={busyAction === `${selectedDevice.deviceId}:device:kill`}
+                            disabled={busyAction !== "" && busyAction !== `${selectedDevice.deviceId}:device:kill`}
+                            onClick={() => queueCommand(selectedDevice.deviceId, null, "kill")}
+                          >
+                            Stop agent
+                          </ActionButton>
+                        ) : null}
                         {isSuperAdmin ? (
                           <>
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              disabled={busyAction !== ""}
-                              onClick={() => queueCommand(selectedDevice.deviceId, null, "kill")}
-                            >
-                              Stop agent
-                            </button>
-                            <button
-                              type="button"
+                            <ActionButton
                               className={selectedDevice.deviceStatus === "blocked" ? "primary-button" : "danger-button"}
-                              disabled={busyAction !== ""}
+                              busy={busyAction === `${selectedDevice.deviceId}:${selectedDevice.deviceStatus === "blocked" ? "active" : "blocked"}`}
+                              disabled={busyAction !== "" && busyAction !== `${selectedDevice.deviceId}:${selectedDevice.deviceStatus === "blocked" ? "active" : "blocked"}`}
                               onClick={() =>
                                 updateDeviceStatus(
                                   selectedDevice.deviceId,
@@ -2974,23 +3231,26 @@ export default function App() {
                               }
                             >
                               {selectedDevice.deviceStatus === "blocked" ? "Unblock device" : "Block device"}
-                            </button>
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              disabled={busyAction !== ""}
-                              onClick={() => copyGuestLink(selectedDevice.deviceId)}
-                            >
-                              Sync guest shortcut
-                            </button>
+                            </ActionButton>
+                            <ActionButton className="secondary-button" busy={transferHistoryLoading} onClick={openTransferHistory}>
+                              Riwayat transfer
+                            </ActionButton>
                           </>
                         ) : null}
+                        <ActionButton
+                          className="secondary-button"
+                          busy={busyAction === `guest:${selectedDevice.deviceId}`}
+                          disabled={busyAction !== "" && busyAction !== `guest:${selectedDevice.deviceId}`}
+                          onClick={() => copyGuestLink(selectedDevice.deviceId)}
+                        >
+                          Salin link Guest
+                        </ActionButton>
                       </div>
                     </div>
 
-                    {isSuperAdmin ? (
+                    {isSuperAdmin || isOperator || isUser ? (
                       <div className="metric-card guest-monitor-card">
-                        <span>Guest monitor link</span>
+                        <span>Link monitor publik <InfoHint text="Link ini membuka halaman Guest khusus device ini untuk melihat status dan link E-Rapor." /></span>
                         <strong className="service-link mono">
                           <a href={selectedGuestUrl} target="_blank" rel="noreferrer">
                             {selectedGuestUrl}
@@ -3024,7 +3284,7 @@ export default function App() {
                           </div>
                           <div className="service-detail-grid">
                             <div>
-                              <span>{getPublicUrlLabel(service)}</span>
+                              <span>{getPublicUrlLabel(service)} <InfoHint text="Tautan publik yang dibuat agent agar layanan lokal dapat dibuka dari luar jaringan lokal." /></span>
                               <strong className="service-link">
                                 {service.public_url ? (
                                   <a href={service.public_url} target="_blank" rel="noreferrer">
@@ -3036,11 +3296,11 @@ export default function App() {
                               </strong>
                             </div>
                             <div>
-                              <span>Resolved path</span>
+                              <span>Path lokal <InfoHint text="Lokasi file atau folder service yang berhasil ditemukan agent di device." /></span>
                               <strong className="mono">{service.resolved_path || "-"}</strong>
                             </div>
                             <div>
-                              <span>Last ping</span>
+                              <span>Ping terakhir <InfoHint text="Waktu terakhir status service ini diperbarui oleh agent." /></span>
                               <strong>{formatRelativeTime(service.last_ping, now)}</strong>
                             </div>
                           </div>
@@ -3055,22 +3315,22 @@ export default function App() {
                             onActionComplete={setError}
                           />
                           <div className="panel-actions">
-                            <button
-                              type="button"
+                            <ActionButton
                               className="primary-button"
+                              busy={busyAction === `${selectedDevice.deviceId}:${service.service_name}:start`}
                               disabled={busyAction !== "" || runningNow}
                               onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "start")}
                             >
                               Start
-                            </button>
-                            <button
-                              type="button"
+                            </ActionButton>
+                            <ActionButton
                               className="secondary-button"
+                              busy={busyAction === `${selectedDevice.deviceId}:${service.service_name}:stop`}
                               disabled={busyAction !== "" || !runningNow}
                               onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "stop")}
                             >
                               Stop
-                            </button>
+                            </ActionButton>
                           </div>
                         </article>
                       )})}
@@ -3320,13 +3580,13 @@ export default function App() {
                           />
                         </label>
                         <div className="panel-actions" style={{ alignItems: "end" }}>
-                          <button
-                            type="button"
+                          <ActionButton
                             className="primary-button"
+                            busy={busyAction === "account:updateAuthPolicy"}
                             onClick={() => handleAccountAction("updateAuthPolicy", authPolicy)}
                           >
-                            Save policy
-                          </button>
+                            Simpan policy
+                          </ActionButton>
                         </div>
                       </div>
                     </article>
@@ -3439,9 +3699,13 @@ export default function App() {
                         </label>
                       ) : null}
                       <div className="panel-actions" style={{ alignItems: "end" }}>
-                        <button type="button" className="primary-button" onClick={createManagedAccount}>
-                          Create account
-                        </button>
+                        <ActionButton
+                          className="primary-button"
+                          busy={busyAction === "account:createAccount"}
+                          onClick={createManagedAccount}
+                        >
+                          Buat akun
+                        </ActionButton>
                       </div>
                     </div>
                     <div className="job-stack">
@@ -3468,36 +3732,36 @@ export default function App() {
                           {account.rejection_reason ? <div className="job-error">{account.rejection_reason}</div> : null}
                           <div className="job-actions">
                             {account.status !== "approved" ? (
-                              <button type="button" className="primary-button" onClick={() => handleAccountAction("approveAccount", { userId: account.user_id })}>
+                              <ActionButton className="primary-button" busy={busyAction === "account:approveAccount"} onClick={() => handleAccountAction("approveAccount", { userId: account.user_id })}>
                                 Approve
-                              </button>
+                              </ActionButton>
                             ) : null}
                             {account.status === "pending" ? (
                               <>
-                                <button type="button" className="secondary-button" onClick={() => handleAccountAction("extendApproval", { userId: account.user_id, hours: account.role === "operator" ? authPolicy.operatorAutoApproveHours : authPolicy.environmentUserAutoApproveHours })}>
+                                <ActionButton className="secondary-button" busy={busyAction === "account:extendApproval"} onClick={() => handleAccountAction("extendApproval", { userId: account.user_id, hours: account.role === "operator" ? authPolicy.operatorAutoApproveHours : authPolicy.environmentUserAutoApproveHours })}>
                                   Extend
-                                </button>
-                                <button type="button" className="danger-button" onClick={() => handleAccountAction("rejectAccount", { userId: account.user_id, reason: "Permintaan akun belum dapat disetujui." })}>
+                                </ActionButton>
+                                <ActionButton className="danger-button" busy={busyAction === "account:rejectAccount"} onClick={() => handleAccountAction("rejectAccount", { userId: account.user_id, reason: "Permintaan akun belum dapat disetujui." })}>
                                   Reject
-                                </button>
+                                </ActionButton>
                               </>
                             ) : null}
                             {account.status !== "disabled" ? (
-                              <button type="button" className="secondary-button" onClick={() => handleAccountAction("disableAccount", { userId: account.user_id })}>
+                              <ActionButton className="secondary-button" busy={busyAction === "account:disableAccount"} onClick={() => handleAccountAction("disableAccount", { userId: account.user_id })}>
                                 Disable
-                              </button>
+                              </ActionButton>
                             ) : null}
-                            <button type="button" className="secondary-button" onClick={() => handleAccountAction("resetPassword", { email: account.email })}>
+                            <ActionButton className="secondary-button" busy={busyAction === "account:resetPassword"} onClick={() => handleAccountAction("resetPassword", { email: account.email })}>
                               Reset password
-                            </button>
+                            </ActionButton>
                             {isSuperAdmin && ["operator", "user"].includes(account.role) ? (
-                              <button
-                                type="button"
+                              <ActionButton
                                 className="danger-button"
+                                busy={busyAction === "account:deleteAccount"}
                                 onClick={() => handleDeleteAccount(account)}
                               >
                                 Hapus akun
-                              </button>
+                              </ActionButton>
                             ) : null}
                           </div>
                         </article>

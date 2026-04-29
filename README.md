@@ -1,128 +1,69 @@
-# E-Rapor Agent and Web App
+# School Services
 
-Repository ini berisi source yang aman untuk dipublikasikan dan dibuild sendiri.
+School Services membantu membuka akses E-Rapor dari perangkat sekolah dan menampilkan status layanan melalui Web App yang mudah digunakan.
 
-Supabase schema dan Edge Function tetap dipertahankan di repo. File env, kredensial admin, token deploy, password database, dan konfigurasi mesin pribadi tetap tidak dipublikasikan.
+Aplikasi ini menyediakan portal Guest untuk pengguna umum, halaman login untuk akun terdaftar, serta dashboard sesuai hak akses akun.
 
-Untuk instalasi Windows yang umum, agent sekarang mencoba langsung:
+## Fitur Utama
 
-- konek ke Supabase publik bawaan repo
-- mendeteksi service Windows E-Rapor dan Dapodik secara otomatis
-- mendeteksi lalu mensinkronkan file `.env` lokal E-Rapor untuk `app.baseURL` di root install dan `wwwroot`
-- memasang aplikasi `School Services` ke `C:\Program Files\School Services`
-- menyimpan state tulis ke `C:\ProgramData\School Services`
-- membuka halaman guest lewat launcher `School Services` di browser default
-- tetap jalan walau software target belum terpasang atau agent belum dijalankan sebagai Administrator
+- Guest Mode untuk melihat status perangkat dan membuka tautan E-Rapor.
+- Dashboard role-based untuk SuperAdmin, Operator, dan User.
+- Penautan perangkat setelah login agar layanan lokal dapat tampil di akun pengguna.
+- Nama tampilan perangkat per akun tanpa mengubah nama asli perangkat.
+- Tombol mulai dan hentikan layanan dari dashboard sesuai hak akses.
+- Riwayat berkas untuk melihat aktivitas berkas yang diproses.
+- Installer Windows dengan agent background dan auto-update dari GitHub Releases.
+- Tampilan Auth, Guest, dan Dashboard yang responsif untuk desktop dan mobile.
 
-## Isi Repo
+## Jenis Akses
 
-- `agent/`: source agent Windows
-- `web-app/`: source Web App React/Vite untuk Auth, Guest Mode, dan Dashboard
-- `supabase/`: migrations dan Edge Functions
-- `agent.runtime.example.json`: template konfigurasi agent
-- `.env.example`: template environment variable
+| Akses | Fungsi |
+| --- | --- |
+| Guest | Melihat status perangkat dan membuka E-Rapor jika layanan sudah siap. |
+| User | Mengelola perangkat miliknya sendiri dan melihat layanan yang tersedia. |
+| Operator | Mengelola pengguna dan perangkat di lingkungan operator. |
+| SuperAdmin | Mengelola seluruh perangkat, akun, lingkungan, dan fitur berkas khusus. |
 
-## Yang Tidak Lagi Dipublikasikan
+## Instalasi Pengguna
 
-- `Automation E-Rapor.bat`
-- `.codex/`
-- `agent.runtime.json`
+1. Buka halaman [GitHub Releases](https://github.com/Zy0x/School-Services/releases).
+2. Unduh installer `School Services v2.0.0.exe`.
+3. Jalankan installer di Windows.
+4. Buka shortcut `School Services`.
+5. Tunggu halaman Guest terbuka di browser.
 
-Repo publik ini tetap diarahkan ke control plane Supabase yang dipakai aplikasi, sehingga build publik bisa langsung terkoneksi tanpa harus mem-publish file `.env`. Konfigurasi sensitif untuk administrasi dan deploy tetap hanya dibaca dari file env lokal maintainer.
+Jika perangkat sudah siap, halaman Guest akan menampilkan status layanan dan tombol untuk membuka E-Rapor.
+
+## Cara Penggunaan Singkat
+
+1. Buka `School Services` dari shortcut.
+2. Gunakan halaman Guest untuk melihat status awal perangkat.
+3. Pilih `Masuk` atau `Daftar` jika membutuhkan akses akun.
+4. Setelah login, konfirmasi penautan perangkat jika diminta.
+5. Buka E-Rapor dari tombol yang tersedia.
+
+## Keamanan
+
+- Akses dibatasi berdasarkan jenis akun.
+- Operator hanya melihat perangkat dan pengguna di lingkungannya.
+- User hanya melihat perangkat yang menjadi aksesnya.
+- Fitur berkas khusus hanya tersedia untuk SuperAdmin.
+- File rahasia seperti `.env`, token, password database, dan konfigurasi lokal tidak dipublikasikan di repo.
 
 ## Build Dari Source
 
-1. Install dependency root:
+Dokumentasi build, struktur source, Supabase workflow, dan proses release tersedia di [README_DEV.md](./README_DEV.md).
 
-```powershell
-npm install
-```
+## Changelog
 
-2. Jika ingin override konfigurasi lokal, salin template:
+Catatan rilis tersedia di [CHANGELOG.md](./CHANGELOG.md).
 
-```powershell
-Copy-Item .env.example .env
-Copy-Item agent.runtime.example.json agent.runtime.json
-```
+## Support
 
-3. Untuk instalasi yang umum, Anda bisa langsung build tanpa mengedit apa pun. `agent.runtime.json` dan `.env` hanya diperlukan jika Anda ingin override deteksi default, memakai path custom, atau menjalankan operasi admin/deploy Supabase.
+- GitHub: [Zy0x](https://github.com/Zy0x)
+- PayPal: [paypal.me/theamagenta](https://paypal.me/theamagenta)
+- Trakteer: [trakteer.id/zy0x](https://trakteer.id/zy0x)
 
-4. Build Web App:
+## Lisensi
 
-```powershell
-npm run dashboard:build
-```
-
-Hasil build Web App berada di `Output/web-app/`.
-
-Untuk menjalankan preview lokal setelah build:
-
-```bash
-npm run dashboard:preview
-```
-
-5. Build agent Windows:
-
-```powershell
-npm run agent:build
-```
-
-Build ini sekarang menghasilkan:
-
-- payload installer internal di `agent/dist/payload/`
-- installer final di `agent/dist/release/School Services vX.Y.Z.exe`
-
-Syarat build installer:
-
-- Inno Setup 6 (`ISCC.exe`) harus terpasang atau path-nya diset lewat `ISCC_PATH`
-
-## Layout Instalasi Windows
-
-Installer `School Services vX.Y.Z.exe` akan:
-
-- memasang binary read-only ke `C:\Program Files\School Services`
-- menyimpan konfigurasi, log, cache, update, dan tunnel state ke `C:\ProgramData\School Services`
-- membuat Start Menu entry `School Services`
-- membuat desktop shortcut `.lnk` hanya jika dipilih saat install
-- mendaftarkan Scheduled Task Windows agar agent otomatis jalan saat startup sistem dengan hak tertinggi
-- membersihkan scheduled task lama dan shortcut legacy `School Services.url`
-
-Saat user membuka `School Services`, launcher akan memastikan background agent aktif lalu membuka guest portal di browser default.
-
-## Konfigurasi Minimum
-
-`.env` opsional untuk override lokal:
-
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-
-Opsional:
-
-- `VITE_PUBLIC_SITE_URL`
-- `GUEST_PORTAL_BASE_URL`
-- `CLOUDFLARED_PATH`
-- `ERAPOR_ROOT` untuk override root folder E-Rapor agar agent bisa sinkronkan `.env` root dan `wwwroot`
-- `ERAPOR_ENV_PATH` untuk override file `.env` webroot jika lokasi instalasi tidak standar
-- `ERAPOR_DB_SERVICE_NAME`
-- `ERAPOR_APP_SERVICE_NAME`
-- `DAPODIK_DB_SERVICE_NAME`
-- `DAPODIK_WEB_SERVICE_NAME`
-
-`agent.runtime.json`:
-
-- atur service lokal yang ingin dijalankan
-- atur `cloudflaredPath` jika `cloudflared.exe` tidak ada di PATH Windows
-- atur file config target lokal jika agent perlu menulis URL publik ke file aplikasi Anda
-- atur `guestPortal.baseUrl` jika domain guest portal berubah
-
-Kalau `agent.runtime.json` tidak ada, agent tetap akan memakai built-in defaults dan autodiscovery.
-
-## Catatan Publikasi
-
-- Jangan commit `.env`, `agent.runtime.json`, log runtime, atau file automation lokal.
-- Jangan masukkan service role key, secret key, access token, password database, atau token admin lain ke repo.
-- Release Windows resmi sekarang berupa satu file installer: `School Services vX.Y.Z.exe`.
-- Tag release yang didukung updater adalah `vX.Y.Z` atau `X.Y.Z`.
-- Updater agent akan mengambil installer GitHub yang versinya lebih baru lalu menjalankan silent upgrade di background.
+Project ini menggunakan lisensi yang tersedia di [LICENSE](./LICENSE).

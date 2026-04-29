@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+const fs = require("fs");
 const path = require("path");
 const { loadConfig } = require("./config");
 const { updateMappedConfig } = require("./configManager");
@@ -8,7 +9,7 @@ const { createDeviceMetadata } = require("./device");
 const { ensureProcessPathEntries } = require("./environment");
 const FileWorker = require("./fileWorker");
 const logger = require("./logger");
-const { getCacheDir, getStateDir } = require("./paths");
+const { getCacheDir, getDataDir, getInstallDir, getStateDir } = require("./paths");
 const { acquireProcessLock, releaseProcessLock } = require("./processLock");
 const { getConfigTargetsForService } = require("./serviceConfigs");
 const ServiceManager = require("./serviceManager");
@@ -81,6 +82,22 @@ function isSupabaseConnectivityError(error) {
   ].some((token) => message.includes(token));
 }
 
+function writeDeviceState(device, config) {
+  const statePath = path.join(getStateDir(), "device.json");
+  const payload = {
+    ...device,
+    guestPortalBaseUrl: config.guestPortal.baseUrl,
+    installDir: getInstallDir(),
+    dataDir: getDataDir(),
+    stateDir: getStateDir(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return statePath;
+}
+
 async function main() {
   const environmentBootstrap = ensureProcessPathEntries();
   if (environmentBootstrap.changed) {
@@ -94,9 +111,26 @@ async function main() {
   const stateDir = getStateDir();
   const lockPath = path.join(stateDir, "agent.lock");
   acquireProcessLock(lockPath);
-  logger.setLogFile(config.localLogPath);
-  logger.info(`Writing local logs to ${config.localLogPath}`);
+  logger.setLogFile(config.localLogPath, { maxBytes: config.localLogMaxBytes });
+  logger.info(`Writing local logs to ${config.localLogPath}`, {
+    serviceName: null,
+    maxBytes: config.localLogMaxBytes,
+  });
   const device = createDeviceMetadata({ deviceName: config.deviceName });
+  const deviceStatePath = writeDeviceState(device, config);
+  logger.info("Agent bootstrap metadata resolved.", {
+    serviceName: null,
+    deviceId: device.deviceId,
+    deviceName: device.deviceName,
+    hostname: device.hostname,
+    platform: device.platform,
+    runtimeConfigPath: config.runtimeConfigPath,
+    installDir: getInstallDir(),
+    dataDir: getDataDir(),
+    stateDir,
+    deviceStatePath,
+    pid: process.pid,
+  });
   const supabaseApi = createSupabaseApi(config.supabase);
   let removeLogSink = null;
   const serviceManager = new ServiceManager(config.services);

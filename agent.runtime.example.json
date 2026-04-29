@@ -1,7 +1,8 @@
 {
   "cloudflaredPath": "${CLOUDFLARED_PATH}",
   "loopIntervalMs": 5000,
-  "localLogPath": ".\\logs\\agent.log",
+  "localLogPath": ".\\logs\\school-services.log",
+  "localLogMaxBytes": 5242880,
   "startup": {
     "mode": "clean-online"
   },

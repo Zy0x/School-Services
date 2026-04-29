@@ -10,6 +10,7 @@ const levels = {
 
 const sinks = new Set();
 let logFilePath = null;
+let maxLogBytes = 5 * 1024 * 1024;
 
 function ensureParentDirectory(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -44,6 +45,61 @@ function formatFileLogLine(entry) {
   return `[${entry.timestamp}] [${levels[entry.level]}] ${entry.message}${details}\n`;
 }
 
+function trimLogFileForAppend(filePath, appendBytes) {
+  if (!maxLogBytes || maxLogBytes <= 0) {
+    return;
+  }
+
+  if (appendBytes >= maxLogBytes) {
+    fs.writeFileSync(filePath, "", "utf8");
+    return;
+  }
+
+  let stats = null;
+  try {
+    stats = fs.statSync(filePath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (stats.size + appendBytes <= maxLogBytes) {
+    return;
+  }
+
+  const bytesToKeep = Math.max(0, maxLogBytes - appendBytes);
+  if (bytesToKeep === 0) {
+    fs.writeFileSync(filePath, "", "utf8");
+    return;
+  }
+
+  const buffer = Buffer.alloc(bytesToKeep);
+  const fileHandle = fs.openSync(filePath, "r");
+  try {
+    const start = Math.max(0, stats.size - bytesToKeep);
+    const bytesRead = fs.readSync(fileHandle, buffer, 0, bytesToKeep, start);
+    fs.writeFileSync(filePath, buffer.subarray(0, bytesRead));
+  } finally {
+    fs.closeSync(fileHandle);
+  }
+}
+
+function fitLineToLimit(line) {
+  if (!maxLogBytes || maxLogBytes <= 0) {
+    return line;
+  }
+
+  const buffer = Buffer.from(line, "utf8");
+  if (buffer.length <= maxLogBytes) {
+    return line;
+  }
+
+  return buffer.subarray(buffer.length - maxLogBytes).toString("utf8");
+}
+
 function write(level, message, details) {
   const timestamp = new Date().toISOString();
   const prefix = `[${timestamp}] [${levels[level]}]`;
@@ -64,8 +120,10 @@ function write(level, message, details) {
 
   if (logFilePath) {
     try {
+      const fileLine = fitLineToLimit(formatFileLogLine(entry));
       ensureParentDirectory(logFilePath);
-      fs.appendFileSync(logFilePath, formatFileLogLine(entry), "utf8");
+      trimLogFileForAppend(logFilePath, Buffer.byteLength(fileLine, "utf8"));
+      fs.appendFileSync(logFilePath, fileLine, "utf8");
     } catch (error) {
       const fileError = error instanceof Error ? error.message : String(error);
       console.error(`[logger] file sink failed: ${fileError}`);
@@ -89,8 +147,9 @@ function addSink(sink) {
 
 module.exports = {
   addSink,
-  setLogFile(filePath) {
+  setLogFile(filePath, options = {}) {
     logFilePath = filePath || null;
+    maxLogBytes = Number(options.maxBytes || maxLogBytes || 5 * 1024 * 1024);
     if (logFilePath) {
       ensureParentDirectory(logFilePath);
     }

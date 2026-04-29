@@ -5,7 +5,6 @@ const { ensureBundledCloudflared } = require("./embeddedBinary");
 const {
   getFileJobsRoot,
   getInstallDir,
-  getLogsDir,
 } = require("./paths");
 const { buildDefaults } = require("./serviceConfigs");
 const logger = require("./logger");
@@ -105,6 +104,32 @@ function resolveConfigRelativePath(filePath, runtimeConfigPath) {
   return path.resolve(getInstallDir(), filePath);
 }
 
+function resolveLogPath(filePath) {
+  if (!filePath) {
+    return filePath;
+  }
+
+  if (path.isAbsolute(filePath)) {
+    return filePath;
+  }
+
+  return path.resolve(getInstallDir(), filePath);
+}
+
+function normalizeLogPathValue(filePath) {
+  const fallback = path.join("logs", "school-services.log");
+  if (!filePath) {
+    return fallback;
+  }
+
+  const normalized = String(filePath).replace(/\//g, "\\").toLowerCase();
+  if (!path.isAbsolute(filePath) && normalized.endsWith("\\logs\\agent.log")) {
+    return fallback;
+  }
+
+  return filePath;
+}
+
 function isSystemAccountEnvironment() {
   const username = String(process.env.USERNAME || "").trim().toLowerCase();
   const userProfile = String(process.env.USERPROFILE || "").trim().toLowerCase();
@@ -133,10 +158,15 @@ function loadConfig() {
     overrides.loopIntervalMs || process.env.AGENT_LOOP_INTERVAL_MS || 5000
   );
   const localLogPath = resolveConfigRelativePath(
-    overrides.localLogPath ||
-      process.env.AGENT_LOG_PATH ||
-      path.join(getLogsDir(), `agent-${new Date().toISOString().slice(0, 10)}.log`),
+    resolveLogPath(
+      normalizeLogPathValue(process.env.AGENT_LOG_PATH || overrides.localLogPath)
+    ),
     runtimeConfigPath
+  );
+  const localLogMaxBytes = Number(
+    overrides.localLogMaxBytes ||
+      process.env.AGENT_LOG_MAX_BYTES ||
+      5 * 1024 * 1024
   );
   const tunnelMode = String(
     overrides.tunnel?.mode || process.env.TUNNEL_MODE || "quick"
@@ -229,6 +259,7 @@ function loadConfig() {
     cloudflaredPath,
     loopIntervalMs,
     localLogPath,
+    localLogMaxBytes,
     startup: {
       mode:
         overrides.startup?.mode ||

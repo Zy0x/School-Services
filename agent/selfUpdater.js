@@ -34,13 +34,16 @@ function compareVersionParts(left, right) {
   return 0;
 }
 
-function resolveReleaseAssetName(version) {
+function resolveReleaseAssetNames(version) {
   const normalizedVersion = normalizeVersionToken(version);
   if (!normalizedVersion) {
-    return null;
+    return [];
   }
 
-  return `${VERSIONED_INSTALLER_PREFIX}${normalizedVersion}.exe`;
+  return [
+    `${VERSIONED_INSTALLER_PREFIX}${normalizedVersion}.exe`,
+    `School.Services.v${normalizedVersion}.exe`,
+  ];
 }
 
 class SelfUpdater {
@@ -152,9 +155,9 @@ class SelfUpdater {
     const latestRelease = await this.getLatestRelease(buildInfo);
     const latestReleaseTag = String(latestRelease.tag_name || "").trim();
     const latestReleaseVersion = normalizeVersionToken(latestReleaseTag);
-    const expectedAssetName = resolveReleaseAssetName(latestReleaseVersion);
+    const expectedAssetNames = resolveReleaseAssetNames(latestReleaseVersion);
     const matchingAsset = Array.isArray(latestRelease.assets)
-      ? latestRelease.assets.find((asset) => asset?.name === expectedAssetName)
+      ? latestRelease.assets.find((asset) => expectedAssetNames.includes(String(asset?.name || "")))
       : null;
     const currentReleaseTag = String(buildInfo.releaseTag || "").trim();
     const currentVersion = normalizeVersionToken(buildInfo.version);
@@ -182,7 +185,7 @@ class SelfUpdater {
     return {
       checked: true,
       updateAvailable: updateAvailable && Boolean(matchingAsset),
-      expectedAssetName,
+      expectedAssetNames,
       latestReleaseTag,
       latestReleaseVersion,
       matchingAssetName: matchingAsset?.name || null,

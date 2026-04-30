@@ -543,7 +543,67 @@ function formatVersionLabel(version, releaseTag) {
 }
 
 function getDeviceVersionLabel(deviceRecord) {
-  return formatVersionLabel(deviceRecord?.app_version, deviceRecord?.release_tag);
+  return formatVersionLabel(
+    deviceRecord?.app_version || deviceRecord?.appVersion,
+    deviceRecord?.release_tag || deviceRecord?.releaseTag
+  );
+}
+
+function getDeviceLatestVersionLabel(deviceRecord) {
+  return formatVersionLabel(
+    deviceRecord?.latest_version || deviceRecord?.latestVersion,
+    deviceRecord?.latest_release_tag || deviceRecord?.latestReleaseTag
+  );
+}
+
+function getDeviceUpdateModel(deviceRecord) {
+  const status = String(
+    deviceRecord?.update_status || deviceRecord?.updateStatus || "unchecked"
+  ).trim();
+  const updateAvailable = Boolean(
+    deviceRecord?.update_available ?? deviceRecord?.updateAvailable
+  );
+  const checkedAt = deviceRecord?.update_checked_at || deviceRecord?.updateCheckedAt || null;
+  const startedAt = deviceRecord?.update_started_at || deviceRecord?.updateStartedAt || null;
+  const error = deviceRecord?.update_error || deviceRecord?.updateError || "";
+  const localVersion = getDeviceVersionLabel(deviceRecord);
+  const latestVersion = getDeviceLatestVersionLabel(deviceRecord);
+  const normalizedStatus =
+    status === "updating"
+      ? "updating"
+      : status === "failed"
+        ? "failed"
+        : updateAvailable
+          ? "available"
+          : status === "current"
+            ? "current"
+            : "unchecked";
+  const labels = {
+    available: "Update tersedia",
+    current: "Sudah terbaru",
+    updating: "Sedang update",
+    failed: "Gagal update",
+    unchecked: "Belum dicek",
+  };
+
+  return {
+    status: normalizedStatus,
+    label: labels[normalizedStatus] || labels.unchecked,
+    toneStatus:
+      normalizedStatus === "current"
+        ? "ready"
+        : normalizedStatus === "available" || normalizedStatus === "updating"
+          ? "reconnecting"
+          : normalizedStatus === "failed"
+            ? "failed"
+            : "unknown",
+    localVersion,
+    latestVersion,
+    checkedAt,
+    startedAt,
+    error,
+    updateAvailable,
+  };
 }
 
 function normalizeLoginEmail(value) {
@@ -812,19 +872,6 @@ function DashboardStats({ devices, fileJobs, accounts, now }) {
   const issueCount = devices.reduce((total, device) => total + device.issueCount, 0);
   const runningJobs = fileJobs.filter((job) => ["pending", "running"].includes(job.status)).length;
   const pendingAccounts = accounts.filter((account) => account.status === "pending").length;
-  const uniqueVersions = Array.from(
-    new Set(
-      devices
-        .map((device) => getDeviceVersionLabel(device.deviceRecord))
-        .filter((value) => value && value !== "belum dilaporkan")
-    )
-  );
-  const versionSummary =
-    uniqueVersions.length === 0
-      ? "belum ada"
-      : uniqueVersions.length === 1
-        ? uniqueVersions[0]
-        : `${uniqueVersions.length} versi`;
 
   return (
     <section className="dashboard-stats-grid" aria-label="Ringkasan dashboard">
@@ -834,7 +881,6 @@ function DashboardStats({ devices, fileJobs, accounts, now }) {
         ["Perlu perhatian", issueCount, "Perangkat atau layanan yang perlu dicek."],
         ["Proses berkas", runningJobs, "Aktivitas berkas yang sedang berlangsung."],
         ["Akun menunggu", pendingAccounts, "Akun yang menunggu persetujuan."],
-        ["Versi lokal", versionSummary, "Versi aplikasi School Services yang dilaporkan perangkat."],
       ].map(([label, value, helper]) => (
         <article key={label} className="dashboard-stat-card">
           <span>{label}</span>
@@ -868,7 +914,7 @@ function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
           <span className="mono">{device.deviceId}</span>
           <span className="device-grid-meta">
             {device.runningCount} layanan aktif | {device.issueCount} perlu perhatian |{" "}
-            {formatRelativeTime(device.deviceRecord?.last_seen, now)} | {getDeviceVersionLabel(device.deviceRecord)}
+            {formatRelativeTime(device.deviceRecord?.last_seen, now)}
           </span>
         </button>
       ))}
@@ -1152,7 +1198,7 @@ function SiteFooter() {
   return (
     <footer className="site-footer">
       <div className="site-footer-copy">
-        <strong>School Services v2.0.0</strong>
+        <strong>School Services v2.0.3</strong>
         <p>
           Akses layanan sekolah dan pantau status E-Rapor dengan tampilan yang ringkas.
         </p>
@@ -1701,6 +1747,7 @@ function GuestConsole({ deviceId }) {
       ? "running"
       : guestStatus.overallStatus;
   const guestRuntimeBadge = getServiceStatusBadgeModel(guestRuntimeStatus);
+  const guestUpdate = getDeviceUpdateModel(state.device);
   const canOpenService = guestStatus.ready;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
   const loginUrl = buildAuthUrl({
@@ -1808,9 +1855,11 @@ function GuestConsole({ deviceId }) {
                 <StatusChip status={guestStatus.overallStatus} />
               </article>
               <article className="metric-card guest-status-card">
-                <span>Versi aplikasi lokal</span>
-                <strong>{formatVersionLabel(state.device?.appVersion, state.device?.releaseTag)}</strong>
-                <StatusChip status={state.device?.appVersion ? "ready" : "unknown"} />
+                <span>Versi & update</span>
+                <strong>{guestUpdate.localVersion}</strong>
+                <small>Latest GitHub: {guestUpdate.latestVersion}</small>
+                <small>Dicek: {formatRelativeTime(guestUpdate.checkedAt)}</small>
+                <StatusChip status={guestUpdate.toneStatus} label={guestUpdate.label} />
               </article>
             </section>
 
@@ -1873,10 +1922,6 @@ function GuestConsole({ deviceId }) {
                 <div>
                   <span>Lokasi aplikasi</span>
                   <strong className="mono">{service?.resolved_path || "-"}</strong>
-                </div>
-                <div>
-                  <span>Versi aplikasi lokal</span>
-                  <strong>{formatVersionLabel(state.device?.appVersion, state.device?.releaseTag)}</strong>
                 </div>
               </div>
 
@@ -2109,6 +2154,50 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
         );
       })}
     </div>
+  );
+}
+
+function DeviceUpdateCard({
+  deviceRecord,
+  deviceStatus = "offline",
+  busy = false,
+  onUpdate = null,
+  showAction = false,
+}) {
+  const update = getDeviceUpdateModel(deviceRecord);
+  const statusLabel = busy && update.status !== "updating" ? "Update diminta" : update.label;
+  const toneStatus = busy && update.status !== "updating" ? "reconnecting" : update.toneStatus;
+  const canUpdate =
+    showAction &&
+    typeof onUpdate === "function" &&
+    update.updateAvailable &&
+    update.status !== "updating" &&
+    deviceStatus === "online";
+
+  return (
+    <article className="metric-card device-update-card">
+      <span>Versi & update</span>
+      <strong>{update.localVersion}</strong>
+      <div className="device-update-lines">
+        <span>Latest GitHub: {update.latestVersion}</span>
+        <span>Dicek: {formatRelativeTime(update.checkedAt)}</span>
+        {update.startedAt ? <span>Mulai update: {formatRelativeTime(update.startedAt)}</span> : null}
+      </div>
+      <div className="service-status-group">
+        <StatusChip status={toneStatus} label={statusLabel} />
+        {showAction && canUpdate ? (
+          <ActionButton
+            className="primary-button"
+            busy={busy}
+            disabled={busy}
+            onClick={onUpdate}
+          >
+            Update Agent & Service
+          </ActionButton>
+        ) : null}
+      </div>
+      {update.error ? <div className="job-error">{update.error}</div> : null}
+    </article>
   );
 }
 
@@ -3839,10 +3928,13 @@ export default function App() {
                         <span>Perlu perhatian <InfoHint text="Jumlah layanan yang perlu dicek." /></span>
                         <strong>{selectedDevice.issueCount}</strong>
                       </div>
-                      <div className="metric-card">
-                        <span>Versi aplikasi lokal <InfoHint text="Versi School Services terakhir yang dilaporkan perangkat ini." /></span>
-                        <strong>{getDeviceVersionLabel(selectedDevice.deviceRecord)}</strong>
-                      </div>
+                      <DeviceUpdateCard
+                        deviceRecord={selectedDevice.deviceRecord}
+                        deviceStatus={selectedDevice.deviceStatus}
+                        busy={busyAction === `${selectedDevice.deviceId}:device:update`}
+                        onUpdate={() => queueCommand(selectedDevice.deviceId, null, "update")}
+                        showAction
+                      />
                     </div>
                   </article>
 

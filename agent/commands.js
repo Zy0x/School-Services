@@ -1,4 +1,7 @@
 const logger = require("./logger");
+const SelfUpdater = require("./selfUpdater");
+
+const { buildUpdateStateFromCheck } = SelfUpdater;
 
 async function executeCommands({
   commands,
@@ -7,8 +10,10 @@ async function executeCommands({
   supabaseApi,
   shortcutManager,
   urlCache,
+  selfUpdater,
 }) {
   let shouldExit = false;
+  let exitMode = null;
 
   async function buildLocationPayload(serviceName) {
     try {
@@ -118,6 +123,61 @@ async function executeCommands({
           });
         }
         shouldExit = true;
+        exitMode = "kill";
+      } else if (command.action === "update") {
+        if (!selfUpdater) {
+          throw new Error("Self updater is not available.");
+        }
+
+        const check = await selfUpdater.checkForUpdate(true);
+        const now = new Date().toISOString();
+        const updateState = buildUpdateStateFromCheck(check, {
+          ...(check.updateAvailable
+            ? {
+                updateStatus: "updating",
+                updateStartedAt: now,
+                updateError: null,
+              }
+            : {}),
+          updateCheckedAt: now,
+        });
+        await supabaseApi.updateDeviceUpdateState({
+          deviceId: command.device_id,
+          ...updateState,
+        });
+
+        if (!check.updateAvailable) {
+          logger.info("Update command skipped because no newer GitHub release is available.", {
+            serviceName: null,
+            currentVersion: check.currentVersion,
+            latestReleaseTag: check.latestReleaseTag,
+          });
+        } else {
+          await tunnelManager.stopAll();
+          for (const service of serviceManager.list()) {
+            if (urlCache) {
+              urlCache.clear(service.serviceName);
+            }
+            if (shortcutManager) {
+              shortcutManager.syncServiceUrl(service.serviceName, null);
+            }
+            const snapshot = await serviceManager.stopService(service.serviceName);
+            const locationPayload = await buildLocationPayload(service.serviceName);
+            await supabaseApi.upsertServiceStatus({
+              deviceId: command.device_id,
+              serviceName: service.serviceName,
+              port: snapshot.port,
+              status: "stopped",
+              publicUrl: null,
+              desiredState: snapshot.desiredState,
+              lastError: "Agent update is running.",
+              ...locationPayload,
+            });
+          }
+          selfUpdater.launchUpdater();
+          shouldExit = true;
+          exitMode = "update";
+        }
       } else {
         logger.warn(`Unsupported command payload: ${JSON.stringify(command)}`, {
           serviceName: command.service_name || null,
@@ -132,6 +192,21 @@ async function executeCommands({
           action: command.action,
         }
       );
+
+      if (command.action === "update") {
+        try {
+          await supabaseApi.updateDeviceUpdateState({
+            deviceId: command.device_id,
+            updateAvailable: false,
+            updateStatus: "failed",
+            updateCheckedAt: new Date().toISOString(),
+            updateStartedAt: null,
+            updateError: error.message,
+          });
+        } catch (publishError) {
+          logger.warn(`Failed to publish update command error: ${publishError.message}`);
+        }
+      }
 
       if (command.service_name) {
         await tunnelManager.stopTunnel(command.service_name);
@@ -171,7 +246,7 @@ async function executeCommands({
     }
   }
 
-  return { shouldExit };
+  return { shouldExit, exitMode };
 }
 
 module.exports = {

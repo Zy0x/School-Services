@@ -1,7 +1,7 @@
 #define MyAppName "School Services"
 #define MyAppId "{{A9A403AE-DA9D-4B98-B8A0-08A4FA3D8299}"
 #ifndef AppVersion
-#define AppVersion "2.0.1"
+#define AppVersion "2.0.3"
 #endif
 #ifndef PayloadDir
   #error PayloadDir preprocessor variable is required.

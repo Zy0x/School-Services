@@ -7,6 +7,7 @@ function createSupabaseApi(config) {
   let logWriteChain = Promise.resolve();
   let supportsExtendedServiceFields = true;
   let supportsExtendedDeviceFields = true;
+  let supportsDeviceUpdateFields = true;
 
   function buildDevicePayload(
     device,
@@ -52,6 +53,19 @@ function createSupabaseApi(config) {
     }
 
     return payload;
+  }
+
+  function buildDeviceUpdatePayload(update, now = new Date().toISOString()) {
+    return {
+      latest_release_tag: update.latestReleaseTag || null,
+      latest_version: update.latestVersion || null,
+      update_available: Boolean(update.updateAvailable),
+      update_status: update.updateStatus || "unchecked",
+      update_checked_at: update.updateCheckedAt || now,
+      update_started_at: update.updateStartedAt || null,
+      update_error: update.updateError || null,
+      update_asset_name: update.updateAssetName || null,
+    };
   }
 
   async function registerDevice(device) {
@@ -149,6 +163,29 @@ function createSupabaseApi(config) {
     }
 
     return data;
+  }
+
+  async function updateDeviceUpdateState(update) {
+    if (!supportsDeviceUpdateFields) {
+      return;
+    }
+
+    const { error } = await client
+      .from("devices")
+      .update(buildDeviceUpdatePayload(update))
+      .eq("device_id", update.deviceId);
+
+    if (
+      error &&
+      /column .* does not exist|violates check constraint/i.test(error.message || "")
+    ) {
+      supportsDeviceUpdateFields = false;
+      return;
+    }
+
+    if (error) {
+      throw error;
+    }
   }
 
   async function upsertServiceStatus(service) {
@@ -361,6 +398,7 @@ function createSupabaseApi(config) {
     markCommandDone,
     replaceFileRoots,
     registerDevice,
+    updateDeviceUpdateState,
     updateFileJob,
     upsertGuestShortcut,
     upsertServiceStatus,

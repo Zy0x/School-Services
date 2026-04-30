@@ -27,7 +27,7 @@ Deno.serve(async (request) => {
 
     const { data: device, error: deviceError } = await service
       .from("devices")
-      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at")
+      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name")
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -49,6 +49,14 @@ Deno.serve(async (request) => {
             releaseTag: null,
             buildCommit: null,
             builtAt: null,
+            latestReleaseTag: null,
+            latestVersion: null,
+            updateAvailable: false,
+            updateStatus: "unchecked",
+            updateCheckedAt: null,
+            updateStartedAt: null,
+            updateError: null,
+            updateAssetName: null,
           },
           service: null,
         });
@@ -78,6 +86,14 @@ Deno.serve(async (request) => {
           releaseTag: device.release_tag || null,
           buildCommit: device.build_commit || null,
           builtAt: device.built_at || null,
+          latestReleaseTag: device.latest_release_tag || null,
+          latestVersion: device.latest_version || null,
+          updateAvailable: Boolean(device.update_available),
+          updateStatus: device.update_status || "unchecked",
+          updateCheckedAt: device.update_checked_at || null,
+          updateStartedAt: device.update_started_at || null,
+          updateError: device.update_error || null,
+          updateAssetName: device.update_asset_name || null,
         },
         service: serviceRow || null,
       });

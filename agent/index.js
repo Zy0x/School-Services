@@ -14,6 +14,7 @@ const { acquireProcessLock, releaseProcessLock } = require("./processLock");
 const { getConfigTargetsForService } = require("./serviceConfigs");
 const ServiceManager = require("./serviceManager");
 const SelfUpdater = require("./selfUpdater");
+const { buildUpdateStateFromCheck } = SelfUpdater;
 const { createSupabaseApi } = require("./supabase");
 const ShortcutManager = require("./shortcutManager");
 const TunnelManager = require("./tunnel");
@@ -189,6 +190,18 @@ async function main() {
     registered: false,
     deviceBlocked: false,
   };
+
+  async function publishDeviceUpdateState(update) {
+    await trySupabase(
+      "publish-device-update-state",
+      () =>
+        supabaseApi.updateDeviceUpdateState({
+          deviceId: device.deviceId,
+          ...update,
+        }),
+      null
+    );
+  }
 
   function markSupabaseDisconnected(error, context) {
     const message = error instanceof Error ? error.message : String(error);
@@ -486,6 +499,9 @@ async function main() {
     for (const service of serviceManager.list()) {
       const pendingCommand = pendingCommandByService.get(service.serviceName);
       if (pendingCommand) {
+        if (pendingCommand.action === "update") {
+          continue;
+        }
         const desiredState =
           pendingCommand.action === "start" ? "running" : "stopped";
         serviceManager.setDesiredState(
@@ -599,21 +615,37 @@ async function main() {
 
     try {
       const check = await selfUpdater.checkForUpdate(false);
+      if (check.checked) {
+        await publishDeviceUpdateState(buildUpdateStateFromCheck(check));
+      }
       if (!check.checked || !check.updateAvailable) {
         return false;
       }
 
       updateInProgress = true;
+      await publishDeviceUpdateState(
+        buildUpdateStateFromCheck(check, {
+          updateStatus: "updating",
+          updateStartedAt: new Date().toISOString(),
+          updateError: null,
+        })
+      );
       logger.warn("A newer GitHub release is available. Stopping local services and relaunching updater.", {
         serviceName: null,
         currentVersion: check.currentVersion,
         currentReleaseTag: check.currentReleaseTag,
         latestReleaseTag: check.latestReleaseTag,
       });
-      await shutdown({ stopLocalServices: true, skipRemotePublish: true });
+      await shutdown({ stopLocalServices: true });
       selfUpdater.launchUpdater();
       return true;
     } catch (error) {
+      await publishDeviceUpdateState({
+        updateAvailable: false,
+        updateStatus: "failed",
+        updateCheckedAt: new Date().toISOString(),
+        updateError: error.message,
+      });
       logger.warn(`Automatic update check failed: ${error.message}`, {
         serviceName: null,
       });
@@ -689,6 +721,7 @@ async function main() {
       const result = await executeCommands({
         commands: executableCommands,
         serviceManager,
+        selfUpdater,
         tunnelManager,
         supabaseApi,
         shortcutManager,
@@ -696,6 +729,10 @@ async function main() {
       });
 
       if (result.shouldExit) {
+        if (result.exitMode === "update") {
+          await shutdown({ stopLocalServices: false, skipRemotePublish: true });
+          return;
+        }
         await shutdown({ stopLocalServices: false });
         return;
       }

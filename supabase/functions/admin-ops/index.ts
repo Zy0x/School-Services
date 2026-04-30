@@ -142,7 +142,7 @@ async function requireDeviceAccess(
 
 function sanitizeCommandAction(value: unknown) {
   const action = String(value || "").trim().toLowerCase();
-  if (["start", "stop", "kill"].includes(action)) {
+  if (["start", "stop", "kill", "update"].includes(action)) {
     return action;
   }
   throw new Error("Aksi command tidak dikenali.");
@@ -361,7 +361,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
       .order("device_id", { ascending: true })
       .order("service_name", { ascending: true }),
     buildQuery("devices")
-      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at")
+      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name")
       .order("device_name", { ascending: true }),
     buildQuery("agent_logs")
       .select("*")
@@ -882,10 +882,10 @@ async function queueScopedCommand(
 ) {
   const deviceId = String(body.deviceId || "").trim();
   const action = sanitizeCommandAction(body.commandAction || body.command || body.actionName);
-  const serviceName = action === "kill" ? null : String(body.serviceName || "").trim();
+  const serviceName = action === "kill" || action === "update" ? null : String(body.serviceName || "").trim();
   await requireDeviceAccess(service, actor, deviceId);
 
-  if (action !== "kill" && !serviceName) {
+  if (action !== "kill" && action !== "update" && !serviceName) {
     throw new Error("Nama service wajib diisi untuk aksi start/stop.");
   }
   if (action === "kill" && !isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {

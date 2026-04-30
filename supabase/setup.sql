@@ -6,7 +6,15 @@ create table if not exists public.devices (
   app_version text,
   release_tag text,
   build_commit text,
-  built_at timestamptz
+  built_at timestamptz,
+  latest_release_tag text,
+  latest_version text,
+  update_available boolean not null default false,
+  update_status text not null default 'unchecked',
+  update_checked_at timestamptz,
+  update_started_at timestamptz,
+  update_error text,
+  update_asset_name text
 );
 
 create table if not exists public.services (
@@ -29,7 +37,7 @@ create table if not exists public.commands (
   id bigint generated always as identity primary key,
   device_id text not null references public.devices(device_id) on delete cascade,
   service_name text,
-  action text not null check (action in ('start', 'stop', 'kill')),
+  action text not null check (action in ('start', 'stop', 'kill', 'update')),
   status text not null default 'pending' check (status in ('pending', 'done')),
   created_at timestamptz not null default timezone('utc', now())
 );

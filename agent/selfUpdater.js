@@ -46,6 +46,30 @@ function resolveReleaseAssetNames(version) {
   ];
 }
 
+function buildUpdateStateFromCheck(check, overrides = {}) {
+  const updateAvailable = Boolean(check?.updateAvailable);
+  let updateStatus = updateAvailable ? "available" : "current";
+  let updateError = null;
+
+  if (check?.reason === "missing-build-info") {
+    updateStatus = "failed";
+    updateError = "Build metadata is missing.";
+  } else if (check?.latestReleaseVersion && !check?.matchingAssetName) {
+    updateStatus = "failed";
+    updateError = "Latest release does not contain a supported installer asset.";
+  }
+
+  return {
+    latestReleaseTag: check?.latestReleaseTag || null,
+    latestVersion: check?.latestReleaseVersion || null,
+    updateAvailable,
+    updateStatus,
+    updateError,
+    updateAssetName: check?.matchingAssetName || null,
+    ...overrides,
+  };
+}
+
 class SelfUpdater {
   constructor(options = {}) {
     this.enabled = options.enabled !== false;
@@ -200,7 +224,7 @@ class SelfUpdater {
     }
 
     const child = spawn(
-      this.getPowerShellPath(),
+      getPowerShellPath(),
       [
         "-NoProfile",
         "-ExecutionPolicy",
@@ -223,3 +247,4 @@ class SelfUpdater {
 }
 
 module.exports = SelfUpdater;
+module.exports.buildUpdateStateFromCheck = buildUpdateStateFromCheck;

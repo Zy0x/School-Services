@@ -546,6 +546,14 @@ function getDeviceVersionLabel(deviceRecord) {
   return formatVersionLabel(deviceRecord?.app_version, deviceRecord?.release_tag);
 }
 
+function normalizeLoginEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeLoginPassword(value) {
+  return String(value || "").trim();
+}
+
 function statusTone(status) {
   if (status === "pending_setup") {
     return "warn";
@@ -3126,11 +3134,14 @@ export default function App() {
     setAuthError("");
     setAuthInfo("");
     try {
+      const normalizedEmail = normalizeLoginEmail(loginEmail);
+      const normalizedPassword = normalizeLoginPassword(loginPassword);
+
       if (authMode === "register") {
         await invokeEdgeFunction("account-access", {
           action: "register",
-          email: loginEmail,
-          password: loginPassword,
+          email: normalizedEmail,
+          password: normalizedPassword,
           displayName: registerDisplayName,
           role: registerRole,
           registrationMode: registerRole === "user" ? registerMode : "open_operator_signup",
@@ -3142,8 +3153,8 @@ export default function App() {
         setAuthMode("login");
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: loginEmail,
-          password: loginPassword,
+          email: normalizedEmail,
+          password: normalizedPassword,
         });
 
         if (signInError) {
@@ -3163,9 +3174,10 @@ export default function App() {
       setAuthError("");
       setAuthInfo("");
       const redirectTo = buildResetPasswordUrl();
+      const normalizedEmail = normalizeLoginEmail(loginEmail);
       await invokeEdgeFunction("account-access", {
         action: "forgotPassword",
-        email: loginEmail,
+        email: normalizedEmail,
         redirectTo,
       });
 

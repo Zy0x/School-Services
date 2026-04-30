@@ -134,10 +134,11 @@ async function ensureBuckets(env) {
   }
 }
 
-async function ensureAdminUser(env) {
+async function ensureAdminUser(env, options = {}) {
   const service = createServiceClient(env);
   const adminEmail = env.ADMIN_EMAIL;
   const adminPassword = env.ADMIN_PASSWORD;
+  const resetExistingPassword = options.resetExistingPassword === true;
 
   if (!adminEmail) {
     throw new Error("ADMIN_EMAIL is required in .env for admin seeding.");
@@ -165,7 +166,7 @@ async function ensureAdminUser(env) {
     }
 
     adminUser = data.user;
-  } else {
+  } else if (resetExistingPassword) {
     const { error } = await service.auth.admin.updateUserById(adminUser.id, {
       password: adminPassword,
       email_confirm: true,
@@ -251,7 +252,7 @@ async function main() {
   await ensureAdminCredentials(env);
 
   if (command === "seed-admin") {
-    await ensureAdminUser(env);
+    await ensureAdminUser(env, { resetExistingPassword: true });
     return;
   }
 
@@ -272,7 +273,7 @@ async function main() {
 
   pushMigrations(env);
   await ensureBuckets(env);
-  await ensureAdminUser(env);
+  await ensureAdminUser(env, { resetExistingPassword: false });
   deployFunctions(env);
   await verify(env);
 }

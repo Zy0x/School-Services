@@ -326,7 +326,7 @@ function loadConfig() {
       intervalMs: Number(
         overrides.selfUpdate?.intervalMs ||
           process.env.AGENT_SELF_UPDATE_INTERVAL_MS ||
-          300000
+          30000
       ),
     },
     deviceName: overrides.deviceName || process.env.DEVICE_NAME || null,

@@ -3,6 +3,8 @@ import { createServiceClient } from "../_shared/admin.ts";
 import {
   applyLatestReleaseToDevice,
   getLatestGitHubRelease,
+  REMOTE_UPDATE_MIN_VERSION,
+  supportsRemoteUpdate,
 } from "../_shared/github-release.ts";
 
 function isFresh(value: string | null, thresholdMs = 20000) {
@@ -121,6 +123,12 @@ Deno.serve(async (request) => {
       const deviceWithLatest = action === "update"
         ? applyLatestReleaseToDevice(device, latestRelease)
         : device;
+      if (action === "update" && !supportsRemoteUpdate(deviceWithLatest)) {
+        return json({
+          ok: false,
+          error: `Agent versi ini belum mendukung update jarak jauh. Jalankan installer School Services v${REMOTE_UPDATE_MIN_VERSION} atau lebih baru langsung di komputer ini.`,
+        });
+      }
       if (action === "update" && deviceWithLatest.update_status === "updating") {
         return json({ ok: true, queued: true, action, deviceId, serviceName: null });
       }

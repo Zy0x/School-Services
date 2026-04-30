@@ -8,10 +8,18 @@ import {
 import {
   applyLatestReleaseToDevice,
   getLatestGitHubRelease,
+  REMOTE_UPDATE_MIN_VERSION,
+  supportsRemoteUpdate,
 } from "../_shared/github-release.ts";
 
 const TEMP_BUCKET = "agent-temp-artifacts";
 const ARCHIVE_BUCKET = "agent-archives";
+const FILE_BUCKETS = [
+  "agent-temp-artifacts",
+  "agent-archives",
+  "agent-preview-cache",
+  "admin-upload-staging",
+];
 const LOG_LIMIT = 120;
 const JOB_LIMIT = 80;
 const TRANSFER_HISTORY_LIMIT = 120;
@@ -26,6 +34,47 @@ function sanitizeSelection(selection: unknown) {
   return selection
     .map((item) => String(item || "").trim())
     .filter(Boolean);
+}
+
+function safeFileNameFromKey(objectKey: string) {
+  const clean = String(objectKey || "").split("?")[0];
+  return clean.split("/").filter(Boolean).pop() || clean || "berkas";
+}
+
+function normalizeArtifactJob(job: Record<string, unknown>, deviceName = "") {
+  const bucket = String(job.artifact_bucket || "").trim();
+  const objectKey = String(job.artifact_object_key || "").trim();
+  const result =
+    job.result && typeof job.result === "object"
+      ? (job.result as Record<string, unknown>)
+      : {};
+  const fileName =
+    String(job.artifact_file_name || result.fileName || "").trim() ||
+    safeFileNameFromKey(objectKey);
+
+  return {
+    id: `${bucket}:${objectKey || job.id}`,
+    jobId: job.id,
+    bucket,
+    objectKey,
+    fileName,
+    deviceId: job.device_id || null,
+    deviceName:
+      String(job.artifact_device_name || deviceName || job.device_id || "").trim() ||
+      "Device tidak diketahui",
+    sourcePath: job.source_path || job.artifact_source_label || null,
+    destinationPath: job.destination_path || null,
+    jobType: job.job_type || null,
+    status: job.artifact_deleted_at ? "deleted" : job.status,
+    deliveryMode: job.delivery_mode || null,
+    size: Number(job.artifact_size || result.size || 0) || null,
+    contentType: job.artifact_content_type || result.mimeType || null,
+    createdAt: job.created_at || null,
+    completedAt: job.completed_at || null,
+    expiresAt: job.artifact_expires_at || result.expiresAt || null,
+    deletedAt: job.artifact_deleted_at || null,
+    fromJob: true,
+  };
 }
 
 function sanitizeRole(value: unknown) {
@@ -899,6 +948,22 @@ async function queueScopedCommand(
   if (action === "kill" && !isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
     throw new Error("Hanya SuperAdmin atau Operator yang dapat menghentikan agent.");
   }
+  if (action === "update") {
+    const { data: device, error: deviceError } = await service
+      .from("devices")
+      .select("device_id, app_version, release_tag")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+
+    if (deviceError) {
+      throw deviceError;
+    }
+    if (!supportsRemoteUpdate(device)) {
+      throw new Error(
+        `Agent versi ini belum mendukung update jarak jauh. Jalankan installer School Services v${REMOTE_UPDATE_MIN_VERSION} atau lebih baru langsung di komputer ini.`
+      );
+    }
+  }
 
   const { data, error } = await service
     .from("commands")
@@ -985,6 +1050,178 @@ async function listTransferHistory(
     ok: true,
     jobs: jobsResult.data || [],
     auditLogs: auditResult.data || [],
+  };
+}
+
+async function listStorageArtifacts(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  if (!isSuperAdminProfile(actor.profile)) {
+    throw new Error("Inventaris bucket hanya tersedia untuk SuperAdmin.");
+  }
+
+  const requestedDeviceId = String(body.deviceId || "").trim();
+  const requestedBucket = String(body.bucket || "").trim();
+  const buckets = requestedBucket && FILE_BUCKETS.includes(requestedBucket)
+    ? [requestedBucket]
+    : FILE_BUCKETS;
+
+  let jobsQuery = service
+    .from("file_jobs")
+    .select("*")
+    .not("artifact_bucket", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(300);
+
+  if (requestedDeviceId) {
+    await requireDeviceAccess(service, actor, requestedDeviceId);
+    jobsQuery = jobsQuery.eq("device_id", requestedDeviceId);
+  }
+  if (requestedBucket) {
+    jobsQuery = jobsQuery.eq("artifact_bucket", requestedBucket);
+  }
+
+  const [{ data: jobs, error: jobsError }, { data: devices, error: devicesError }] = await Promise.all([
+    jobsQuery,
+    service.from("devices").select("device_id, device_name"),
+  ]);
+
+  if (jobsError) {
+    throw jobsError;
+  }
+  if (devicesError) {
+    throw devicesError;
+  }
+
+  const deviceMap = new Map(
+    (devices || []).map((device) => [String(device.device_id), String(device.device_name || "")])
+  );
+  const artifacts = (jobs || []).map((job) =>
+    normalizeArtifactJob(job, deviceMap.get(String(job.device_id)) || "")
+  );
+  const knownKeys = new Set(
+    artifacts
+      .filter((artifact) => artifact.bucket && artifact.objectKey)
+      .map((artifact) => `${artifact.bucket}:${artifact.objectKey}`)
+  );
+
+  const orphanedObjects: Record<string, unknown>[] = [];
+  for (const bucket of buckets) {
+    const { data, error } = await service.storage.from(bucket).list("", {
+      limit: 1000,
+      sortBy: { column: "created_at", order: "desc" },
+    });
+    if (error) {
+      orphanedObjects.push({
+        id: `${bucket}:__error`,
+        bucket,
+        objectKey: "",
+        fileName: "Bucket belum bisa dibaca",
+        status: "error",
+        error: error.message,
+        fromJob: false,
+      });
+      continue;
+    }
+
+    for (const object of data || []) {
+      const objectName = String(object.name || "").trim();
+      if (!objectName || knownKeys.has(`${bucket}:${objectName}`)) {
+        continue;
+      }
+      orphanedObjects.push({
+        id: `${bucket}:${objectName}`,
+        bucket,
+        objectKey: objectName,
+        fileName: safeFileNameFromKey(objectName),
+        deviceId: null,
+        deviceName: "Tidak diketahui",
+        sourcePath: null,
+        jobId: null,
+        jobType: "storage_object",
+        status: "orphaned",
+        deliveryMode: bucket === ARCHIVE_BUCKET ? "persistent" : "temp",
+        size: Number(object.metadata?.size || 0) || null,
+        contentType: object.metadata?.mimetype || null,
+        createdAt: object.created_at || object.updated_at || null,
+        expiresAt: null,
+        deletedAt: null,
+        fromJob: false,
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    buckets,
+    artifacts: [...artifacts, ...orphanedObjects],
+  };
+}
+
+async function deleteStorageArtifact(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  if (!isSuperAdminProfile(actor.profile)) {
+    throw new Error("Hanya SuperAdmin yang dapat menghapus berkas bucket.");
+  }
+
+  const bucket = String(body.bucket || "").trim();
+  const objectKey = String(body.objectKey || "").trim();
+  const jobId = Number(body.jobId || 0);
+
+  if (!FILE_BUCKETS.includes(bucket)) {
+    throw new Error("Bucket tidak dikenali.");
+  }
+  if (!objectKey) {
+    throw new Error("objectKey wajib diisi.");
+  }
+
+  const { error: removeError } = await service.storage.from(bucket).remove([objectKey]);
+  if (removeError) {
+    throw removeError;
+  }
+
+  let updatedJob = null;
+  if (jobId) {
+    const { data, error } = await service
+      .from("file_jobs")
+      .update({
+        artifact_deleted_at: new Date().toISOString(),
+        artifact_deleted_by: actor.user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", jobId)
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+    updatedJob = data || null;
+  }
+
+  await service.from("file_audit_logs").insert({
+    device_id: String(updatedJob?.device_id || body.deviceId || "storage"),
+    requested_by: actor.user.id,
+    job_id: jobId || null,
+    action: "delete_artifact",
+    target_path: objectKey,
+    details: {
+      bucket,
+      objectKey,
+      fileName: String(body.fileName || safeFileNameFromKey(objectKey)),
+    },
+  });
+
+  return {
+    ok: true,
+    bucket,
+    objectKey,
+    job: updatedJob,
   };
 }
 
@@ -1304,6 +1541,14 @@ Deno.serve(async (request) => {
 
     if (action === "listTransferHistory") {
       return json(await listTransferHistory(service, actor, body));
+    }
+
+    if (action === "listStorageArtifacts") {
+      return json(await listStorageArtifacts(service, actor, body));
+    }
+
+    if (action === "deleteStorageArtifact") {
+      return json(await deleteStorageArtifact(service, actor, body));
     }
 
     if (action === "approveAccount" || action === "rejectAccount" || action === "disableAccount") {

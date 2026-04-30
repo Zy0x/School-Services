@@ -87,6 +87,26 @@ function isSupabaseConnectivityError(error) {
   ].some((token) => message.includes(token));
 }
 
+function formatRemoteError(error) {
+  if (!error) {
+    return "Unknown remote error";
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === "object") {
+    const parts = [
+      error.message,
+      error.code ? `code=${error.code}` : null,
+      error.status ? `status=${error.status}` : null,
+      error.details ? `details=${error.details}` : null,
+      error.hint ? `hint=${error.hint}` : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join("; ") : JSON.stringify(error);
+  }
+  return String(error);
+}
+
 function buildServiceLocalUrl(service) {
   const host = String(service?.host || "127.0.0.1").trim();
   const normalizedHost =
@@ -204,11 +224,12 @@ async function main() {
   }
 
   function markSupabaseDisconnected(error, context) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = formatRemoteError(error);
     if (remoteState.connected) {
       logger.warn(`Supabase connection lost during ${context}: ${message}`, {
         serviceName: null,
         context,
+        error: message,
       });
     }
     remoteState.connected = false;
@@ -695,7 +716,10 @@ async function main() {
 
     if (!wasConnected && remoteState.connected) {
       if (disconnectedAtBeforeLoop && Date.now() - disconnectedAtBeforeLoop > 10000) {
-        tunnelManager.requestFreshStartAll("network-reconnect");
+        logger.info("Supabase connection restored after a gap; preserving active Cloudflare tunnels.", {
+          serviceName: null,
+          disconnectedMs: Date.now() - disconnectedAtBeforeLoop,
+        });
       }
       try {
         await fileWorker.syncRootsIfNeeded(true);
@@ -771,6 +795,9 @@ async function main() {
                 publicUrl,
                 desiredState: snapshot.desiredState,
                 lastError,
+                tunnelState: "blocked",
+                lastPublicUrl: null,
+                tunnelLastError: lastError,
                 ...locationPayload,
               }),
             null
@@ -824,6 +851,10 @@ async function main() {
               publicUrl,
               desiredState: snapshot.desiredState,
               lastError,
+              tunnelState: refreshedTunnelSnapshot?.state || null,
+              lastPublicUrl:
+                tunnelManager.getLastKnownPublicUrl(service.serviceName) || publicUrl || null,
+              tunnelLastError: refreshedTunnelSnapshot?.lastError || null,
               ...locationPayload,
             }),
           null

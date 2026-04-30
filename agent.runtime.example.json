@@ -50,7 +50,8 @@
             "C:\\E-Rapor\\.env",
             "C:\\erapor\\.env"
           ],
-          "key": "app.baseURL"
+          "key": "app.baseURL",
+          "urlSource": "local"
         },
         {
           "targetId": "rapor-wwwroot-env",
@@ -63,7 +64,8 @@
             "C:\\E-Rapor\\wwwroot\\.env",
             "C:\\erapor\\wwwroot\\.env"
           ],
-          "key": "app.baseURL"
+          "key": "app.baseURL",
+          "urlSource": "public"
         }
       ],
       "key": "app.baseURL"

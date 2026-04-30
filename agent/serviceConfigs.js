@@ -4,13 +4,14 @@ function compact(values) {
   return values.filter(Boolean);
 }
 
-function createRaporEnvTarget(targetId, candidates) {
+function createRaporEnvTarget(targetId, candidates, options = {}) {
   return {
     targetId,
     type: "env",
     path: candidates[0] || null,
     pathCandidates: compact(candidates),
     key: "app.baseURL",
+    urlSource: options.urlSource || "public",
     formatter: (url) => `app.baseURL = '${url}/'`,
   };
 }
@@ -22,19 +23,27 @@ function buildRaporEnvConfigTargets() {
   const explicitWebrootEnvPath = process.env.ERAPOR_ENV_PATH || null;
 
   return [
-    createRaporEnvTarget("rapor-root-env", [
-      raporRoot ? path.join(raporRoot, ".env") : null,
-      "C:\\newappraporsd2025\\.env",
-      "C:\\E-Rapor\\.env",
-      "C:\\erapor\\.env",
-    ]),
-    createRaporEnvTarget("rapor-wwwroot-env", [
-      explicitWebrootEnvPath,
-      raporRoot ? path.join(raporRoot, "wwwroot", ".env") : null,
-      "C:\\newappraporsd2025\\wwwroot\\.env",
-      "C:\\E-Rapor\\wwwroot\\.env",
-      "C:\\erapor\\wwwroot\\.env",
-    ]),
+    createRaporEnvTarget(
+      "rapor-root-env",
+      [
+        raporRoot ? path.join(raporRoot, ".env") : null,
+        "C:\\newappraporsd2025\\.env",
+        "C:\\E-Rapor\\.env",
+        "C:\\erapor\\.env",
+      ],
+      { urlSource: "local" }
+    ),
+    createRaporEnvTarget(
+      "rapor-wwwroot-env",
+      [
+        explicitWebrootEnvPath,
+        raporRoot ? path.join(raporRoot, "wwwroot", ".env") : null,
+        "C:\\newappraporsd2025\\wwwroot\\.env",
+        "C:\\E-Rapor\\wwwroot\\.env",
+        "C:\\erapor\\wwwroot\\.env",
+      ],
+      { urlSource: "public" }
+    ),
   ];
 }
 

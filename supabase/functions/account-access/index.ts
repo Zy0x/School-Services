@@ -107,6 +107,49 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (action === "changeOwnPassword") {
+      const actor = await getRequestActor(request);
+      const currentPassword = String(body.currentPassword || "");
+      const nextPassword = String(body.nextPassword || "");
+      const email = String(actor.user.email || actor.profile?.email || "").trim().toLowerCase();
+
+      if (!email) {
+        throw new HttpError("Email akun tidak ditemukan pada sesi ini.", 400);
+      }
+      if (!currentPassword) {
+        throw new HttpError("Password saat ini wajib diisi.", 400);
+      }
+      if (nextPassword.length < 8) {
+        throw new HttpError("Password baru minimal 8 karakter.", 400);
+      }
+      if (currentPassword === nextPassword) {
+        throw new HttpError("Password baru tidak boleh sama dengan password saat ini.", 400);
+      }
+
+      const anon = createAnonClient();
+      const { error: verifyError } = await anon.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+
+      if (verifyError) {
+        throw new HttpError("Password saat ini belum sesuai.", 401);
+      }
+
+      const { error: updateError } = await service.auth.admin.updateUserById(actor.user.id, {
+        password: nextPassword,
+      });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      return json({
+        ok: true,
+        message: "Password berhasil diperbarui. Silakan login ulang.",
+      });
+    }
+
     if (action === "forgotPassword") {
       const email = String(body.email || "").trim().toLowerCase();
       const redirectTo = normalizePublicRedirect(body.redirectTo);

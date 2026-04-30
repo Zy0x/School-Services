@@ -98,9 +98,36 @@ function sanitizeFormatterUrl(publicUrl) {
   return String(publicUrl || "").trim().replace(/\/+$/, "");
 }
 
-function renderScalarValue(target, publicUrl) {
-  const sanitizedUrl = sanitizeFormatterUrl(publicUrl);
-  const normalizedUrl = normalizePublicUrl(publicUrl);
+function normalizeTargetUrlValue(value) {
+  return normalizePublicUrl(String(value || "").trim());
+}
+
+function deriveTargetUrl(target, publicUrl, context = {}) {
+  const urlSource = String(target?.urlSource || "public").toLowerCase();
+
+  if (typeof target?.value === "string" && target.value.trim()) {
+    return normalizeTargetUrlValue(target.value);
+  }
+
+  if (urlSource === "relative") {
+    return "/";
+  }
+
+  if (urlSource === "local") {
+    if (context.localUrl) {
+      return normalizeTargetUrlValue(context.localUrl);
+    }
+
+    return normalizeTargetUrlValue(publicUrl);
+  }
+
+  return normalizeTargetUrlValue(publicUrl);
+}
+
+function renderScalarValue(target, publicUrl, context = {}) {
+  const targetUrl = deriveTargetUrl(target, publicUrl, context);
+  const sanitizedUrl = sanitizeFormatterUrl(targetUrl);
+  const normalizedUrl = normalizeTargetUrlValue(targetUrl);
 
   if (typeof target.formatter === "function") {
     return target.formatter(sanitizedUrl);
@@ -117,23 +144,23 @@ function renderScalarValue(target, publicUrl) {
   return normalizedUrl;
 }
 
-function buildLineValue(target, publicUrl, fallbackSeparator) {
+function buildLineValue(target, publicUrl, fallbackSeparator, context = {}) {
   if (typeof target.formatter === "function" || typeof target.format === "function") {
-    return renderScalarValue(target, publicUrl);
+    return renderScalarValue(target, publicUrl, context);
   }
 
   return formatKeyValueLine(
     target.key,
-    normalizePublicUrl(publicUrl),
+    deriveTargetUrl(target, publicUrl, context),
     fallbackSeparator
   );
 }
 
-function updateEnvConfig(target, publicUrl) {
+function updateEnvConfig(target, publicUrl, context = {}) {
   const filePath = target.path;
   const originalContent = readConfigSource(filePath, "");
   const key = target.key;
-  const renderedLine = buildLineValue(target, publicUrl, " = ");
+  const renderedLine = buildLineValue(target, publicUrl, " = ", context);
   const matcher = new RegExp(
     `^\\s*[#;]?\\s*${escapeRegex(key)}\\s*=.*$`,
     "i"
@@ -153,11 +180,11 @@ function updateEnvConfig(target, publicUrl) {
   };
 }
 
-function updateIniConfig(target, publicUrl) {
+function updateIniConfig(target, publicUrl, context = {}) {
   const filePath = target.path;
   const originalContent = readConfigSource(filePath, "");
   const key = target.key;
-  const renderedLine = buildLineValue(target, publicUrl, "=");
+  const renderedLine = buildLineValue(target, publicUrl, "=", context);
   const matcher = new RegExp(`^\\s*[;#]?\\s*${escapeRegex(key)}\\s*=.*$`, "i");
   const result = updateKeyValueDocument({
     content: originalContent,
@@ -209,11 +236,11 @@ function getNestedValue(targetObject, keyPath) {
   }, targetObject);
 }
 
-function updateJsonConfig(target, publicUrl) {
+function updateJsonConfig(target, publicUrl, context = {}) {
   const filePath = target.path;
   const originalContent = readConfigSource(filePath, "{}\n");
   const payload = JSON.parse(originalContent || "{}");
-  const nextValue = renderScalarValue(target, publicUrl);
+  const nextValue = renderScalarValue(target, publicUrl, context);
   const currentValue = getNestedValue(payload, target.key);
 
   if (JSON.stringify(currentValue) === JSON.stringify(nextValue)) {
@@ -230,7 +257,7 @@ function updateJsonConfig(target, publicUrl) {
   };
 }
 
-function updateMappedConfig(target, publicUrl) {
+function updateMappedConfig(target, publicUrl, context = {}) {
   if (!target || !target.type || !target.key) {
     throw new Error(`Invalid config target: ${JSON.stringify(target)}`);
   }
@@ -243,15 +270,15 @@ function updateMappedConfig(target, publicUrl) {
   }
 
   if (target.type === "env") {
-    return updateEnvConfig(target, publicUrl);
+    return updateEnvConfig(target, publicUrl, context);
   }
 
   if (target.type === "json") {
-    return updateJsonConfig(target, publicUrl);
+    return updateJsonConfig(target, publicUrl, context);
   }
 
   if (target.type === "ini") {
-    return updateIniConfig(target, publicUrl);
+    return updateIniConfig(target, publicUrl, context);
   }
 
   throw new Error(`Unsupported config type: ${target.type}`);

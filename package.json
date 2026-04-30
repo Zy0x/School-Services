@@ -17,9 +17,11 @@
     "supabase:apply": "node scripts/supabase-orchestrator.mjs apply",
     "supabase:verify": "node scripts/supabase-orchestrator.mjs verify",
     "supabase:seed-admin": "node scripts/supabase-orchestrator.mjs seed-admin",
-    "supabase:deploy-functions": "node scripts/supabase-orchestrator.mjs deploy-functions"
+    "supabase:deploy-functions": "node scripts/supabase-orchestrator.mjs deploy-functions",
+    "supabase:reset-admin": "node scripts/reset-superadmin-password.mjs"
   },
   "devDependencies": {
     "supabase": "^2.95.3"
-  }
+  },
+  "version": "2.0.4"
 }

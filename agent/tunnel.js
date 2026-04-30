@@ -599,6 +599,15 @@ class TunnelManager {
       }
 
       if (
+        tunnel.state === "starting" &&
+        !tunnel.pid &&
+        !tunnel.startedAt &&
+        !tunnel.nextRetryAt
+      ) {
+        continue;
+      }
+
+      if (
         tunnel.state === "starting" ||
         tunnel.state === "waiting_retry" ||
         tunnel.state === "reconnecting"
@@ -805,7 +814,7 @@ class TunnelManager {
   requestFreshStart(serviceName, reason = "reconnect") {
     const tunnel = this.getOrCreateTunnel(serviceName);
     tunnel.requiresFreshStart = true;
-    tunnel.publicUrl = null;
+    tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
     if (!tunnel.hidden) {
       tunnel.state = "reconnecting";
       tunnel.lastError = this.describeFreshStartReason(reason);

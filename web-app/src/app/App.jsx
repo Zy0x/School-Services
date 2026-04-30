@@ -5,7 +5,8 @@ import githubIcon from "../assets/icons/github.png";
 import paypalIcon from "../assets/icons/paypal.png";
 import trakteerIcon from "../assets/icons/trakteer.png";
 
-const HEARTBEAT_STALE_MS = Number(import.meta.env.VITE_HEARTBEAT_STALE_MS || 20000);
+const HEARTBEAT_STALE_MS = Number(import.meta.env.VITE_HEARTBEAT_STALE_MS || 90000);
+const HEARTBEAT_UNSTABLE_MS = Number(import.meta.env.VITE_HEARTBEAT_UNSTABLE_MS || 180000);
 const REFRESH_INTERVAL_MS = Number(import.meta.env.VITE_DASHBOARD_REFRESH_MS || 5000);
 const LOG_LIMIT = 120;
 const JOB_LIMIT = 80;
@@ -294,6 +295,10 @@ function formatBytes(value) {
   return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+function safeFileNameFromKey(objectKey) {
+  return String(objectKey || "").split("/").filter(Boolean).pop() || "berkas";
+}
+
 function getJobStatusDetail(job) {
   if (job?.status === "running" && job?.result?.pendingUpload) {
     return "Berkas sudah siap. Menunggu koneksi internet untuk dikirim.";
@@ -416,7 +421,14 @@ function deriveDeviceStatus(deviceRecord) {
   if (deviceRecord.status === "blocked") {
     return "blocked";
   }
-  return isFresh(deviceRecord.last_seen) ? "online" : "offline";
+  if (isFresh(deviceRecord.last_seen)) {
+    return "online";
+  }
+  const parsed = new Date(deviceRecord.last_seen).getTime();
+  if (Number.isFinite(parsed) && Date.now() - parsed <= HEARTBEAT_UNSTABLE_MS) {
+    return "unstable";
+  }
+  return "offline";
 }
 
 function deriveServiceStatus(row, deviceStatus) {
@@ -433,6 +445,7 @@ function getDeviceStatusBadgeModel(status) {
   const normalized = String(status || "offline").trim();
   const labels = {
     online: "Perangkat terhubung",
+    unstable: "Perangkat belum stabil",
     offline: "Perangkat terputus",
     blocked: "Perangkat dibatasi",
     pending_setup: "Perangkat setup awal",
@@ -542,6 +555,45 @@ function formatVersionLabel(version, releaseTag) {
   return normalizedVersion.startsWith("v") ? normalizedVersion : `v${normalizedVersion}`;
 }
 
+const REMOTE_UPDATE_MIN_VERSION = "2.0.3";
+
+function normalizeVersionToken(value) {
+  return String(value || "").trim().replace(/^v/i, "");
+}
+
+function parseVersionParts(value) {
+  const match = normalizeVersionToken(value).match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return match.slice(1).map((part) => Number.parseInt(part, 10));
+}
+
+function compareVersionParts(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    const delta = (left[index] || 0) - (right[index] || 0);
+    if (delta !== 0) {
+      return delta;
+    }
+  }
+
+  return 0;
+}
+
+function getDeviceVersionToken(deviceRecord) {
+  return (
+    normalizeVersionToken(deviceRecord?.app_version || deviceRecord?.appVersion) ||
+    normalizeVersionToken(deviceRecord?.release_tag || deviceRecord?.releaseTag)
+  );
+}
+
+function supportsRemoteUpdate(deviceRecord) {
+  const localParts = parseVersionParts(getDeviceVersionToken(deviceRecord));
+  const minParts = parseVersionParts(REMOTE_UPDATE_MIN_VERSION);
+  return Boolean(localParts && minParts && compareVersionParts(localParts, minParts) >= 0);
+}
+
 function getDeviceVersionLabel(deviceRecord) {
   return formatVersionLabel(
     deviceRecord?.app_version || deviceRecord?.appVersion,
@@ -611,7 +663,7 @@ function normalizeLoginEmail(value) {
 }
 
 function normalizeLoginPassword(value) {
-  return String(value || "").trim();
+  return String(value || "");
 }
 
 function statusTone(status) {
@@ -640,6 +692,7 @@ function statusTone(status) {
       "pending",
       "running_job",
       "reconnecting",
+      "unstable",
       "stopped",
       "idle",
       "degraded",
@@ -657,6 +710,7 @@ function statusTone(status) {
       "cancelled",
       "expired",
       "disabled",
+      "deleted",
       "rejected",
       "unavailable",
     ].includes(status)
@@ -686,6 +740,9 @@ function getStatusLabel(status) {
     partial: "Sebagian",
     pending: "Menunggu",
     running_job: "Diproses",
+    unstable: "Belum stabil",
+    orphaned: "Tanpa job",
+    deleted: "Dihapus",
     reconnecting: "Menyambung ulang",
     stopped: "Berhenti",
     idle: "Siaga",
@@ -1198,7 +1255,7 @@ function SiteFooter() {
   return (
     <footer className="site-footer">
       <div className="site-footer-copy">
-        <strong>School Services v2.0.3</strong>
+        <strong>School Services v2.0.4</strong>
         <p>
           Akses layanan sekolah dan pantau status E-Rapor dengan tampilan yang ringkas.
         </p>
@@ -1489,28 +1546,29 @@ function ProfilePanel({ profile, session, onSignOut }) {
   const [info, setInfo] = useState("");
 
   async function submitPasswordChange() {
-    const trimmedCurrentPassword = currentPassword.trim();
-    const trimmedPassword = nextPassword.trim();
+    const currentPasswordValue = String(currentPassword || "");
+    const nextPasswordValue = String(nextPassword || "");
+    const confirmPasswordValue = String(confirmPassword || "");
 
-    if (!trimmedCurrentPassword) {
+    if (!currentPasswordValue) {
       setError("Password saat ini wajib diisi.");
       setInfo("");
       return;
     }
 
-    if (trimmedPassword.length < 8) {
+    if (nextPasswordValue.length < 8) {
       setError("Password baru minimal 8 karakter.");
       setInfo("");
       return;
     }
 
-    if (trimmedCurrentPassword === trimmedPassword) {
+    if (currentPasswordValue === nextPasswordValue) {
       setError("Password baru tidak boleh sama dengan password saat ini.");
       setInfo("");
       return;
     }
 
-    if (trimmedPassword !== confirmPassword.trim()) {
+    if (nextPasswordValue !== confirmPasswordValue) {
       setError("Konfirmasi password tidak cocok.");
       setInfo("");
       return;
@@ -1520,17 +1578,22 @@ function ProfilePanel({ profile, session, onSignOut }) {
       setBusy(true);
       setError("");
       setInfo("");
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: trimmedPassword,
-        currentPassword: trimmedCurrentPassword,
-      });
-      if (updateError) {
-        throw updateError;
-      }
+      await invokeEdgeFunction("account-access", {
+        action: "changeOwnPassword",
+        currentPassword: currentPasswordValue,
+        nextPassword: nextPasswordValue,
+      }, session);
+      await supabase.auth.signOut({ scope: "global" }).catch(() =>
+        supabase.auth.signOut({ scope: "local" }).catch(() => {})
+      );
+      clearStoredAuthArtifacts();
       setCurrentPassword("");
       setNextPassword("");
       setConfirmPassword("");
-      setInfo("Password berhasil diperbarui.");
+      setInfo("Password berhasil diperbarui. Silakan login ulang.");
+      window.setTimeout(() => {
+        onSignOut();
+      }, 700);
     } catch (updateError) {
       if (isInvalidSessionError(updateError)) {
         setError("Sesi login telah berakhir. Silakan masuk lagi.");
@@ -1772,6 +1835,17 @@ function GuestConsole({ deviceId }) {
     linkDeviceId: deviceId,
     guestDeviceId: deviceId,
   });
+
+  useEffect(() => {
+    if (guestUpdate.status === "updating") {
+      setCommandModal({
+        open: true,
+        action: "update",
+        title: "Mengupdate Agent & Service",
+        message: "Pembaruan otomatis sedang berjalan. Agent akan hidup kembali setelah installer selesai.",
+      });
+    }
+  }, [guestUpdate.status]);
 
   return (
     <main className="console-shell guest-console-shell">
@@ -2063,15 +2137,16 @@ function PasswordResetScreen() {
   }, []);
 
   async function submit() {
-    const trimmedPassword = password.trim();
+    const passwordValue = String(password || "");
+    const confirmPasswordValue = String(confirmPassword || "");
 
-    if (trimmedPassword.length < 8) {
+    if (passwordValue.length < 8) {
       setError("Password baru minimal 8 karakter.");
       setInfo("");
       return;
     }
 
-    if (trimmedPassword !== confirmPassword.trim()) {
+    if (passwordValue !== confirmPasswordValue) {
       setError("Konfirmasi password tidak cocok.");
       setInfo("");
       return;
@@ -2081,11 +2156,13 @@ function PasswordResetScreen() {
       setBusy(true);
       setError("");
       setInfo("");
-      const { error } = await supabase.auth.updateUser({ password: trimmedPassword });
+      const { error } = await supabase.auth.updateUser({ password: passwordValue });
       if (error) {
         throw error;
       }
-      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      await supabase.auth.signOut({ scope: "global" }).catch(() =>
+        supabase.auth.signOut({ scope: "local" }).catch(() => {})
+      );
       clearStoredAuthArtifacts();
       setPassword("");
       setConfirmPassword("");
@@ -2187,6 +2264,7 @@ function DeviceUpdateCard({
   showAction = false,
 }) {
   const update = getDeviceUpdateModel(deviceRecord);
+  const remoteUpdateSupported = supportsRemoteUpdate(deviceRecord);
   const statusLabel = busy && update.status !== "updating" ? "Update diminta" : update.label;
   const toneStatus = busy && update.status !== "updating" ? "reconnecting" : update.toneStatus;
   const canUpdate =
@@ -2194,7 +2272,12 @@ function DeviceUpdateCard({
     typeof onUpdate === "function" &&
     update.updateAvailable &&
     update.status !== "updating" &&
+    remoteUpdateSupported &&
     deviceStatus === "online";
+  const unsupportedUpdateMessage =
+    showAction && update.updateAvailable && !remoteUpdateSupported
+      ? `Update jarak jauh tersedia mulai agent v${REMOTE_UPDATE_MIN_VERSION}. Jalankan installer terbaru langsung di komputer ini.`
+      : "";
 
   return (
     <article className="metric-card device-update-card">
@@ -2219,6 +2302,7 @@ function DeviceUpdateCard({
         ) : null}
       </div>
       {update.error ? <div className="job-error">{update.error}</div> : null}
+      {unsupportedUpdateMessage ? <div className="job-error">{unsupportedUpdateMessage}</div> : null}
     </article>
   );
 }
@@ -2248,14 +2332,14 @@ function UpdateProgressModal({
         : model.status === "updating"
           ? 68
           : 34;
-  const canClose = model.status === "current" || model.status === "failed";
+  const canClose = model.status !== "updating";
   const statusText =
     model.status === "current"
-      ? "Update selesai. Versi lokal sudah sama dengan latest GitHub."
+      ? "Update selesai. Buka ulang aplikasi atau halaman ini agar sesi dan tautan perangkat memakai data terbaru."
       : model.status === "failed"
         ? "Update gagal. Periksa pesan error dan log agent."
         : model.status === "updating"
-          ? "Agent sedang mengupdate. Halaman akan menunggu sampai agent hidup kembali."
+          ? "Agent dan service sedang diupdate. Jangan gunakan layanan sampai agent aktif kembali, lalu buka ulang aplikasi atau halaman ini."
           : message;
 
   return (
@@ -2515,6 +2599,122 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
   );
 }
 
+function ArtifactInventory({
+  artifacts,
+  deviceOptions,
+  bucketFilter,
+  deviceFilter,
+  search,
+  busyAction,
+  onBucketFilter,
+  onDeviceFilter,
+  onSearch,
+  onRefresh,
+  onDownload,
+  onDelete,
+}) {
+  const buckets = ["agent-temp-artifacts", "agent-archives", "agent-preview-cache", "admin-upload-staging"];
+
+  return (
+    <article className="jobs-panel artifact-inventory-panel">
+      <div className="panel-heading-row">
+        <div>
+          <h3>Bucket & Arsip Berkas</h3>
+          <div className="root-card-note">Semua artifact storage dengan nama ramah, bucket, dan device asal.</div>
+        </div>
+        <div className="panel-actions">
+          <ActionButton
+            className="secondary-button"
+            busy={busyAction === "artifacts:refresh"}
+            onClick={onRefresh}
+          >
+            Segarkan bucket
+          </ActionButton>
+        </div>
+      </div>
+
+      <div className="artifact-filter-bar">
+        <label>
+          <span>Bucket</span>
+          <select value={bucketFilter} onChange={(event) => onBucketFilter(event.target.value)}>
+            <option value="all">Semua bucket</option>
+            {buckets.map((bucket) => (
+              <option key={bucket} value={bucket}>{bucket}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Device</span>
+          <select value={deviceFilter} onChange={(event) => onDeviceFilter(event.target.value)}>
+            <option value="all">Semua device</option>
+            {deviceOptions.map((device) => (
+              <option key={device.id} value={device.id}>{device.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Cari</span>
+          <input
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder="Nama file, path, bucket, device"
+          />
+        </label>
+      </div>
+
+      {artifacts.length === 0 ? (
+        <div className="empty-state">Belum ada artifact yang cocok dengan filter ini.</div>
+      ) : (
+        <div className="artifact-table">
+          {artifacts.map((artifact) => {
+            const downloadJob = {
+              id: artifact.jobId || artifact.id,
+              artifact_bucket: artifact.bucket,
+              artifact_object_key: artifact.objectKey,
+              result: {
+                fileName: artifact.fileName,
+                size: artifact.size,
+              },
+            };
+            const canDownload = artifact.bucket && artifact.objectKey && artifact.status !== "deleted";
+            return (
+              <article key={artifact.id || `${artifact.bucket}:${artifact.objectKey}`} className={`artifact-row tone-${statusTone(artifact.status)}`}>
+                <div className="artifact-main">
+                  <strong>{artifact.fileName || safeFileNameFromKey(artifact.objectKey)}</strong>
+                  <span className="mono">{artifact.sourcePath || artifact.objectKey || "-"}</span>
+                </div>
+                <div className="artifact-meta">
+                  <span>{artifact.deviceName || artifact.deviceId || "Device tidak diketahui"}</span>
+                  <span>{artifact.bucket}</span>
+                  <span>{formatBytes(Number(artifact.size || 0))}</span>
+                  <span>{formatDate(artifact.createdAt || artifact.completedAt)}</span>
+                </div>
+                <div className="artifact-actions">
+                  <StatusChip status={artifact.status || "unknown"} />
+                  {canDownload ? (
+                    <ActionButton className="primary-button" onClick={() => onDownload(downloadJob)}>
+                      Unduh
+                    </ActionButton>
+                  ) : null}
+                  {canDownload ? (
+                    <ActionButton
+                      className="danger-button"
+                      busy={busyAction === `artifact-delete:${artifact.id || artifact.objectKey}`}
+                      onClick={() => onDelete(artifact)}
+                    >
+                      Hapus
+                    </ActionButton>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </article>
+  );
+}
+
 function DeviceAliasModal({
   device,
   value,
@@ -2659,12 +2859,17 @@ export default function App() {
     typeof window !== "undefined"
       ? decodeURIComponent(normalizedPathname.match(/^\/guest\/([^/]+)$/)?.[1] || "")
       : "";
+  const currentParams =
+    typeof window !== "undefined" ? new URLSearchParams(currentSearch) : new URLSearchParams();
+  const hasRecoveryCode =
+    typeof window !== "undefined" &&
+    currentParams.has("code") &&
+    [AUTH_PATH, RESET_PASSWORD_PATH, LEGACY_RESET_PASSWORD_PATH].includes(normalizedPathname);
   const resetPasswordMode =
     normalizedPathname === RESET_PASSWORD_PATH ||
     normalizedPathname === LEGACY_RESET_PASSWORD_PATH ||
+    hasRecoveryCode ||
     /(^|[&#])type=recovery(?:[&#]|$)/.test(currentHash);
-  const currentParams =
-    typeof window !== "undefined" ? new URLSearchParams(currentSearch) : new URLSearchParams();
   const requestedAuthMode =
     typeof window !== "undefined" ? currentParams.get("mode") : "";
   const requestedGuestLinkDeviceId =
@@ -2709,6 +2914,7 @@ export default function App() {
   const [services, setServices] = useState([]);
   const [logs, setLogs] = useState([]);
   const [fileJobs, setFileJobs] = useState([]);
+  const [storageArtifacts, setStorageArtifacts] = useState([]);
   const [roots, setRoots] = useState([]);
   const [deviceAliases, setDeviceAliases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2738,6 +2944,9 @@ export default function App() {
   const [transferHistoryOpen, setTransferHistoryOpen] = useState(false);
   const [transferHistoryLoading, setTransferHistoryLoading] = useState(false);
   const [transferHistory, setTransferHistory] = useState({ jobs: [], auditLogs: [] });
+  const [artifactBucketFilter, setArtifactBucketFilter] = useState("all");
+  const [artifactDeviceFilter, setArtifactDeviceFilter] = useState("all");
+  const [artifactSearch, setArtifactSearch] = useState("");
   const [updateModal, setUpdateModal] = useState({
     open: false,
     deviceId: "",
@@ -2766,6 +2975,7 @@ export default function App() {
     setServices([]);
     setLogs([]);
     setFileJobs([]);
+    setStorageArtifacts([]);
     setRoots([]);
     setDeviceAliases([]);
     setLoading(true);
@@ -2800,6 +3010,9 @@ export default function App() {
     setTransferHistoryOpen(false);
     setTransferHistoryLoading(false);
     setTransferHistory({ jobs: [], auditLogs: [] });
+    setArtifactBucketFilter("all");
+    setArtifactDeviceFilter("all");
+    setArtifactSearch("");
   }
 
   function clearGuestLinkRequest() {
@@ -2856,6 +3069,13 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (resetPasswordMode) {
+      setAuthLoading(false);
+      setSession(null);
+      setProfile(null);
+      return undefined;
+    }
+
     if (guestDeviceId) {
       setAuthLoading(false);
       return undefined;
@@ -2902,6 +3122,11 @@ export default function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (resetPasswordMode && event !== "SIGNED_OUT") {
+        setAuthLoading(false);
+        return;
+      }
+
       if (event === "SIGNED_OUT") {
         resetAuthenticatedState();
         resetAuthFormState("login");
@@ -2922,7 +3147,7 @@ export default function App() {
       }
       subscription.unsubscribe();
     };
-  }, [guestDeviceId]);
+  }, [guestDeviceId, resetPasswordMode]);
 
   useEffect(() => {
     if (typeof window === "undefined" || guestDeviceId || resetPasswordMode) {
@@ -2983,7 +3208,7 @@ export default function App() {
   }, [guestDeviceId]);
 
   useEffect(() => {
-    if (!session || guestDeviceId) {
+    if (!session || guestDeviceId || resetPasswordMode) {
       setProfile(null);
       return;
     }
@@ -3021,7 +3246,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [session, guestDeviceId]);
+  }, [session, guestDeviceId, resetPasswordMode]);
 
   useEffect(() => {
     if (registerRole !== "user") {
@@ -3057,11 +3282,17 @@ export default function App() {
     }
 
     try {
-      const dashboard = await invokeAdmin("listDashboard");
+      const [dashboard, artifactPayload] = await Promise.all([
+        invokeAdmin("listDashboard"),
+        profile?.role === "super_admin"
+          ? invokeAdmin("listStorageArtifacts")
+          : Promise.resolve({ artifacts: [] }),
+      ]);
       startTransition(() => {
         setServices(dashboard.services || []);
         setLogs(dashboard.logs || []);
         setFileJobs(dashboard.fileJobs || []);
+        setStorageArtifacts(artifactPayload.artifacts || []);
         setRoots(dashboard.roots || []);
         setAccounts(dashboard.accounts || []);
         setEnvironments(dashboard.environments || []);
@@ -3199,8 +3430,31 @@ export default function App() {
         latestVersion: "belum dilaporkan",
         error: updateModal.error,
       };
+  const autoUpdatingDevice =
+    deviceEntries.find((entry) => getDeviceUpdateModel(entry.deviceRecord).status === "updating") ||
+    null;
   const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
   const selectedDeviceBadge = getDeviceStatusBadgeModel(selectedDevice?.deviceStatus || "offline");
+
+  useEffect(() => {
+    if (!autoUpdatingDevice) {
+      return;
+    }
+
+    setUpdateModal((current) => {
+      if (current.open && current.deviceId === autoUpdatingDevice.deviceId && !current.error) {
+        return current;
+      }
+
+      return {
+        open: true,
+        deviceId: autoUpdatingDevice.deviceId,
+        title: "Mengupdate Agent & Service",
+        message: "Pembaruan otomatis sedang berjalan. Agent akan hidup kembali setelah installer selesai.",
+        error: "",
+      };
+    });
+  }, [autoUpdatingDevice?.deviceId]);
 
   useEffect(() => {
     if (createRole !== "user") {
@@ -3251,6 +3505,44 @@ export default function App() {
         : [],
     [fileJobs, selectedDevice]
   );
+
+  const artifactDeviceOptions = useMemo(() => {
+    const options = new Map();
+    for (const artifact of storageArtifacts) {
+      const deviceId = String(artifact.deviceId || artifact.device_id || "").trim();
+      if (!deviceId) {
+        continue;
+      }
+      options.set(deviceId, artifact.deviceName || deviceId);
+    }
+    return Array.from(options.entries()).map(([id, label]) => ({ id, label }));
+  }, [storageArtifacts]);
+
+  const visibleStorageArtifacts = useMemo(() => {
+    const query = artifactSearch.trim().toLowerCase();
+    return storageArtifacts.filter((artifact) => {
+      const bucket = String(artifact.bucket || "").trim();
+      const deviceId = String(artifact.deviceId || artifact.device_id || "").trim();
+      if (artifactBucketFilter !== "all" && bucket !== artifactBucketFilter) {
+        return false;
+      }
+      if (artifactDeviceFilter !== "all" && deviceId !== artifactDeviceFilter) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      return [
+        artifact.fileName,
+        artifact.objectKey,
+        artifact.sourcePath,
+        artifact.deviceName,
+        artifact.bucket,
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .some((value) => value.includes(query));
+    });
+  }, [artifactBucketFilter, artifactDeviceFilter, artifactSearch, storageArtifacts]);
 
   const selectedDeviceRoots = useMemo(
     () =>
@@ -3611,6 +3903,47 @@ export default function App() {
       setTransferHistory({ jobs: [], auditLogs: [] });
     } finally {
       setTransferHistoryLoading(false);
+    }
+  }
+
+  async function refreshStorageArtifacts() {
+    if (profile?.role !== "super_admin") {
+      return;
+    }
+    try {
+      setBusyAction("artifacts:refresh");
+      const data = await invokeAdmin("listStorageArtifacts");
+      setStorageArtifacts(data.artifacts || []);
+      setError("");
+    } catch (artifactError) {
+      setError(formatEdgeFunctionError(artifactError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function deleteStorageArtifact(artifact) {
+    const fileName = artifact?.fileName || artifact?.objectKey || "berkas";
+    const confirmed = window.confirm(`Hapus berkas "${fileName}" dari bucket ${artifact?.bucket}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setBusyAction(`artifact-delete:${artifact.id || artifact.objectKey}`);
+      await invokeAdmin("deleteStorageArtifact", {
+        bucket: artifact.bucket,
+        objectKey: artifact.objectKey,
+        jobId: artifact.jobId,
+        deviceId: artifact.deviceId,
+        fileName,
+      });
+      await refreshStorageArtifacts();
+      await loadAll(true);
+    } catch (artifactError) {
+      setError(formatEdgeFunctionError(artifactError));
+    } finally {
+      setBusyAction("");
     }
   }
 
@@ -4357,6 +4690,21 @@ export default function App() {
                       onCancel={cancelJob}
                     />
                   </article>
+
+                  <ArtifactInventory
+                    artifacts={visibleStorageArtifacts}
+                    deviceOptions={artifactDeviceOptions}
+                    bucketFilter={artifactBucketFilter}
+                    deviceFilter={artifactDeviceFilter}
+                    search={artifactSearch}
+                    busyAction={busyAction}
+                    onBucketFilter={setArtifactBucketFilter}
+                    onDeviceFilter={setArtifactDeviceFilter}
+                    onSearch={setArtifactSearch}
+                    onRefresh={refreshStorageArtifacts}
+                    onDownload={handleArtifactDownload}
+                    onDelete={deleteStorageArtifact}
+                  />
                 </section>
               ) : null}
 

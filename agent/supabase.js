@@ -8,6 +8,7 @@ function createSupabaseApi(config) {
   let supportsExtendedServiceFields = true;
   let supportsExtendedDeviceFields = true;
   let supportsDeviceUpdateFields = true;
+  let supportsExtendedFileJobFields = true;
 
   function buildDevicePayload(
     device,
@@ -50,6 +51,9 @@ function createSupabaseApi(config) {
       payload.location_status = service.locationStatus || "unknown";
       payload.resolved_path = service.resolvedPath || null;
       payload.location_details = service.locationDetails || null;
+      payload.tunnel_state = service.tunnelState || null;
+      payload.last_public_url = service.lastPublicUrl || service.publicUrl || null;
+      payload.tunnel_last_error = service.tunnelLastError || null;
     }
 
     return payload;
@@ -277,16 +281,40 @@ function createSupabaseApi(config) {
     return data;
   }
 
+  function stripExtendedFileJobFields(patch) {
+    const next = { ...patch };
+    delete next.artifact_file_name;
+    delete next.artifact_size;
+    delete next.artifact_content_type;
+    delete next.artifact_device_name;
+    delete next.artifact_source_label;
+    delete next.artifact_deleted_at;
+    delete next.artifact_deleted_by;
+    return next;
+  }
+
   async function updateFileJob(jobId, patch) {
+    const payload = supportsExtendedFileJobFields
+      ? patch
+      : stripExtendedFileJobFields(patch);
     const { data, error } = await client
       .from("file_jobs")
       .update({
-        ...patch,
+        ...payload,
         updated_at: new Date().toISOString(),
       })
       .eq("id", jobId)
       .select("*")
       .single();
+
+    if (
+      error &&
+      supportsExtendedFileJobFields &&
+      /column .* does not exist/i.test(error.message || "")
+    ) {
+      supportsExtendedFileJobFields = false;
+      return updateFileJob(jobId, stripExtendedFileJobFields(patch));
+    }
 
     if (error) {
       throw error;

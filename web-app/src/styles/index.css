@@ -13,6 +13,8 @@
   --text: #111827;
   --text-muted: #64748b;
   --text-soft: #94a3b8;
+  --muted: #64748b;
+  --text-inverse: #ffffff;
   --accent: #0a84ff;
   --accent-2: #5e5ce6;
   --accent-contrast: #ffffff;
@@ -779,6 +781,70 @@ a {
 .files-shell {
   display: grid;
   gap: 16px;
+}
+
+.artifact-filter-bar {
+  display: grid;
+  grid-template-columns: 180px 220px minmax(220px, 1fr);
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.artifact-filter-bar label {
+  display: grid;
+  gap: 6px;
+}
+
+.artifact-filter-bar span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.artifact-table {
+  display: grid;
+  gap: 10px;
+}
+
+.artifact-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.3fr) minmax(260px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.artifact-main,
+.artifact-meta,
+.artifact-actions {
+  min-width: 0;
+}
+
+.artifact-main {
+  display: grid;
+  gap: 4px;
+}
+
+.artifact-main strong,
+.artifact-main span {
+  overflow-wrap: anywhere;
+}
+
+.artifact-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .files-toolbar {
@@ -1777,8 +1843,18 @@ button:disabled {
   .service-detail-grid,
   .dashboard-stats-grid,
   .device-grid,
-  .transfer-history-grid {
+  .transfer-history-grid,
+  .artifact-filter-bar,
+  .artifact-row {
     grid-template-columns: 1fr;
+  }
+
+  .artifact-actions {
+    justify-content: stretch;
+  }
+
+  .artifact-actions > * {
+    flex: 1;
   }
 
   .mobile-nav {

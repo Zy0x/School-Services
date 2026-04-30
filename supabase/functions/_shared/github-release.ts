@@ -7,6 +7,8 @@ type LatestReleaseInfo = {
   assetName: string | null;
 };
 
+export const REMOTE_UPDATE_MIN_VERSION = "2.0.3";
+
 let cachedLatestRelease: LatestReleaseInfo | null = null;
 let cachedLatestReleaseAt = 0;
 
@@ -34,6 +36,23 @@ function compareVersionParts(left: number[], right: number[]) {
     }
   }
   return 0;
+}
+
+function getDeviceVersionToken(device: DeviceUpdateRecord) {
+  return (
+    normalizeVersionToken(device.app_version) ||
+    normalizeVersionToken(device.release_tag)
+  );
+}
+
+export function supportsRemoteUpdate(device: DeviceUpdateRecord | null | undefined) {
+  if (!device) {
+    return false;
+  }
+
+  const localParts = parseVersionParts(getDeviceVersionToken(device));
+  const minParts = parseVersionParts(REMOTE_UPDATE_MIN_VERSION);
+  return Boolean(localParts && minParts && compareVersionParts(localParts, minParts) >= 0);
 }
 
 function resolveInstallerAssetNames(version: string) {
@@ -103,8 +122,7 @@ export function applyLatestReleaseToDevice<T extends DeviceUpdateRecord>(
   }
 
   const localVersion =
-    normalizeVersionToken(device.app_version) ||
-    normalizeVersionToken(device.release_tag);
+    getDeviceVersionToken(device);
   const localParts = parseVersionParts(localVersion);
   const latestParts = parseVersionParts(latestRelease.version);
   const checkedAt = latestRelease.checkedAt || String(device.update_checked_at || "");

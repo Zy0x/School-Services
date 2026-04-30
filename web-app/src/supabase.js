@@ -12,5 +12,10 @@ if (!(supabaseUrl || defaultSupabaseUrl) || !(supabaseAnonKey || defaultSupabase
 
 export const supabase = createClient(
   supabaseUrl || defaultSupabaseUrl,
-  supabaseAnonKey || defaultSupabaseAnonKey
+  supabaseAnonKey || defaultSupabaseAnonKey,
+  {
+    auth: {
+      detectSessionInUrl: false,
+    },
+  }
 );

@@ -50,6 +50,11 @@ function safeBasename(targetPath, fallback = "artifact") {
   return base || fallback;
 }
 
+function formatArtifactTimestamp(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`;
+}
+
 function normalizeDirectoryCandidate(targetPath) {
   const normalized = path.resolve(String(targetPath || ""));
   if (!normalized) {
@@ -173,6 +178,7 @@ class FileWorker {
           artifact_bucket: primaryArtifact?.bucket || null,
           artifact_object_key: primaryArtifact?.objectKey || null,
           artifact_expires_at: primaryArtifact?.expiresAt || null,
+          ...this.buildArtifactMetadataPatch(job, result),
           locked_by_device: this.device.deviceId,
         });
         await this.writeAuditLogSafe({
@@ -199,6 +205,7 @@ class FileWorker {
         artifact_bucket: primaryArtifact?.bucket || null,
         artifact_object_key: primaryArtifact?.objectKey || null,
         artifact_expires_at: primaryArtifact?.expiresAt || null,
+        ...this.buildArtifactMetadataPatch(job, result),
         progress_current: result?.progressCurrent || 1,
         progress_total: result?.progressTotal || 1,
         locked_by_device: null,
@@ -261,6 +268,31 @@ class FileWorker {
     }
 
     return result || null;
+  }
+
+  buildArtifactMetadataPatch(job, result) {
+    const primaryArtifact = this.getPrimaryArtifact(result);
+    const fileName =
+      result?.fileName ||
+      primaryArtifact?.fileName ||
+      (job.source_path ? safeBasename(job.source_path) : null);
+    const size =
+      Number(result?.size || primaryArtifact?.size || 0) ||
+      (Array.isArray(result?.parts)
+        ? result.parts.reduce((sum, part) => sum + Number(part.size || 0), 0)
+        : null);
+
+    return {
+      artifact_file_name: fileName || null,
+      artifact_size: size || null,
+      artifact_content_type: result?.mimeType || primaryArtifact?.mimeType || null,
+      artifact_device_name: this.device.deviceName || this.device.hostname || null,
+      artifact_source_label:
+        job.source_path ||
+        (Array.isArray(job.selection) && job.selection.length > 0
+          ? `${job.selection.length} pilihan`
+          : job.destination_path || null),
+    };
   }
 
   getPendingUploadRecordPath(jobId) {
@@ -430,6 +462,15 @@ class FileWorker {
           artifact_bucket: primaryArtifact?.bucket || null,
           artifact_object_key: primaryArtifact?.objectKey || null,
           artifact_expires_at: primaryArtifact?.expiresAt || null,
+          artifact_file_name: result?.fileName || primaryArtifact?.fileName || null,
+          artifact_size:
+            Number(result?.size || primaryArtifact?.size || 0) ||
+            (Array.isArray(result?.parts)
+              ? result.parts.reduce((sum, part) => sum + Number(part.size || 0), 0)
+              : null),
+          artifact_content_type: result?.mimeType || primaryArtifact?.mimeType || null,
+          artifact_device_name: this.device.deviceName || this.device.hostname || null,
+          artifact_source_label: record.sourcePath || record.destinationPath || null,
           progress_current: result?.progressCurrent || 1,
           progress_total: result?.progressTotal || 1,
           locked_by_device: null,
@@ -709,11 +750,11 @@ class FileWorker {
   createArchivePartFileName(baseName, jobId, partIndex, totalParts) {
     const safeBase = safeBasename(baseName, "backup");
     if (totalParts <= 1) {
-      return `${safeBase}-${jobId}.zip`;
+      return `${safeBase}-${formatArtifactTimestamp()}-${jobId}.zip`;
     }
 
     const paddedIndex = String(partIndex + 1).padStart(String(totalParts).length, "0");
-    return `${safeBase}-${jobId}.part-${paddedIndex}-of-${totalParts}.zip`;
+    return `${safeBase}-${formatArtifactTimestamp()}-${jobId}.part-${paddedIndex}-of-${totalParts}.zip`;
   }
 
   async buildArchiveArtifacts(job, resolvedSelection, deliveryMode) {
@@ -737,7 +778,7 @@ class FileWorker {
 
     while (groupsToProcess.length > 0) {
       const current = groupsToProcess.shift();
-      const archiveFileName = `${archiveBaseName}-${job.id}-${Date.now()}-${artifacts.length + groupsToProcess.length + 1}.zip`;
+      const archiveFileName = `${archiveBaseName}-${formatArtifactTimestamp()}-${job.id}-${artifacts.length + groupsToProcess.length + 1}.zip`;
       const archivePath = path.join(this.stagingRoot, archiveFileName);
 
       if (fs.existsSync(archivePath)) {

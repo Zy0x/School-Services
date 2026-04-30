@@ -108,7 +108,7 @@ Deno.serve(async (request) => {
       });
     }
 
-    if (action === "start" || action === "stop") {
+    if (action === "start" || action === "stop" || action === "update") {
       if (!device) {
         return json({
           ok: false,
@@ -117,9 +117,23 @@ Deno.serve(async (request) => {
         });
       }
 
+      const latestRelease = action === "update" ? await getLatestGitHubRelease(true) : null;
+      const deviceWithLatest = action === "update"
+        ? applyLatestReleaseToDevice(device, latestRelease)
+        : device;
+      if (action === "update" && deviceWithLatest.update_status === "updating") {
+        return json({ ok: true, queued: true, action, deviceId, serviceName: null });
+      }
+      if (action === "update" && !deviceWithLatest.update_available) {
+        return json({
+          ok: false,
+          error: "Update belum tersedia atau latest GitHub belum memiliki installer yang didukung.",
+        });
+      }
+
       const { error: commandError } = await service.from("commands").insert({
         device_id: deviceId,
-        service_name: "rapor",
+        service_name: action === "update" ? null : "rapor",
         action,
         status: "pending",
       });
@@ -128,7 +142,7 @@ Deno.serve(async (request) => {
         throw commandError;
       }
 
-      return json({ ok: true, queued: true, action, deviceId, serviceName: "rapor" });
+      return json({ ok: true, queued: true, action, deviceId, serviceName: action === "update" ? null : "rapor" });
     }
 
     throw new Error(`Unsupported guest action: ${action}`);

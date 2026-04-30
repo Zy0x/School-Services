@@ -1698,14 +1698,22 @@ function GuestConsole({ deviceId }) {
   async function sendCommand(action) {
     try {
       setBusy(true);
+      const isUpdateAction = action === "update";
       setCommandModal({
         open: true,
         action,
-        title: action === "start" ? "Menyalakan E-Rapor" : "Menghentikan E-Rapor",
+        title:
+          action === "start"
+            ? "Menyalakan E-Rapor"
+            : isUpdateAction
+              ? "Mengupdate Agent & Service"
+              : "Menghentikan E-Rapor",
         message:
           action === "start"
             ? "Permintaan sedang diproses. Status halaman akan diperbarui otomatis."
-            : "Permintaan sedang diproses. Tunggu beberapa saat sampai status berubah.",
+            : isUpdateAction
+              ? "Permintaan update sedang dikirim. Installer silent akan berjalan setelah agent menerima command."
+              : "Permintaan sedang diproses. Tunggu beberapa saat sampai status berubah.",
       });
       const { data, error: invokeError } = await supabase.functions.invoke("guest-access", {
         body: { action, deviceId },
@@ -1722,11 +1730,15 @@ function GuestConsole({ deviceId }) {
         message:
           action === "start"
             ? "E-Rapor sedang dinyalakan. Status akan berubah setelah layanan siap."
-            : "E-Rapor sedang dihentikan. Status akan diperbarui setelah selesai.",
+            : isUpdateAction
+              ? "Update diminta. Agent akan menghentikan layanan, memasang versi baru, lalu aktif kembali otomatis."
+              : "E-Rapor sedang dihentikan. Status akan diperbarui setelah selesai.",
       }));
-      window.setTimeout(() => {
-        setCommandModal((current) => ({ ...current, open: false }));
-      }, 1200);
+      if (!isUpdateAction) {
+        window.setTimeout(() => {
+          setCommandModal((current) => ({ ...current, open: false }));
+        }, 1200);
+      }
     } catch (nextError) {
       setError(formatEdgeFunctionError(nextError));
       setCommandModal((current) => ({
@@ -1854,13 +1866,13 @@ function GuestConsole({ deviceId }) {
                 <strong>{guestStatus.headline}</strong>
                 <StatusChip status={guestStatus.overallStatus} />
               </article>
-              <article className="metric-card guest-status-card">
-                <span>Versi & update</span>
-                <strong>{guestUpdate.localVersion}</strong>
-                <small>Latest GitHub: {guestUpdate.latestVersion}</small>
-                <small>Dicek: {formatRelativeTime(guestUpdate.checkedAt)}</small>
-                <StatusChip status={guestUpdate.toneStatus} label={guestUpdate.label} />
-              </article>
+              <DeviceUpdateCard
+                deviceRecord={state.device}
+                deviceStatus={state.device?.deviceStatus}
+                busy={busy && commandModal.action === "update"}
+                onUpdate={() => sendCommand("update")}
+                showAction
+              />
             </section>
 
             <article className="service-panel guest-service-panel">
@@ -1975,13 +1987,23 @@ function GuestConsole({ deviceId }) {
       </section>
       <SiteFooter />
       {commandModal.open ? (
-        <div className="guest-modal-backdrop" role="status" aria-live="polite">
+        commandModal.action === "update" ? (
+          <UpdateProgressModal
+            open
+            update={guestUpdate}
+            title={commandModal.title}
+            message={commandModal.message}
+            onClose={() => setCommandModal((current) => ({ ...current, open: false }))}
+          />
+        ) : (
+          <div className="guest-modal-backdrop" role="status" aria-live="polite">
           <div className="guest-modal-card">
             <div className="guest-modal-spinner" />
             <strong>{commandModal.title}</strong>
             <p>{commandModal.message}</p>
           </div>
-        </div>
+          </div>
+        )
       ) : null}
     </main>
   );
@@ -2198,6 +2220,80 @@ function DeviceUpdateCard({
       </div>
       {update.error ? <div className="job-error">{update.error}</div> : null}
     </article>
+  );
+}
+
+function UpdateProgressModal({
+  open,
+  update,
+  title = "Mengupdate Agent & Service",
+  message = "Permintaan update dikirim. Agent akan menghentikan layanan, menjalankan installer silent, lalu hidup kembali otomatis.",
+  onClose,
+}) {
+  if (!open) {
+    return null;
+  }
+
+  const model = update || {
+    status: "unchecked",
+    label: "Update diminta",
+    localVersion: "belum dilaporkan",
+    latestVersion: "belum dilaporkan",
+  };
+  const progress =
+    model.status === "current"
+      ? 100
+      : model.status === "failed"
+        ? 100
+        : model.status === "updating"
+          ? 68
+          : 34;
+  const canClose = model.status === "current" || model.status === "failed";
+  const statusText =
+    model.status === "current"
+      ? "Update selesai. Versi lokal sudah sama dengan latest GitHub."
+      : model.status === "failed"
+        ? "Update gagal. Periksa pesan error dan log agent."
+        : model.status === "updating"
+          ? "Agent sedang mengupdate. Halaman akan menunggu sampai agent hidup kembali."
+          : message;
+
+  return (
+    <div className="guest-modal-backdrop" role="status" aria-live="polite">
+      <div className="guest-modal-card update-progress-card">
+        <div className={`update-progress-orb tone-${model.status}`}>
+          <div className="guest-modal-spinner" />
+        </div>
+        <div>
+          <strong>{title}</strong>
+          <p>{statusText}</p>
+        </div>
+        <div className="update-version-row">
+          <span>Versi lokal: {model.localVersion}</span>
+          <span>Latest GitHub: {model.latestVersion}</span>
+        </div>
+        <div className="update-progress-track" aria-label={`Progress update ${progress}%`}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
+        <div className="update-step-list">
+          <span className="update-step-active">Command diterima</span>
+          <span className={model.status === "updating" || model.status === "current" ? "update-step-active" : ""}>
+            Installer silent
+          </span>
+          <span className={model.status === "current" ? "update-step-active" : ""}>
+            Agent aktif kembali
+          </span>
+        </div>
+        {model.error ? <div className="job-error">{model.error}</div> : null}
+        {canClose && typeof onClose === "function" ? (
+          <div className="guest-modal-actions">
+            <button type="button" className="primary-button" onClick={onClose}>
+              Tutup
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -2642,6 +2738,13 @@ export default function App() {
   const [transferHistoryOpen, setTransferHistoryOpen] = useState(false);
   const [transferHistoryLoading, setTransferHistoryLoading] = useState(false);
   const [transferHistory, setTransferHistory] = useState({ jobs: [], auditLogs: [] });
+  const [updateModal, setUpdateModal] = useState({
+    open: false,
+    deviceId: "",
+    title: "Mengupdate Agent & Service",
+    message: "",
+    error: "",
+  });
   const fileInputRef = useRef(null);
 
   function resetAuthFormState(nextMode = "login") {
@@ -2686,6 +2789,13 @@ export default function App() {
     setCreateAssignedDeviceId("");
     setCreateApproveImmediately(true);
     setAliasModalDeviceId("");
+    setUpdateModal({
+      open: false,
+      deviceId: "",
+      title: "Mengupdate Agent & Service",
+      message: "",
+      error: "",
+    });
     setAliasDraft("");
     setTransferHistoryOpen(false);
     setTransferHistoryLoading(false);
@@ -3075,6 +3185,20 @@ export default function App() {
       : deviceEntries.find((entry) => entry.deviceId === selectedDeviceId) || null;
   const aliasModalDevice =
     deviceEntries.find((entry) => entry.deviceId === aliasModalDeviceId) || null;
+  const updateModalDevice =
+    deviceEntries.find((entry) => entry.deviceId === updateModal.deviceId) || null;
+  const updateModalModel = updateModalDevice
+    ? {
+        ...getDeviceUpdateModel(updateModalDevice.deviceRecord),
+        ...(updateModal.error ? { status: "failed", label: "Gagal update", error: updateModal.error } : {}),
+      }
+    : {
+        status: updateModal.error ? "failed" : "available",
+        label: updateModal.error ? "Gagal update" : "Update diminta",
+        localVersion: "belum dilaporkan",
+        latestVersion: "belum dilaporkan",
+        error: updateModal.error,
+      };
   const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
   const selectedDeviceBadge = getDeviceStatusBadgeModel(selectedDevice?.deviceStatus || "offline");
 
@@ -3309,6 +3433,15 @@ export default function App() {
   async function queueCommand(deviceId, serviceName, action) {
     setBusyAction(`${deviceId}:${serviceName || "device"}:${action}`);
     setError("");
+    if (action === "update") {
+      setUpdateModal({
+        open: true,
+        deviceId,
+        title: "Mengupdate Agent & Service",
+        message: "Permintaan update dikirim. Agent akan menjalankan installer silent saat command diterima.",
+        error: "",
+      });
+    }
     try {
       await invokeAdmin("queueCommand", {
         deviceId,
@@ -3316,8 +3449,25 @@ export default function App() {
         commandAction: action,
       });
       loadAll(true);
+      if (action === "update") {
+        setUpdateModal((current) => ({
+          ...current,
+          message: "Update diminta. Status akan berubah ke Sedang update saat agent mulai memasang versi baru.",
+          error: "",
+        }));
+      }
     } catch (commandError) {
-      setError(formatEdgeFunctionError(commandError));
+      const message = formatEdgeFunctionError(commandError);
+      setError(message);
+      if (action === "update") {
+        setUpdateModal((current) => ({
+          ...current,
+          open: true,
+          title: "Update gagal dikirim",
+          message,
+          error: message,
+        }));
+      }
     } finally {
       setBusyAction("");
     }
@@ -3846,6 +3996,21 @@ export default function App() {
         deviceId={selectedDeviceId === "all" ? "" : selectedDeviceId}
         onClose={() => setTransferHistoryOpen(false)}
         onDownload={handleArtifactDownload}
+      />
+      <UpdateProgressModal
+        open={updateModal.open}
+        update={updateModalModel}
+        title={updateModal.title}
+        message={updateModal.message}
+        onClose={() =>
+          setUpdateModal({
+            open: false,
+            deviceId: "",
+            title: "Mengupdate Agent & Service",
+            message: "",
+            error: "",
+          })
+        }
       />
 
       <div className="console-grid dashboard-workspace-grid">

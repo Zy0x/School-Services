@@ -1,5 +1,9 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { createServiceClient } from "../_shared/admin.ts";
+import {
+  applyLatestReleaseToDevice,
+  getLatestGitHubRelease,
+} from "../_shared/github-release.ts";
 
 function isFresh(value: string | null, thresholdMs = 20000) {
   if (!value) {
@@ -36,7 +40,12 @@ Deno.serve(async (request) => {
     }
 
     if (action === "status") {
-      if (!device) {
+      const latestRelease = await getLatestGitHubRelease();
+      const deviceWithLatest = device
+        ? applyLatestReleaseToDevice(device, latestRelease)
+        : null;
+
+      if (!deviceWithLatest) {
         return json({
           ok: true,
           pendingSetup: true,
@@ -78,22 +87,22 @@ Deno.serve(async (request) => {
       return json({
         ok: true,
         device: {
-          deviceId: device.device_id,
-          deviceName: device.device_name,
-          deviceStatus: device.status === "blocked" ? "blocked" : isFresh(device.last_seen) ? "online" : "offline",
-          lastSeen: device.last_seen,
-          appVersion: device.app_version || null,
-          releaseTag: device.release_tag || null,
-          buildCommit: device.build_commit || null,
-          builtAt: device.built_at || null,
-          latestReleaseTag: device.latest_release_tag || null,
-          latestVersion: device.latest_version || null,
-          updateAvailable: Boolean(device.update_available),
-          updateStatus: device.update_status || "unchecked",
-          updateCheckedAt: device.update_checked_at || null,
-          updateStartedAt: device.update_started_at || null,
-          updateError: device.update_error || null,
-          updateAssetName: device.update_asset_name || null,
+          deviceId: deviceWithLatest.device_id,
+          deviceName: deviceWithLatest.device_name,
+          deviceStatus: deviceWithLatest.status === "blocked" ? "blocked" : isFresh(deviceWithLatest.last_seen) ? "online" : "offline",
+          lastSeen: deviceWithLatest.last_seen,
+          appVersion: deviceWithLatest.app_version || null,
+          releaseTag: deviceWithLatest.release_tag || null,
+          buildCommit: deviceWithLatest.build_commit || null,
+          builtAt: deviceWithLatest.built_at || null,
+          latestReleaseTag: deviceWithLatest.latest_release_tag || null,
+          latestVersion: deviceWithLatest.latest_version || null,
+          updateAvailable: Boolean(deviceWithLatest.update_available),
+          updateStatus: deviceWithLatest.update_status || "unchecked",
+          updateCheckedAt: deviceWithLatest.update_checked_at || null,
+          updateStartedAt: deviceWithLatest.update_started_at || null,
+          updateError: deviceWithLatest.update_error || null,
+          updateAssetName: deviceWithLatest.update_asset_name || null,
         },
         service: serviceRow || null,
       });

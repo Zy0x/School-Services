@@ -5,6 +5,10 @@ import {
   getRequestActor,
   requireSuperAdmin,
 } from "../_shared/admin.ts";
+import {
+  applyLatestReleaseToDevice,
+  getLatestGitHubRelease,
+} from "../_shared/github-release.ts";
 
 const TEMP_BUCKET = "agent-temp-artifacts";
 const ARCHIVE_BUCKET = "agent-archives";
@@ -395,7 +399,11 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     throw rootsResult.error;
   }
 
-  const deviceMap = new Map((devicesResult.data || []).map((device) => [String(device.device_id), device]));
+  const latestRelease = await getLatestGitHubRelease();
+  const devicesWithLatest = (devicesResult.data || []).map((device) =>
+    applyLatestReleaseToDevice(device, latestRelease)
+  );
+  const deviceMap = new Map(devicesWithLatest.map((device) => [String(device.device_id), device]));
   const services = (servicesResult.data || []).map((row) => ({
     ...row,
     devices: deviceMap.get(String(row.device_id)) || null,

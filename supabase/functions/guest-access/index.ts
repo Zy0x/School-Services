@@ -27,7 +27,7 @@ Deno.serve(async (request) => {
 
     const { data: device, error: deviceError } = await service
       .from("devices")
-      .select("device_id, device_name, status, last_seen")
+      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at")
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -45,6 +45,10 @@ Deno.serve(async (request) => {
             deviceName: deviceId,
             deviceStatus: "pending_setup",
             lastSeen: null,
+            appVersion: null,
+            releaseTag: null,
+            buildCommit: null,
+            builtAt: null,
           },
           service: null,
         });
@@ -70,6 +74,10 @@ Deno.serve(async (request) => {
           deviceName: device.device_name,
           deviceStatus: device.status === "blocked" ? "blocked" : isFresh(device.last_seen) ? "online" : "offline",
           lastSeen: device.last_seen,
+          appVersion: device.app_version || null,
+          releaseTag: device.release_tag || null,
+          buildCommit: device.build_commit || null,
+          builtAt: device.built_at || null,
         },
         service: serviceRow || null,
       });

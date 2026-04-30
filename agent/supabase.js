@@ -6,6 +6,32 @@ function createSupabaseApi(config) {
   });
   let logWriteChain = Promise.resolve();
   let supportsExtendedServiceFields = true;
+  let supportsExtendedDeviceFields = true;
+
+  function buildDevicePayload(
+    device,
+    now = new Date().toISOString(),
+    includeExtendedFields = true,
+    includeStatus = false
+  ) {
+    const payload = {
+      device_name: device.deviceName,
+      last_seen: now,
+    };
+
+    if (includeStatus) {
+      payload.status = "active";
+    }
+
+    if (includeExtendedFields) {
+      payload.app_version = device.appVersion || null;
+      payload.release_tag = device.releaseTag || null;
+      payload.build_commit = device.buildCommit || null;
+      payload.built_at = device.builtAt || null;
+    }
+
+    return payload;
+  }
 
   function buildServicePayload(service, includeExtendedFields = true) {
     const payload = {
@@ -41,13 +67,22 @@ function createSupabaseApi(config) {
     }
 
     if (existing) {
-      const { error: updateError } = await client
+      let { error: updateError } = await client
         .from("devices")
-        .update({
-          device_name: device.deviceName,
-          last_seen: now,
-        })
+        .update(buildDevicePayload(device, now, supportsExtendedDeviceFields, false))
         .eq("device_id", device.deviceId);
+
+      if (
+        updateError &&
+        supportsExtendedDeviceFields &&
+        /column .* does not exist/i.test(updateError.message || "")
+      ) {
+        supportsExtendedDeviceFields = false;
+        ({ error: updateError } = await client
+          .from("devices")
+          .update(buildDevicePayload(device, now, false, false))
+          .eq("device_id", device.deviceId));
+      }
 
       if (updateError) {
         throw updateError;
@@ -56,12 +91,22 @@ function createSupabaseApi(config) {
       return;
     }
 
-    const { error: insertError } = await client.from("devices").insert({
+    let { error: insertError } = await client.from("devices").insert({
       device_id: device.deviceId,
-      device_name: device.deviceName,
-      status: "active",
-      last_seen: now,
+      ...buildDevicePayload(device, now, supportsExtendedDeviceFields, true),
     });
+
+    if (
+      insertError &&
+      supportsExtendedDeviceFields &&
+      /column .* does not exist/i.test(insertError.message || "")
+    ) {
+      supportsExtendedDeviceFields = false;
+      ({ error: insertError } = await client.from("devices").insert({
+        device_id: device.deviceId,
+        ...buildDevicePayload(device, now, false, true),
+      }));
+    }
 
     if (insertError) {
       throw insertError;
@@ -69,10 +114,23 @@ function createSupabaseApi(config) {
   }
 
   async function heartbeatDevice(device) {
-    const { error } = await client
+    const now = new Date().toISOString();
+    let { error } = await client
       .from("devices")
-      .update({ last_seen: new Date().toISOString() })
+      .update(buildDevicePayload(device, now, supportsExtendedDeviceFields, false))
       .eq("device_id", device.deviceId);
+
+    if (
+      error &&
+      supportsExtendedDeviceFields &&
+      /column .* does not exist/i.test(error.message || "")
+    ) {
+      supportsExtendedDeviceFields = false;
+      ({ error } = await client
+        .from("devices")
+        .update(buildDevicePayload(device, now, false, false))
+        .eq("device_id", device.deviceId));
+    }
 
     if (error) {
       throw error;

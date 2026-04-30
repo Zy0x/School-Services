@@ -36,7 +36,7 @@ function sanitizeRegistrationMode(role: string, value: unknown) {
 }
 
 function normalizePublicRedirect(value: unknown) {
-  const fallback = "https://school-services.netlify.app/reset-password";
+  const fallback = "https://school-services.netlify.app/auth/reset-password";
   const raw = String(value || "").trim();
   if (!raw) {
     return fallback;

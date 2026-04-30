@@ -27,7 +27,7 @@ Aplikasi ini menyediakan portal Guest untuk pengguna umum, halaman login untuk a
 ## Instalasi Pengguna
 
 1. Buka halaman [GitHub Releases](https://github.com/Zy0x/School-Services/releases).
-2. Unduh installer `School Services v2.0.0.exe`.
+2. Unduh installer `School Services v2.0.1.exe`.
 3. Jalankan installer di Windows.
 4. Buka shortcut `School Services`.
 5. Tunggu halaman Guest terbuka di browser.

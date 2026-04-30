@@ -8,6 +8,7 @@ const RetryManager = require("./retryManager");
 const TRY_CLOUDFLARE_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi;
 const RATE_LIMIT_PATTERN = /rate[- ]limited|429|error code:\s*1015|too many requests/i;
 const NOT_READY_PATTERN = /not ready|failed to unmarshal quick tunnel/i;
+const PUBLIC_URL_PROBE_TIMEOUT_MS = 5000;
 
 class TunnelManager {
   constructor(options) {
@@ -303,7 +304,7 @@ class TunnelManager {
 
     tunnel.pid = null;
     tunnel.child = null;
-    tunnel.publicUrl = tunnel.publicUrl || tunnel.lastKnownPublicUrl || null;
+    tunnel.publicUrl = null;
     tunnel.lastError = retry.reason;
     tunnel.nextRetryAt = retry.nextRetryAt;
     tunnel.retryAttempt = retry.attempt;
@@ -335,6 +336,95 @@ class TunnelManager {
     return tunnel;
   }
 
+  describeFreshStartReason(reason) {
+    if (reason === "network-reconnect" || reason === "reconnect") {
+      return "Jaringan berubah. Menunggu tunnel Cloudflare tersambung kembali.";
+    }
+
+    if (reason === "resume-recovery") {
+      return "Koneksi perangkat dipulihkan. Menunggu tunnel Cloudflare tersambung kembali.";
+    }
+
+    return "Tunnel Cloudflare sedang disegarkan kembali.";
+  }
+
+  async probePublicUrl(publicUrl) {
+    if (!publicUrl) {
+      return {
+        ok: false,
+        category: "transient",
+        message: "Tautan publik belum tersedia.",
+        restartRecommended: false,
+      };
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PUBLIC_URL_PROBE_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(publicUrl, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          "user-agent": "school-services-agent",
+        },
+      });
+
+      if (response.status === 530) {
+        return {
+          ok: false,
+          category: "network_switch",
+          message:
+            "Jaringan sedang berpindah atau tunnel Cloudflare lama sudah tidak berlaku. Menunggu tunnel baru tersambung.",
+          restartRecommended: true,
+        };
+      }
+
+      if (response.status >= 500) {
+        return {
+          ok: false,
+          category: "transient",
+          message: `Tautan publik merespons HTTP ${response.status}. Menunggu origin siap.`,
+          restartRecommended: false,
+        };
+      }
+
+      return {
+        ok: true,
+        category: null,
+        message: null,
+        restartRecommended: false,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        category: "network_switch",
+        message:
+          "Koneksi publik belum stabil. Menunggu jaringan dan tunnel Cloudflare tersambung kembali.",
+        restartRecommended: true,
+        details: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  markReconnectingState(serviceName, tunnel, issue, options = {}) {
+    tunnel.publicUrl = null;
+    tunnel.lastError = issue.message;
+    tunnel.lastFailureCategory = issue.category || null;
+    tunnel.nextRetryAt = null;
+    tunnel.retryAttempt = 0;
+    tunnel.startedAt = null;
+    tunnel.startupDeadlineAt = null;
+    tunnel.requiresFreshStart =
+      options.restartRecommended === true || tunnel.requiresFreshStart;
+    tunnel.state = "reconnecting";
+    this.persistTunnelState(serviceName, tunnel);
+    return tunnel;
+  }
+
   shouldKeepExistingRetry(tunnel, issue) {
     return (
       tunnel.state === "waiting_retry" &&
@@ -353,6 +443,15 @@ class TunnelManager {
 
     const publicUrl = this.readPublicUrlFromLog(tunnel.logPath);
     if (publicUrl) {
+      const probe = await this.probePublicUrl(publicUrl);
+      if (!probe.ok) {
+        tunnel.lastKnownPublicUrl = publicUrl;
+        this.markReconnectingState(service.serviceName, tunnel, probe, {
+          restartRecommended: probe.restartRecommended,
+        });
+        return null;
+      }
+
       const changed = tunnel.publicUrl !== publicUrl;
       tunnel.publicUrl = publicUrl;
       tunnel.lastKnownPublicUrl = publicUrl;
@@ -419,7 +518,8 @@ class TunnelManager {
       tunnel.startedAt &&
       !tunnel.hidden &&
       tunnel.state !== "stopped" &&
-      tunnel.state !== "waiting_retry"
+      tunnel.state !== "waiting_retry" &&
+      tunnel.state !== "reconnecting"
     ) {
       this.applyRetryState(service.serviceName, tunnel, {
         category: "transient",
@@ -428,7 +528,7 @@ class TunnelManager {
       return tunnel;
     }
 
-    if (tunnel.state !== "stopped") {
+    if (tunnel.state !== "stopped" && tunnel.state !== "reconnecting") {
       tunnel.state = "idle";
     }
 
@@ -498,7 +598,11 @@ class TunnelManager {
         continue;
       }
 
-      if (tunnel.state === "starting" || tunnel.state === "waiting_retry") {
+      if (
+        tunnel.state === "starting" ||
+        tunnel.state === "waiting_retry" ||
+        tunnel.state === "reconnecting"
+      ) {
         return {
           serviceName: otherServiceName,
           state: tunnel.state,
@@ -552,7 +656,7 @@ class TunnelManager {
       tunnel.hidden = false;
       tunnel.hiddenAt = null;
       tunnel.requiresFreshStart = false;
-      tunnel.publicUrl = tunnel.lastKnownPublicUrl || null;
+      tunnel.publicUrl = null;
       tunnel.state = "starting";
       tunnel.lastQueueLogAt = null;
       tunnel.lastError = null;
@@ -571,6 +675,23 @@ class TunnelManager {
 
   async ensureTunnel(service) {
     const tunnel = await this.recoverTunnel(service);
+
+    if (
+      tunnel.requiresFreshStart &&
+      tunnel.pid &&
+      (await this.isPidAlive(tunnel.pid))
+    ) {
+      logger.info(
+        `Restarting Cloudflare tunnel for ${service.serviceName} after connectivity change`,
+        {
+          serviceName: service.serviceName,
+          publicUrl: tunnel.lastKnownPublicUrl || null,
+          lastError: tunnel.lastError || null,
+        }
+      );
+      await this.stopTunnel(service.serviceName);
+      return this.ensureTunnel(service);
+    }
 
     if (tunnel.hidden) {
       const hiddenDurationMs = tunnel.hiddenAt ? Date.now() - tunnel.hiddenAt : 0;
@@ -684,6 +805,16 @@ class TunnelManager {
   requestFreshStart(serviceName, reason = "reconnect") {
     const tunnel = this.getOrCreateTunnel(serviceName);
     tunnel.requiresFreshStart = true;
+    tunnel.publicUrl = null;
+    if (!tunnel.hidden) {
+      tunnel.state = "reconnecting";
+      tunnel.lastError = this.describeFreshStartReason(reason);
+      tunnel.lastFailureCategory = "network_switch";
+      tunnel.nextRetryAt = null;
+      tunnel.retryAttempt = 0;
+      tunnel.startedAt = null;
+      tunnel.startupDeadlineAt = null;
+    }
     this.persistTunnelState(serviceName, tunnel);
     logger.info(`Marked Cloudflare tunnel for fresh restart on next ensure`, {
       serviceName,

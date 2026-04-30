@@ -2,7 +2,11 @@ create table if not exists public.devices (
   device_id text primary key,
   device_name text not null,
   status text not null default 'active' check (status in ('active', 'blocked')),
-  last_seen timestamptz not null default timezone('utc', now())
+  last_seen timestamptz not null default timezone('utc', now()),
+  app_version text,
+  release_tag text,
+  build_commit text,
+  built_at timestamptz
 );
 
 create table if not exists public.services (

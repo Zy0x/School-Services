@@ -4,6 +4,19 @@ Semua perubahan penting pada project ini dicatat di file ini.
 
 Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) dengan versi rilis project.
 
+## [2.0.1] - 2026-04-30
+
+### Changed
+
+- Status Guest dan dashboard kini menahan status siap sampai tautan publik benar-benar tersambung kembali setelah perpindahan jaringan.
+- Badge perangkat, layanan, dan tautan publik dibuat lebih konsisten dan informatif untuk Guest, User, Operator, dan SuperAdmin.
+- Versi installer dinaikkan menjadi `School Services v2.0.1.exe`.
+
+### Fixed
+
+- URL tunnel lama tidak lagi tetap dipublish saat jaringan berubah atau tunnel Cloudflare sedang restart.
+- Kasus `530 The origin has been unregistered from argo tunnel` kini ditangani sebagai status menunggu koneksi ulang, bukan langsung dianggap siap.
+
 ## [2.0.0] - 2026-04-30
 
 ### Added

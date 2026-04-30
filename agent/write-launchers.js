@@ -241,6 +241,42 @@ function createRollingLogFunction(functionName, prefix) {
   ];
 }
 
+function createFirewallRuleFunctions() {
+  return [
+    "function Remove-FirewallRuleGroup([string]$displayNamePrefix) {",
+    "  try {",
+    "    Get-NetFirewallRule -DisplayName ($displayNamePrefix + ' *') -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue",
+    "  } catch {}",
+    "}",
+    "function Ensure-FirewallRule([string]$displayName, [string]$programPath, [string]$direction) {",
+    "  if (-not $programPath -or -not (Test-Path $programPath)) { return }",
+    "  try {",
+    "    Get-NetFirewallRule -DisplayName $displayName -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue",
+    "  } catch {}",
+    "  New-NetFirewallRule -DisplayName $displayName -Direction $direction -Program $programPath -Action Allow -Profile Private,Public -ErrorAction SilentlyContinue | Out-Null",
+    "}",
+    "function Ensure-SilentFirewallAccess([string]$installDir, [string]$runtimeDir) {",
+    `  $appName = '${APP_NAME.replace(/'/g, "''")}'`,
+    `  $agentExeName = '${AGENT_EXE_NAME.replace(/'/g, "''")}'`,
+    `  $launcherExeName = '${LAUNCHER_EXE_NAME.replace(/'/g, "''")}'`,
+    "  $agentExePath = Join-Path $installDir $agentExeName",
+    "  $launcherExePath = Join-Path $installDir $launcherExeName",
+    "  $bundledCloudflaredPath = Join-Path $installDir 'cloudflared.exe'",
+    "  $runtimeCloudflaredPath = Join-Path $runtimeDir 'cloudflared.exe'",
+    "  if (Test-Path $bundledCloudflaredPath) {",
+    "    New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null",
+    "    Copy-Item -LiteralPath $bundledCloudflaredPath -Destination $runtimeCloudflaredPath -Force",
+    "  }",
+    "  Remove-FirewallRuleGroup ($appName + ' ')",
+    "  Ensure-FirewallRule ($appName + ' Agent Inbound') $agentExePath 'Inbound'",
+    "  Ensure-FirewallRule ($appName + ' Agent Outbound') $agentExePath 'Outbound'",
+    "  Ensure-FirewallRule ($appName + ' Launcher Outbound') $launcherExePath 'Outbound'",
+    "  Ensure-FirewallRule ($appName + ' Cloudflared Inbound') $runtimeCloudflaredPath 'Inbound'",
+    "  Ensure-FirewallRule ($appName + ' Cloudflared Outbound') $runtimeCloudflaredPath 'Outbound'",
+    "}",
+  ];
+}
+
 function createPowerShellScripts() {
   const registerStartupPs1 = [
     '$ErrorActionPreference = "Stop"',
@@ -329,6 +365,7 @@ function createPowerShellScripts() {
     '$logsDir = Join-Path $dataDir "logs"',
     '$updatesDir = Join-Path $dataDir "updates"',
     '$stopScriptPath = Join-Path $installDir "stop-agent.ps1"',
+    ...createFirewallRuleFunctions(),
     'Write-BootstrapLog ("Starting clean bootstrap from " + $installDir)',
     '& $stopScriptPath',
     'foreach ($dir in @($dataDir, $stateDir, $runtimeDir, $cacheDir, $logsDir, $updatesDir, $tunnelStateDir)) {',
@@ -337,6 +374,7 @@ function createPowerShellScripts() {
     'if (Test-Path $tunnelStateDir) {',
     '  Remove-Item -LiteralPath (Join-Path $tunnelStateDir "*") -Recurse -Force -ErrorAction SilentlyContinue',
     '}',
+    'Ensure-SilentFirewallAccess $installDir $runtimeDir',
     '$agentExePath = Join-Path $installDir $agentExeName',
     'Write-BootstrapLog ("Launching agent executable " + $agentExePath)',
     '$agentProcess = Start-Process -FilePath $agentExePath -WorkingDirectory $installDir -WindowStyle Hidden -PassThru',
@@ -616,11 +654,13 @@ function createPowerShellScripts() {
     '    }',
     '  }',
     '}',
+    ...createFirewallRuleFunctions(),
     'Ensure-Elevated',
     'try {',
     '  Write-PostInstallLog "Post-install started."',
     '  Migrate-LegacyConfig',
     '  Remove-LegacyGuestShortcuts',
+    '  Ensure-SilentFirewallAccess $installDir (Join-Path $dataDir "runtime")',
     '  Write-PostInstallLog "Registering startup task."',
     '  & (Join-Path $installDir "register-startup.ps1")',
     '  Write-PostInstallLog "Starting clean agent bootstrap."',
@@ -636,6 +676,7 @@ function createPowerShellScripts() {
   const uninstallCleanupPs1 = [
     '$ErrorActionPreference = "Continue"',
     `try { Unregister-ScheduledTask -TaskName '${STARTUP_TASK_NAME.replace(/'/g, "''")}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}`,
+    `try { Get-NetFirewallRule -DisplayName '${APP_NAME.replace(/'/g, "''")} *' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch {}`,
     '& (Join-Path $PSScriptRoot "stop-agent.ps1")',
     '',
   ].join("\r\n");

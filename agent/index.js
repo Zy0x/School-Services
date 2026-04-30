@@ -55,6 +55,10 @@ function derivePublishedStatus(serviceSnapshot, tunnelSnapshot) {
     return "waiting_retry";
   }
 
+  if (tunnelSnapshot.state === "reconnecting") {
+    return "reconnecting";
+  }
+
   if (tunnelSnapshot.state === "error") {
     return "error";
   }
@@ -80,6 +84,19 @@ function isSupabaseConnectivityError(error) {
     "network",
     "temporarily unavailable",
   ].some((token) => message.includes(token));
+}
+
+function buildServiceLocalUrl(service) {
+  const host = String(service?.host || "127.0.0.1").trim();
+  const normalizedHost =
+    host === "127.0.0.1" || host === "::1" ? "localhost" : host;
+  const port = Number(service?.port || 0);
+
+  if (!Number.isFinite(port) || port <= 0) {
+    return `http://${normalizedHost}`;
+  }
+
+  return `http://${normalizedHost}:${port}`;
 }
 
 function writeDeviceState(device, config) {
@@ -318,7 +335,10 @@ async function main() {
       } else {
         for (const target of configTargets) {
           try {
-            const result = updateMappedConfig(target, publicUrl);
+            const result = updateMappedConfig(target, publicUrl, {
+              localUrl: buildServiceLocalUrl(service),
+              serviceName: service.serviceName,
+            });
             if (result.changed) {
               logger.info(`Updated ${result.path} for ${service.serviceName}`);
             }
@@ -729,9 +749,7 @@ async function main() {
 
         if (snapshot.status === "running" && desiredState === "running") {
           await tunnelManager.ensureTunnel(service);
-          publicUrl =
-            tunnelManager.getPublicUrl(service.serviceName) ||
-            tunnelManager.getLastKnownPublicUrl(service.serviceName);
+          publicUrl = tunnelManager.getPublicUrl(service.serviceName);
         } else if (snapshot.status === "stopped" && desiredState === "stopped") {
           await tunnelManager.suspendTunnel(service.serviceName);
         } else {
@@ -784,9 +802,7 @@ async function main() {
               serviceName: service.serviceName,
               port: service.port,
               status: "error",
-              publicUrl:
-                tunnelManager.getPublicUrl(service.serviceName) ||
-                tunnelManager.getLastKnownPublicUrl(service.serviceName),
+              publicUrl: tunnelManager.getPublicUrl(service.serviceName),
               desiredState: serviceManager.getDesiredState(service.serviceName),
               lastError: error.message,
               ...locationPayload,

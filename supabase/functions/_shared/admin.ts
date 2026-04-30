@@ -54,7 +54,7 @@ export async function getAuthPolicy(service = createServiceClient()) {
     ),
     passwordResetRedirectUrl:
       String(data?.value?.passwordResetRedirectUrl || "").trim() ||
-      "https://school-services.netlify.app/reset-password",
+      "https://school-services.netlify.app/auth/reset-password",
     raw: data?.value || {},
   };
 }

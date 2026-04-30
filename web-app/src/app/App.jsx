@@ -28,10 +28,35 @@ const PAYPAL_URL = "https://paypal.me/theamagenta";
 const TRAKTEER_URL = "https://trakteer.id/zy0x";
 const GITHUB_PROFILE_URL = "https://github.com/Zy0x";
 const GUEST_BRAND_ICON = "/icon.png";
+const ROOT_PATH = "/";
+const AUTH_PATH = "/auth";
+const RESET_PASSWORD_PATH = "/auth/reset-password";
+const LEGACY_RESET_PASSWORD_PATH = "/reset-password";
 const DASHBOARD_SECTIONS = new Set(["overview", "devices", "files", "activity", "accounts", "profile"]);
 
+function normalizePathname(pathname = "") {
+  const normalized = `/${String(pathname || "/").trim()}`.replace(/\/+/g, "/");
+  return normalized.replace(/\/+$/, "") || "/";
+}
+
+function buildPath(pathname = "/", params = {}) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    const normalized = String(value || "").trim();
+    if (normalized) {
+      search.set(key, normalized);
+    }
+  }
+  const suffix = search.toString();
+  return `${pathname}${suffix ? `?${suffix}` : ""}`;
+}
+
+function buildPublicUrl(pathname = "/", params = {}) {
+  return `${PUBLIC_DASHBOARD_URL}${buildPath(pathname, params)}`;
+}
+
 function parseAppRoute(pathname = "") {
-  const path = String(pathname || "").replace(/\/+$/, "") || "/dashboard";
+  const path = normalizePathname(pathname) || "/dashboard";
   const parts = path.split("/").filter(Boolean);
   if (parts[0] !== "dashboard") {
     return { section: "overview", deviceId: "" };
@@ -118,19 +143,19 @@ function buildGuestPath(deviceId) {
 }
 
 function buildGuestUrl(deviceId) {
-  return `${PUBLIC_DASHBOARD_URL}${buildGuestPath(deviceId)}`;
+  return buildPublicUrl(buildGuestPath(deviceId));
 }
 
-function buildDashboardUrl(params = {}) {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    const normalized = String(value || "").trim();
-    if (normalized) {
-      search.set(key, normalized);
-    }
-  }
-  const suffix = search.toString();
-  return `${PUBLIC_DASHBOARD_URL}/${suffix ? `?${suffix}` : ""}`;
+function buildAuthPath(params = {}) {
+  return buildPath(AUTH_PATH, params);
+}
+
+function buildAuthUrl(params = {}) {
+  return buildPublicUrl(AUTH_PATH, params);
+}
+
+function buildResetPasswordUrl() {
+  return buildPublicUrl(RESET_PASSWORD_PATH);
 }
 
 function getFunctionUrl(name) {
@@ -404,20 +429,121 @@ function deriveServiceStatus(row, deviceStatus) {
   return row.status || "unknown";
 }
 
+function getDeviceStatusBadgeModel(status) {
+  const normalized = String(status || "offline").trim();
+  const labels = {
+    online: "Perangkat terhubung",
+    offline: "Perangkat terputus",
+    blocked: "Perangkat dibatasi",
+    pending_setup: "Perangkat setup awal",
+  };
+  return {
+    status: normalized,
+    label: labels[normalized] || `Perangkat ${getStatusLabel(normalized)}`,
+  };
+}
+
+function getServiceStatusBadgeModel(status) {
+  const normalized = String(status || "unknown").trim();
+  const labels = {
+    running: "Layanan aktif",
+    starting: "Layanan menyiapkan",
+    waiting_retry: "Layanan menunggu koneksi",
+    reconnecting: "Layanan menyambung ulang",
+    stopped: "Layanan berhenti",
+    offline: "Layanan terputus",
+    blocked: "Layanan dibatasi",
+    error: "Layanan terganggu",
+    pending_setup: "Layanan menunggu",
+    degraded: "Layanan belum stabil",
+  };
+  return {
+    status: normalized,
+    label: labels[normalized] || `Layanan ${getStatusLabel(normalized)}`,
+  };
+}
+
+function getPublicLinkBadgeModel(service) {
+  const serviceStatus = String(service?.serviceStatus || service?.status || "unknown").trim();
+  const desiredState = String(service?.desired_state || "").trim();
+  const hasPublicUrl = Boolean(service?.public_url);
+
+  if (serviceStatus === "blocked") {
+    return { status: "disabled", label: "Tautan dibatasi" };
+  }
+
+  if (serviceStatus === "offline") {
+    return { status: "disabled", label: "Perangkat offline" };
+  }
+
+  if (serviceStatus === "reconnecting") {
+    return { status: "reconnecting", label: "Menunggu jaringan stabil" };
+  }
+
+  if (serviceStatus === "waiting_retry") {
+    return { status: "waiting_retry", label: "Menunggu tunnel baru" };
+  }
+
+  if (serviceStatus === "starting") {
+    return { status: "starting", label: "Menyiapkan tautan" };
+  }
+
+  if (serviceStatus === "error") {
+    return {
+      status: hasPublicUrl ? "unavailable" : "disabled",
+      label: hasPublicUrl ? "Tautan belum stabil" : "Tautan belum tersedia",
+    };
+  }
+
+  if (serviceStatus === "running" && hasPublicUrl) {
+    return { status: "ready", label: "Tautan aktif" };
+  }
+
+  if (serviceStatus === "running") {
+    return { status: "reconnecting", label: "Menunggu tautan stabil" };
+  }
+
+  if (desiredState === "stopped" || serviceStatus === "stopped") {
+    return { status: "disabled", label: "Tautan belum aktif" };
+  }
+
+  if (hasPublicUrl) {
+    return { status: "available", label: "Tautan tersedia" };
+  }
+
+  return { status: "disabled", label: "Tautan belum tersedia" };
+}
+
 function getPublicUrlLabel(service) {
-  if (!service?.public_url) {
-    return "Tautan akses";
+  const linkBadge = getPublicLinkBadgeModel(service);
+  if (linkBadge.status === "ready") {
+    return "Tautan aktif";
   }
-
-  if (service.serviceStatus === "offline") {
-    return "Tautan terakhir";
+  if (linkBadge.status === "available") {
+    return "Tautan tersedia";
   }
-
-  if (service.serviceStatus === "waiting_retry" || service.serviceStatus === "starting") {
+  if (["starting", "waiting_retry", "reconnecting"].includes(linkBadge.status)) {
     return "Tautan disiapkan";
   }
-
   return "Tautan akses";
+}
+
+function formatVersionLabel(version, releaseTag) {
+  const normalizedReleaseTag = String(releaseTag || "").trim();
+  if (normalizedReleaseTag) {
+    return normalizedReleaseTag;
+  }
+
+  const normalizedVersion = String(version || "").trim();
+  if (!normalizedVersion) {
+    return "belum dilaporkan";
+  }
+
+  return normalizedVersion.startsWith("v") ? normalizedVersion : `v${normalizedVersion}`;
+}
+
+function getDeviceVersionLabel(deviceRecord) {
+  return formatVersionLabel(deviceRecord?.app_version, deviceRecord?.release_tag);
 }
 
 function statusTone(status) {
@@ -488,14 +614,14 @@ function getStatusLabel(status) {
     inactive: "Nonaktif",
     pending_setup: "Disiapkan",
     waiting_retry: "Menunggu",
-    starting: "Menyiapkan",
+    starting: "Menyiapkan layanan",
     partial: "Sebagian",
     pending: "Menunggu",
     running_job: "Diproses",
-    reconnecting: "Menyambung",
+    reconnecting: "Menyambung ulang",
     stopped: "Berhenti",
     idle: "Siaga",
-    degraded: "Perlu dicek",
+    degraded: "Belum stabil",
     error: "Gangguan",
     failed: "Gagal",
     blocked: "Dibatasi",
@@ -650,7 +776,7 @@ function MobileNav({ activeSection, items, onNavigate }) {
   );
 }
 
-function RouteHeader({ route, profile, channelState, loading, authLoading, onRefresh, onSignOut }) {
+function RouteHeader({ route, profile, channelState, loading, authBusy, onRefresh, onSignOut }) {
   const copy = getRouteCopy(route.section, profile.role);
   return (
     <header className="app-route-header">
@@ -664,7 +790,7 @@ function RouteHeader({ route, profile, channelState, loading, authLoading, onRef
         <ActionButton className="secondary-button" busy={loading} onClick={onRefresh}>
           Refresh
         </ActionButton>
-        <ActionButton className="secondary-button" busy={authLoading} onClick={onSignOut}>
+        <ActionButton className="secondary-button" busy={authBusy} onClick={onSignOut}>
           Log Out
         </ActionButton>
       </div>
@@ -678,6 +804,19 @@ function DashboardStats({ devices, fileJobs, accounts, now }) {
   const issueCount = devices.reduce((total, device) => total + device.issueCount, 0);
   const runningJobs = fileJobs.filter((job) => ["pending", "running"].includes(job.status)).length;
   const pendingAccounts = accounts.filter((account) => account.status === "pending").length;
+  const uniqueVersions = Array.from(
+    new Set(
+      devices
+        .map((device) => getDeviceVersionLabel(device.deviceRecord))
+        .filter((value) => value && value !== "belum dilaporkan")
+    )
+  );
+  const versionSummary =
+    uniqueVersions.length === 0
+      ? "belum ada"
+      : uniqueVersions.length === 1
+        ? uniqueVersions[0]
+        : `${uniqueVersions.length} versi`;
 
   return (
     <section className="dashboard-stats-grid" aria-label="Ringkasan dashboard">
@@ -687,6 +826,7 @@ function DashboardStats({ devices, fileJobs, accounts, now }) {
         ["Perlu perhatian", issueCount, "Perangkat atau layanan yang perlu dicek."],
         ["Proses berkas", runningJobs, "Aktivitas berkas yang sedang berlangsung."],
         ["Akun menunggu", pendingAccounts, "Akun yang menunggu persetujuan."],
+        ["Versi lokal", versionSummary, "Versi aplikasi School Services yang dilaporkan perangkat."],
       ].map(([label, value, helper]) => (
         <article key={label} className="dashboard-stat-card">
           <span>{label}</span>
@@ -719,8 +859,8 @@ function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
           </span>
           <span className="mono">{device.deviceId}</span>
           <span className="device-grid-meta">
-            {device.runningCount} layanan aktif · {device.issueCount} perlu perhatian ·{" "}
-            {formatRelativeTime(device.deviceRecord?.last_seen, now)}
+            {device.runningCount} layanan aktif | {device.issueCount} perlu perhatian |{" "}
+            {formatRelativeTime(device.deviceRecord?.last_seen, now)} | {getDeviceVersionLabel(device.deviceRecord)}
           </span>
         </button>
       ))}
@@ -837,14 +977,28 @@ function getGuestStatusModel(device, service) {
     };
   }
 
+  if (serviceStatus === "reconnecting") {
+    return {
+      overallStatus: "reconnecting",
+      headline: "Jaringan sedang berpindah",
+      description:
+        "Koneksi perangkat atau tunnel Cloudflare sedang disegarkan. Tunggu sampai tautan baru benar-benar siap dibuka.",
+      publicStatus: "reconnecting",
+      publicLabel: "Menunggu jaringan stabil",
+      runtimeLabel: "Layanan menyambung ulang",
+      runtimeChipLabel: "menyambung ulang",
+      ready,
+    };
+  }
+
   if (serviceStatus === "starting") {
     return {
       overallStatus: "starting",
       headline: "E-Rapor sedang disiapkan",
       description:
-        "Permintaan diterima. Layanan sedang dinyalakan.",
-      publicStatus: hasPublicUrl ? "reconnecting" : "starting",
-      publicLabel: hasPublicUrl ? "Tautan lama tersedia" : "Menunggu tautan",
+        "Permintaan diterima. Layanan sedang dinyalakan dan koneksi publik sedang disiapkan.",
+      publicStatus: "starting",
+      publicLabel: "Menyiapkan tautan",
       runtimeLabel: "Sedang memulai layanan",
       runtimeChipLabel: "menyiapkan",
       ready,
@@ -854,13 +1008,13 @@ function getGuestStatusModel(device, service) {
   if (serviceStatus === "waiting_retry") {
     return {
       overallStatus: "reconnecting",
-      headline: "Tautan akses sedang disiapkan",
+      headline: "Koneksi publik sedang dipulihkan",
       description:
-        "Layanan sudah aktif. Tautan akses sedang disiapkan.",
+        "Jaringan atau tunnel Cloudflare sedang beralih. Status akan aktif setelah tautan baru berhasil dihubungkan.",
       publicStatus: "waiting_retry",
-      publicLabel: "Tautan disiapkan",
-      runtimeLabel: "Layanan aktif",
-      runtimeChipLabel: "menunggu tautan",
+      publicLabel: "Menunggu tunnel baru",
+      runtimeLabel: "Layanan menunggu koneksi",
+      runtimeChipLabel: "menunggu koneksi",
       ready,
     };
   }
@@ -868,11 +1022,11 @@ function getGuestStatusModel(device, service) {
   if (serviceStatus === "running" && !hasPublicUrl) {
     return {
       overallStatus: "degraded",
-      headline: "Layanan aktif, tautan belum siap",
+      headline: "Layanan aktif, koneksi publik belum stabil",
       description:
-        "E-Rapor sudah berjalan. Tautan akses akan tampil setelah siap.",
-      publicStatus: "starting",
-      publicLabel: "Menunggu tautan",
+        "E-Rapor sudah berjalan, tetapi tautan publik masih menunggu verifikasi koneksi sebelum dinyatakan siap.",
+      publicStatus: "reconnecting",
+      publicLabel: "Menunggu tautan stabil",
       runtimeLabel: "Layanan aktif",
       runtimeChipLabel: "aktif",
       ready,
@@ -1142,6 +1296,7 @@ function LoginScreen({
               onChange={(event) => setEmail(event.target.value)}
               placeholder="nama@email.com"
               autoComplete="username"
+              disabled={loading}
             />
           </label>
           {mode === "register" ? (
@@ -1153,11 +1308,12 @@ function LoginScreen({
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
                   placeholder="Nama lengkap"
+                  disabled={loading}
                 />
               </label>
               <label>
                 <span>Jenis akun</span>
-                <select value={role} onChange={(event) => setRole(event.target.value)}>
+                <select value={role} onChange={(event) => setRole(event.target.value)} disabled={loading}>
                   <option value="operator">Operator</option>
                   <option value="user">User</option>
                 </select>
@@ -1169,6 +1325,7 @@ function LoginScreen({
                     <select
                       value={registrationMode}
                       onChange={(event) => setRegistrationMode(event.target.value)}
+                      disabled={loading}
                     >
                       <option value="referral_code">Gunakan kode lingkungan</option>
                       <option value="direct_superadmin">Ajukan langsung</option>
@@ -1182,6 +1339,7 @@ function LoginScreen({
                         value={referralCode}
                         onChange={(event) => setReferralCode(event.target.value.toUpperCase())}
                         placeholder="Contoh: ABCD123456"
+                        disabled={loading}
                       />
                     </label>
                   ) : null}
@@ -1529,14 +1687,20 @@ function GuestConsole({ deviceId }) {
 
   const service = state.service;
   const guestStatus = getGuestStatusModel(state.device, service);
+  const deviceBadge = getDeviceStatusBadgeModel(state.device?.deviceStatus || "offline");
+  const guestRuntimeStatus =
+    guestStatus.overallStatus === "ready" || guestStatus.overallStatus === "degraded"
+      ? "running"
+      : guestStatus.overallStatus;
+  const guestRuntimeBadge = getServiceStatusBadgeModel(guestRuntimeStatus);
   const canOpenService = guestStatus.ready;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
-  const loginUrl = buildDashboardUrl({
+  const loginUrl = buildAuthUrl({
     mode: "login",
     linkDeviceId: deviceId,
     guestDeviceId: deviceId,
   });
-  const registerUrl = buildDashboardUrl({
+  const registerUrl = buildAuthUrl({
     mode: "register",
     linkDeviceId: deviceId,
     guestDeviceId: deviceId,
@@ -1569,20 +1733,12 @@ function GuestConsole({ deviceId }) {
           <p>{guestStatus.description}</p>
           <div className="guest-hero-badges">
             <StatusChip
-              status={state.device?.deviceStatus || "offline"}
-              label={
-                state.device?.deviceStatus === "pending_setup"
-                  ? "Perangkat setup awal"
-                  : `Perangkat ${state.device?.deviceStatus || "offline"}`
-              }
+              status={deviceBadge.status}
+              label={deviceBadge.label}
             />
             <StatusChip
-              status={guestStatus.overallStatus === "pending_setup" ? "pending_setup" : service?.status || "offline"}
-              label={
-                guestStatus.overallStatus === "pending_setup"
-                  ? "Layanan menunggu"
-                  : `Layanan ${service?.status || "offline"}`
-              }
+              status={guestRuntimeBadge.status}
+              label={guestRuntimeBadge.label}
             />
             <StatusChip
               status={guestStatus.publicStatus}
@@ -1621,15 +1777,15 @@ function GuestConsole({ deviceId }) {
                       : state.device?.deviceStatus || "offline"}
                 </strong>
                 <StatusChip
-                  status={state.device?.deviceStatus || "offline"}
-                  label={state.device?.deviceStatus === "online" ? "terhubung" : undefined}
+                  status={deviceBadge.status}
+                  label={deviceBadge.label}
                 />
               </article>
               <article className="metric-card guest-status-card">
                 <span>Status layanan</span>
                 <strong>{guestStatus.runtimeLabel}</strong>
                 <StatusChip
-                  status={guestStatus.overallStatus === "pending_setup" ? "pending_setup" : service?.status || "offline"}
+                  status={guestRuntimeBadge.status}
                   label={guestStatus.runtimeChipLabel}
                 />
               </article>
@@ -1643,6 +1799,11 @@ function GuestConsole({ deviceId }) {
                 <strong>{guestStatus.headline}</strong>
                 <StatusChip status={guestStatus.overallStatus} />
               </article>
+              <article className="metric-card guest-status-card">
+                <span>Versi aplikasi lokal</span>
+                <strong>{formatVersionLabel(state.device?.appVersion, state.device?.releaseTag)}</strong>
+                <StatusChip status={state.device?.appVersion ? "ready" : "unknown"} />
+              </article>
             </section>
 
             <article className="service-panel guest-service-panel">
@@ -1653,11 +1814,11 @@ function GuestConsole({ deviceId }) {
                 </div>
                 <div className="service-status-group">
                   <StatusChip
-                    status={state.device?.deviceStatus || "offline"}
-                    label={state.device?.deviceStatus === "online" ? "perangkat aktif" : undefined}
+                    status={deviceBadge.status}
+                    label={deviceBadge.label}
                   />
                   <StatusChip
-                    status={guestStatus.overallStatus === "pending_setup" ? "pending_setup" : service?.status || "offline"}
+                    status={guestRuntimeBadge.status}
                     label={guestStatus.runtimeChipLabel}
                   />
                   <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
@@ -1704,6 +1865,10 @@ function GuestConsole({ deviceId }) {
                 <div>
                   <span>Lokasi aplikasi</span>
                   <strong className="mono">{service?.resolved_path || "-"}</strong>
+                </div>
+                <div>
+                  <span>Versi aplikasi lokal</span>
+                  <strong>{formatVersionLabel(state.device?.appVersion, state.device?.releaseTag)}</strong>
                 </div>
               </div>
 
@@ -1812,7 +1977,7 @@ function PasswordResetScreen() {
       }
 
       if (typeof window !== "undefined") {
-        window.history.replaceState({}, document.title, "/reset-password");
+        window.history.replaceState({}, document.title, RESET_PASSWORD_PATH);
       }
       setReady(true);
       setError("");
@@ -1852,7 +2017,7 @@ function PasswordResetScreen() {
       setInfo("Password baru berhasil disimpan. Anda akan diarahkan ke halaman login.");
       window.setTimeout(() => {
         if (typeof window !== "undefined") {
-          window.location.href = `${PUBLIC_DASHBOARD_URL}/?mode=login`;
+          window.location.href = buildAuthPath();
         }
       }, 1200);
     } catch (error) {
@@ -1910,28 +2075,31 @@ function PasswordResetScreen() {
 function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
   return (
     <div className="device-list">
-      {devices.map((device) => (
-        <button
-          key={device.deviceId}
-          type="button"
-          className={`device-list-item ${
-            device.deviceId === selectedDeviceId ? "device-list-item-active" : ""
-          }`}
-          onClick={() => onSelect(device.deviceId)}
-        >
-          <div className="device-list-title">
-            <strong>{device.deviceName}</strong>
-            <StatusChip status={device.deviceStatus} />
-          </div>
-          {device.deviceAlias ? <div className="device-list-meta">Nama tampilan</div> : null}
-          <div className="device-list-meta mono">{device.deviceId}</div>
-          <div className="device-list-foot">
-            <span>{device.runningCount} aktif</span>
-            <span>{device.fileJobCount} transfer</span>
-            <span>{formatRelativeTime(device.deviceRecord?.last_seen, now)}</span>
-          </div>
-        </button>
-      ))}
+      {devices.map((device) => {
+        const deviceBadge = getDeviceStatusBadgeModel(device.deviceStatus);
+        return (
+          <button
+            key={device.deviceId}
+            type="button"
+            className={`device-list-item ${
+              device.deviceId === selectedDeviceId ? "device-list-item-active" : ""
+            }`}
+            onClick={() => onSelect(device.deviceId)}
+          >
+            <div className="device-list-title">
+              <strong>{device.deviceName}</strong>
+              <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
+            </div>
+            {device.deviceAlias ? <div className="device-list-meta">Nama tampilan</div> : null}
+            <div className="device-list-meta mono">{device.deviceId}</div>
+            <div className="device-list-foot">
+              <span>{device.runningCount} aktif</span>
+              <span>{device.fileJobCount} transfer</span>
+              <span>{formatRelativeTime(device.deviceRecord?.last_seen, now)}</span>
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -2293,12 +2461,14 @@ export default function App() {
   const currentPathname = typeof window !== "undefined" ? window.location.pathname : "/";
   const currentSearch = typeof window !== "undefined" ? window.location.search : "";
   const currentHash = typeof window !== "undefined" ? window.location.hash : "";
+  const normalizedPathname = normalizePathname(currentPathname);
   const guestDeviceId =
     typeof window !== "undefined"
-      ? decodeURIComponent(currentPathname.match(/^\/guest\/([^/]+)$/)?.[1] || "")
+      ? decodeURIComponent(normalizedPathname.match(/^\/guest\/([^/]+)$/)?.[1] || "")
       : "";
   const resetPasswordMode =
-    currentPathname === "/reset-password" ||
+    normalizedPathname === RESET_PASSWORD_PATH ||
+    normalizedPathname === LEGACY_RESET_PASSWORD_PATH ||
     /(^|[&#])type=recovery(?:[&#]|$)/.test(currentHash);
   const currentParams =
     typeof window !== "undefined" ? new URLSearchParams(currentSearch) : new URLSearchParams();
@@ -2312,6 +2482,7 @@ export default function App() {
       : "";
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authBusy, setAuthBusy] = useState(false);
   const [authMode, setAuthMode] = useState(
     requestedAuthMode === "register" ? "register" : "login"
   );
@@ -2340,7 +2511,7 @@ export default function App() {
     standaloneUserApprovalMode: "manual",
     standaloneUserAutoApproveHours: 24,
     maintenanceIntervalMinutes: 15,
-    passwordResetRedirectUrl: `${PUBLIC_DASHBOARD_URL}/reset-password`,
+    passwordResetRedirectUrl: buildResetPasswordUrl(),
   });
   const [services, setServices] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -2375,6 +2546,16 @@ export default function App() {
   const [transferHistoryLoading, setTransferHistoryLoading] = useState(false);
   const [transferHistory, setTransferHistory] = useState({ jobs: [], auditLogs: [] });
   const fileInputRef = useRef(null);
+
+  function resetAuthFormState(nextMode = "login") {
+    setAuthMode(nextMode);
+    setLoginEmail("");
+    setLoginPassword("");
+    setRegisterDisplayName("");
+    setRegisterRole("operator");
+    setRegisterMode("referral_code");
+    setRegisterReferralCode("");
+  }
 
   function resetAuthenticatedState() {
     setSession(null);
@@ -2474,18 +2655,49 @@ export default function App() {
     }
 
     let active = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (active) {
+    const fallbackTimer =
+      typeof window !== "undefined"
+        ? window.setTimeout(() => {
+            if (active) {
+              setAuthLoading(false);
+            }
+          }, 1500)
+        : null;
+
+    supabase.auth
+      .getSession()
+      .then(({ data, error: sessionError }) => {
+        if (!active) {
+          return;
+        }
+        if (sessionError) {
+          throw sessionError;
+        }
         setSession(data.session || null);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        clearStoredAuthArtifacts();
+        setSession(null);
+      })
+      .finally(() => {
+        if (!active) {
+          return;
+        }
+        if (fallbackTimer) {
+          window.clearTimeout(fallbackTimer);
+        }
         setAuthLoading(false);
-      }
-    });
+      });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (event === "SIGNED_OUT") {
         resetAuthenticatedState();
+        resetAuthFormState("login");
       } else {
         setSession(nextSession || null);
       }
@@ -2498,9 +2710,53 @@ export default function App() {
 
     return () => {
       active = false;
+      if (fallbackTimer) {
+        window.clearTimeout(fallbackTimer);
+      }
       subscription.unsubscribe();
     };
   }, [guestDeviceId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || guestDeviceId || resetPasswordMode) {
+      return;
+    }
+
+    const authParams = {};
+    if (authMode === "register") {
+      authParams.mode = "register";
+    }
+    if (pendingGuestLinkDeviceId) {
+      authParams.linkDeviceId = pendingGuestLinkDeviceId;
+    }
+    if (guestReturnDeviceId) {
+      authParams.guestDeviceId = guestReturnDeviceId;
+    }
+
+    const currentPath = normalizePathname(window.location.pathname);
+    if (session) {
+      if (currentPath === ROOT_PATH || currentPath === AUTH_PATH) {
+        window.history.replaceState(null, "", buildRoutePath("overview"));
+      }
+      return;
+    }
+
+    if (authLoading) {
+      return;
+    }
+
+    if (currentPath === ROOT_PATH || currentPath.startsWith("/dashboard")) {
+      window.history.replaceState(null, "", buildAuthPath(authParams));
+    }
+  }, [
+    authLoading,
+    authMode,
+    guestDeviceId,
+    guestReturnDeviceId,
+    pendingGuestLinkDeviceId,
+    resetPasswordMode,
+    session,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || guestDeviceId) {
@@ -2545,6 +2801,7 @@ export default function App() {
           setProfile(null);
           setProfileLoading(false);
           setSession(null);
+          resetAuthFormState("login");
           supabase.auth.signOut().catch(() => {});
           clearStoredAuthArtifacts();
           return;
@@ -2722,6 +2979,7 @@ export default function App() {
   const aliasModalDevice =
     deviceEntries.find((entry) => entry.deviceId === aliasModalDeviceId) || null;
   const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
+  const selectedDeviceBadge = getDeviceStatusBadgeModel(selectedDevice?.deviceStatus || "offline");
 
   useEffect(() => {
     if (createRole !== "user") {
@@ -2864,11 +3122,11 @@ export default function App() {
   }
 
   async function signIn() {
-    setAuthLoading(true);
+    setAuthBusy(true);
     setAuthError("");
     setAuthInfo("");
-    if (authMode === "register") {
-      try {
+    try {
+      if (authMode === "register") {
         await invokeEdgeFunction("account-access", {
           action: "register",
           email: loginEmail,
@@ -2882,29 +3140,29 @@ export default function App() {
           "Pendaftaran berhasil diterima. Masuk dengan akun yang sama untuk memantau status persetujuan."
         );
         setAuthMode("login");
-      } catch (registerError) {
-        setAuthError(formatEdgeFunctionError(registerError));
-      }
-    } else {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password: loginPassword,
-      });
+      } else {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: loginEmail,
+          password: loginPassword,
+        });
 
-      if (signInError) {
-        setAuthError(formatSignInError(signInError));
+        if (signInError) {
+          setAuthError(formatSignInError(signInError));
+        }
       }
+    } catch (authActionError) {
+      setAuthError(formatEdgeFunctionError(authActionError));
+    } finally {
+      setAuthBusy(false);
     }
-
-    setAuthLoading(false);
   }
 
   async function sendForgotPassword() {
     try {
-      setAuthLoading(true);
+      setAuthBusy(true);
       setAuthError("");
       setAuthInfo("");
-      const redirectTo = `${PUBLIC_DASHBOARD_URL}/reset-password`;
+      const redirectTo = buildResetPasswordUrl();
       await invokeEdgeFunction("account-access", {
         action: "forgotPassword",
         email: loginEmail,
@@ -2915,13 +3173,13 @@ export default function App() {
     } catch (forgotError) {
       setAuthError(formatEdgeFunctionError(forgotError));
     } finally {
-      setAuthLoading(false);
+      setAuthBusy(false);
     }
   }
 
   async function signOut() {
     const returnDeviceId = String(guestReturnDeviceId || pendingGuestLinkDeviceId || "").trim();
-    setAuthLoading(true);
+    setAuthBusy(true);
     setAuthError("");
     setAuthInfo("");
     setDashboardInfo("");
@@ -2935,9 +3193,14 @@ export default function App() {
       await supabase.auth.signOut({ scope: "local" }).catch(() => {});
     } finally {
       clearStoredAuthArtifacts();
-      setAuthLoading(false);
-      if (returnDeviceId && typeof window !== "undefined") {
-        window.location.href = buildGuestPath(returnDeviceId);
+      resetAuthFormState("login");
+      setAuthBusy(false);
+      if (typeof window !== "undefined") {
+        if (returnDeviceId) {
+          window.location.href = buildGuestPath(returnDeviceId);
+        } else {
+          window.location.href = buildAuthPath();
+        }
       }
     }
   }
@@ -3353,32 +3616,6 @@ export default function App() {
     return <PasswordResetScreen />;
   }
 
-  if (authLoading && !session) {
-    return (
-      <LoginScreen
-        mode="login"
-        email=""
-        password=""
-        displayName=""
-        role="operator"
-        registrationMode="referral_code"
-        referralCode=""
-        setEmail={() => {}}
-        setPassword={() => {}}
-        setDisplayName={() => {}}
-        setRole={() => {}}
-        setRegistrationMode={() => {}}
-        setReferralCode={() => {}}
-        setMode={() => {}}
-        onSubmit={() => {}}
-        onForgotPassword={() => {}}
-        error=""
-        info=""
-        loading
-      />
-    );
-  }
-
   if (!session) {
     return (
       <LoginScreen
@@ -3400,7 +3637,7 @@ export default function App() {
         onForgotPassword={sendForgotPassword}
         error={authError}
         info={authInfo}
-        loading={authLoading}
+        loading={authBusy}
       />
     );
   }
@@ -3453,7 +3690,7 @@ export default function App() {
             profile={profile}
             channelState={channelState}
             loading={loading}
-            authLoading={authLoading}
+            authBusy={authBusy}
             onRefresh={() => loadAll()}
             onSignOut={signOut}
           />
@@ -3564,7 +3801,10 @@ export default function App() {
                         ) : null}
                       </div>
                       <div className="service-status-group">
-                        <StatusChip status={selectedDevice.deviceStatus} />
+                        <StatusChip
+                          status={selectedDeviceBadge.status}
+                          label={selectedDeviceBadge.label}
+                        />
                         <ActionButton className="secondary-button" onClick={() => openAliasModal(selectedDevice)}>
                           Edit alias
                         </ActionButton>
@@ -3586,6 +3826,10 @@ export default function App() {
                       <div className="metric-card">
                         <span>Perlu perhatian <InfoHint text="Jumlah layanan yang perlu dicek." /></span>
                         <strong>{selectedDevice.issueCount}</strong>
+                      </div>
+                      <div className="metric-card">
+                        <span>Versi aplikasi lokal <InfoHint text="Versi School Services terakhir yang dilaporkan perangkat ini." /></span>
+                        <strong>{getDeviceVersionLabel(selectedDevice.deviceRecord)}</strong>
                       </div>
                     </div>
                   </article>
@@ -3658,6 +3902,8 @@ export default function App() {
 
                     <div className="service-stack">
                       {visibleServices.map((service) => {
+                        const runtimeBadge = getServiceStatusBadgeModel(service.serviceStatus);
+                        const publicBadge = getPublicLinkBadgeModel(service);
                         const runningNow =
                           service.serviceStatus === "running" &&
                           service.desired_state !== "stopped";
@@ -3669,7 +3915,14 @@ export default function App() {
                               <div className="mono">localhost:{service.port}</div>
                             </div>
                             <div className="service-status-group">
-                              <StatusChip status={service.serviceStatus} />
+                              <StatusChip
+                                status={runtimeBadge.status}
+                                label={runtimeBadge.label}
+                              />
+                              <StatusChip
+                                status={publicBadge.status}
+                                label={publicBadge.label}
+                              />
                               <StatusChip status={service.location_status || "unknown"} label={service.location_status === "ready" ? "lokasi siap" : "lokasi perlu dicek"} />
                             </div>
                           </div>

@@ -361,7 +361,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
       .order("device_id", { ascending: true })
       .order("service_name", { ascending: true }),
     buildQuery("devices")
-      .select("device_id, device_name, status, last_seen")
+      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at")
       .order("device_name", { ascending: true }),
     buildQuery("agent_logs")
       .select("*")
@@ -1377,7 +1377,7 @@ Deno.serve(async (request) => {
         ),
         passwordResetRedirectUrl:
           String(body.passwordResetRedirectUrl || current.passwordResetRedirectUrl).trim() ||
-          `${DASHBOARD_PUBLIC_URL}/reset-password`,
+          `${DASHBOARD_PUBLIC_URL}/auth/reset-password`,
       };
 
       const { error } = await service.from("app_settings").upsert({
@@ -1413,7 +1413,7 @@ Deno.serve(async (request) => {
       const authPolicy = await getAuthPolicy(service);
       const redirectTo =
         String(authPolicy.passwordResetRedirectUrl || "").trim() ||
-        `${DASHBOARD_PUBLIC_URL}/reset-password`;
+        `${DASHBOARD_PUBLIC_URL}/auth/reset-password`;
       const anon = createAnonClient();
       const { error } = await anon.auth.resetPasswordForEmail(email, { redirectTo });
       if (error) {

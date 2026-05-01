@@ -4991,12 +4991,14 @@ textarea {
 }
 
 .device-update-card {
-  gap: 7px;
+  min-height: 0;
+  gap: 6px;
+  align-content: start;
 }
 
 .device-update-head {
   grid-template-columns: 34px minmax(0, 1fr);
-  gap: 9px;
+  gap: 8px;
 }
 
 .device-update-title {
@@ -5007,15 +5009,15 @@ textarea {
 .device-update-version {
   margin-top: 2px;
   font-size: 20px;
-  line-height: 1.05;
+  line-height: 1.02;
 }
 
 .device-update-status-line {
   gap: 8px;
+  align-items: center;
 }
 
-.device-update-status-line > span:first-child,
-.device-update-lines span {
+.device-update-status-line > span:first-child {
   font-size: 10px;
   line-height: 1.1;
 }
@@ -5026,16 +5028,7 @@ textarea {
   font-size: 11px;
 }
 
-.device-update-lines {
-  gap: 6px;
-}
-
-.device-update-lines > div {
-  padding: 7px 8px;
-  border-radius: 9px;
-}
-
-.device-update-lines strong {
-  font-size: 12px;
-  line-height: 1.15;
+.device-update-action {
+  width: 100%;
+  min-height: 36px;
 }

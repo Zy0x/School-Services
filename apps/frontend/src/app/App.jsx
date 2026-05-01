@@ -3140,22 +3140,6 @@ function DeviceUpdateCard({
         <span>Status</span>
         <StatusChip status={toneStatus} label={statusLabel} />
       </div>
-      <div className="device-update-lines">
-        <div>
-          <span>Latest GitHub</span>
-          <strong>{update.latestVersion}</strong>
-        </div>
-        <div>
-          <span>Interval cek</span>
-          <strong>{formatRelativeTime(update.checkedAt)}</strong>
-        </div>
-        {update.startedAt ? (
-          <div>
-            <span>Mulai update</span>
-            <strong>{formatRelativeTime(update.startedAt)}</strong>
-          </div>
-        ) : null}
-      </div>
       {showAction && canUpdate ? (
         <ActionButton
           className="primary-button device-update-action"

@@ -23,13 +23,16 @@ import {
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Play,
   RefreshCw,
+  RotateCcw,
   Rocket,
   Search,
   Server,
   Share2,
   ShieldCheck,
   Sparkles,
+  Square,
   Trash2,
   User,
   UserPlus,
@@ -949,6 +952,27 @@ function InfoHint({ text }) {
   );
 }
 
+function ToastViewport({ items = [], onDismiss }) {
+  if (!items.length) {
+    return null;
+  }
+
+  return createPortal(
+    <div className="toast-viewport" aria-live="polite" aria-atomic="true">
+      {items.map((item) => (
+        <article key={item.id} className={`toast-card tone-${item.tone || "info"}`}>
+          <strong>{item.title}</strong>
+          {item.message ? <p>{item.message}</p> : null}
+          <button type="button" className="toast-dismiss" onClick={() => onDismiss(item.id)} aria-label="Tutup notifikasi">
+            <X size={14} strokeWidth={2.4} aria-hidden="true" />
+          </button>
+        </article>
+      ))}
+    </div>,
+    document.body
+  );
+}
+
 function ActionButton({
   children,
   busy = false,
@@ -1193,6 +1217,8 @@ function LongText({
   maxLength = 48,
   className = "",
   empty = "-",
+  onCopySuccess = null,
+  onCopyError = null,
 }) {
   const [open, setOpen] = useState(false);
   const text = String(value || "");
@@ -1212,7 +1238,23 @@ function LongText({
         <span title={text}>{display}</span>
       )}
       <span className="long-text-actions">
-        <IconButton label={`Salin ${label}`} icon={Copy} onClick={() => copyTextToClipboard(text).catch(() => {})} />
+        <IconButton
+          label={`Salin ${label}`}
+          icon={Copy}
+          onClick={() =>
+            copyTextToClipboard(text)
+              .then(() => {
+                if (typeof onCopySuccess === "function") {
+                  onCopySuccess(text, label);
+                }
+              })
+              .catch((error) => {
+                if (typeof onCopyError === "function") {
+                  onCopyError(error, label);
+                }
+              })
+          }
+        />
         <IconButton label={`Lihat ${label}`} icon={Eye} onClick={() => setOpen(true)} />
       </span>
       {open ? <DetailDrawer title={label} value={text} onClose={() => setOpen(false)} /> : null}
@@ -1929,6 +1971,82 @@ async function copyTextToClipboard(text) {
   textArea.remove();
 }
 
+function getUpdateStatusSummary(update) {
+  if (update.status === "current") {
+    return "Versi agent sudah sinkron dengan rilis terbaru.";
+  }
+  if (update.status === "available") {
+    return `Update ${update.latestVersion || "terbaru"} siap dipasang dari panel ini.`;
+  }
+  if (update.status === "updating") {
+    return "Agent sedang memasang pembaruan. Tunggu sampai layanan aktif kembali.";
+  }
+  if (update.status === "failed") {
+    return "Update terakhir gagal. Periksa detail error agent.";
+  }
+  return "Versi agent perangkat ini belum dilaporkan ke dashboard.";
+}
+
+function formatCommandTargetLabel(serviceName) {
+  if (!serviceName) {
+    return "agent";
+  }
+  const name = formatServiceDisplayName(serviceName);
+  return `layanan ${name}`;
+}
+
+function getCommandCopy(action, serviceName, versionLabel = "") {
+  const target = formatCommandTargetLabel(serviceName);
+
+  if (action === "start") {
+    return {
+      pending: `Menyalakan ${target}. Progress akan mengikuti status service secara realtime.`,
+      success: `${target} sudah aktif kembali.`,
+    };
+  }
+  if (action === "stop") {
+    return {
+      pending: `Menghentikan ${target}. Hanya layanan ini yang akan dihentikan.`,
+      success: `${target} sudah berhenti.`,
+    };
+  }
+  if (action === "agent_start") {
+    return {
+      pending: "Menyalakan agent dan seluruh layanan yang dikelola.",
+      success: "Agent dan seluruh layanan utama sudah aktif.",
+    };
+  }
+  if (action === "agent_stop") {
+    return {
+      pending: "Menghentikan layanan agent yang dikelola. Konektivitas heartbeat tetap dipertahankan.",
+      success: "Layanan agent sudah dihentikan tanpa memutus heartbeat perangkat.",
+    };
+  }
+  if (action === "agent_restart") {
+    return {
+      pending: "Merestart agent dan memulai ulang seluruh layanan hingga siap kembali.",
+      success: "Restart agent selesai dan layanan utama sudah aktif lagi.",
+    };
+  }
+  if (action === "update") {
+    return {
+      pending: `Update agent${versionLabel ? ` ke ${versionLabel}` : ""} sedang dipersiapkan.`,
+      success: "Update agent selesai.",
+    };
+  }
+  return {
+    pending: "Perintah sedang diproses.",
+    success: "Perintah selesai dijalankan.",
+  };
+}
+
+function getCommandProgressTarget(action) {
+  if (action === "stop" || action === "agent_stop") {
+    return "stopped";
+  }
+  return "running";
+}
+
 function buildWhatsAppShareUrl(url, label = "Tautan akses") {
   const text = `${label}\n${url}`;
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
@@ -2110,6 +2228,7 @@ function PublicLinkActions({
   label = "Tautan akses",
   compact = false,
   onActionComplete = null,
+  onFeedback = null,
 }) {
   const [feedback, setFeedback] = useState("");
   const disabled = !url;
@@ -2125,11 +2244,17 @@ function PublicLinkActions({
       if (typeof onActionComplete === "function") {
         onActionComplete("");
       }
+      if (typeof onFeedback === "function") {
+        onFeedback("Tautan berhasil disalin.", "success");
+      }
     } catch (error) {
       const message = error?.message || "Gagal menyalin tautan.";
       setFeedback("");
       if (typeof onActionComplete === "function") {
         onActionComplete(message);
+      }
+      if (typeof onFeedback === "function") {
+        onFeedback(message, "error");
       }
     }
   }
@@ -2143,6 +2268,9 @@ function PublicLinkActions({
     setFeedback("Tautan siap dibagikan lewat WhatsApp.");
     if (typeof onActionComplete === "function") {
       onActionComplete("");
+    }
+    if (typeof onFeedback === "function") {
+      onFeedback("Tautan siap dibagikan lewat WhatsApp.", "success");
     }
   }
 
@@ -3181,6 +3309,7 @@ function DeviceUpdateCard({
   showAction = false,
 }) {
   const update = getDeviceUpdateModel(deviceRecord);
+  const summary = getUpdateStatusSummary(update);
   const remoteUpdateSupported = supportsRemoteUpdate(deviceRecord);
   const toneStatus = busy && update.status !== "updating" ? "reconnecting" : update.toneStatus;
   const canUpdate =
@@ -3207,6 +3336,7 @@ function DeviceUpdateCard({
             <DeviceUpdateStatusIndicator update={update} toneStatus={toneStatus} />
           </div>
           <strong className="device-update-version">{update.localVersion}</strong>
+          <small className="device-update-note">{summary}</small>
         </div>
       </div>
       {showAction && canUpdate ? (
@@ -3778,7 +3908,8 @@ function SupabaseFileTable({
                   parts: artifact.result?.parts,
                 },
               };
-              const canDownload = artifact.bucket && artifact.objectKey && artifact.status !== "deleted";
+              const canDelete = artifact.bucket && artifact.objectKey && artifact.status !== "deleted";
+              const canDownload = canDelete && !artifact.isFolder;
               return (
                 <article key={key} className={`supabase-file-row tone-${statusTone(artifact.status)}`} role="row">
                   <strong>{artifact.fileName || safeFileNameFromKey(artifact.objectKey)}</strong>
@@ -3801,7 +3932,7 @@ function SupabaseFileTable({
                         Unduh
                       </ActionButton>
                     ) : null}
-                    {canDownload ? (
+                    {canDelete ? (
                       <ActionButton
                         className="danger-button"
                         icon={Trash2}
@@ -4344,6 +4475,7 @@ export default function App() {
   const [deviceAliases, setDeviceAliases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [toastItems, setToastItems] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState("all");
   const [appRoute, setAppRoute] = useState(() =>
     typeof window === "undefined" ? { section: "overview", deviceId: "" } : parseAppRoute(window.location.pathname)
@@ -4386,6 +4518,7 @@ export default function App() {
   const [logOverlayOpen, setLogOverlayOpen] = useState(false);
   const [filesView, setFilesView] = useState("storage");
   const [deleteArtifactTarget, setDeleteArtifactTarget] = useState(null);
+  const [pendingCommandStates, setPendingCommandStates] = useState([]);
   const [updateModal, setUpdateModal] = useState({
     open: false,
     deviceId: "",
@@ -4394,6 +4527,32 @@ export default function App() {
     error: "",
   });
   const fileInputRef = useRef(null);
+
+  function dismissToast(id) {
+    setToastItems((current) => current.filter((item) => item.id !== id));
+  }
+
+  function pushToast(title, message = "", tone = "info") {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setToastItems((current) => [...current, { id, title, message, tone }].slice(-4));
+    window.setTimeout(() => {
+      setToastItems((current) => current.filter((item) => item.id !== id));
+    }, 3600);
+  }
+
+  function handleInlineFeedback(message, tone = "info") {
+    if (!message) {
+      return;
+    }
+    if (tone === "error") {
+      setError(message);
+      pushToast("Aksi gagal", message, "error");
+      return;
+    }
+    setError("");
+    setDashboardInfo(message);
+    pushToast("Aksi berhasil", message, "success");
+  }
 
   function resetAuthFormState(nextMode = "login") {
     setAuthMode(nextMode);
@@ -4420,6 +4579,7 @@ export default function App() {
     setLoading(true);
     setError("");
     setDashboardInfo("");
+    setToastItems([]);
     setSelectedDeviceId("all");
     setAppRoute({ section: "overview", deviceId: "" });
     setBusyAction("");
@@ -4456,6 +4616,7 @@ export default function App() {
     setFleetPage(1);
     setFilesView("storage");
     setDeleteArtifactTarget(null);
+    setPendingCommandStates([]);
   }
 
   function clearGuestLinkRequest() {
@@ -5025,6 +5186,64 @@ export default function App() {
     () => selectedDeviceRoots.filter((root) => String(root.root_type || "") === "drive"),
     [selectedDeviceRoots]
   );
+  const deviceScopedOffline =
+    Boolean(selectedDevice) &&
+    selectedDevice.deviceStatus === "offline" &&
+    ["devices", "files", "activity"].includes(selectedTab);
+
+  useEffect(() => {
+    if (!pendingCommandStates.length) {
+      return;
+    }
+
+    const resolved = [];
+    const remaining = [];
+
+    for (const item of pendingCommandStates) {
+      const device = deviceEntries.find((entry) => entry.deviceId === item.deviceId);
+      const targetStatus = item.targetStatus || "running";
+
+      if (!device) {
+        remaining.push(item);
+        continue;
+      }
+
+      let done = false;
+      if (item.scope === "service" && item.serviceName) {
+        const service = device.services.find((entry) => entry.service_name === item.serviceName);
+        done = Boolean(
+          service &&
+          (targetStatus === "running"
+            ? service.serviceStatus === "running" && service.desired_state !== "stopped"
+            : ["stopped", "offline", "blocked"].includes(service.serviceStatus) && service.desired_state === "stopped")
+        );
+      } else {
+        done = device.services.length
+          ? device.services.every((service) =>
+              targetStatus === "running"
+                ? service.serviceStatus === "running" && service.desired_state !== "stopped"
+                : ["stopped", "offline", "blocked"].includes(service.serviceStatus) && service.desired_state === "stopped"
+            )
+          : false;
+      }
+
+      if (done) {
+        resolved.push(item);
+      } else {
+        remaining.push(item);
+      }
+    }
+
+    if (resolved.length) {
+      for (const item of resolved) {
+        pushToast("Aksi selesai", item.successMessage, "success");
+        if (selectedDevice?.deviceId === item.deviceId) {
+          setDashboardInfo(item.successMessage);
+        }
+      }
+      setPendingCommandStates(remaining);
+    }
+  }, [deviceEntries, pendingCommandStates, selectedDevice?.deviceId]);
 
   useEffect(() => {
     setCurrentPath("");
@@ -5268,6 +5487,10 @@ export default function App() {
   async function queueCommand(deviceId, serviceName, action) {
     setBusyAction(`${deviceId}:${serviceName || "device"}:${action}`);
     setError("");
+    const updateVersion = selectedDevice && selectedDevice.deviceId === deviceId
+      ? getDeviceUpdateModel(selectedDevice.deviceRecord).latestVersion
+      : "";
+    const commandCopy = getCommandCopy(action, serviceName, updateVersion);
     if (action === "update") {
       setUpdateModal({
         open: true,
@@ -5283,6 +5506,24 @@ export default function App() {
         serviceName,
         commandAction: action,
       });
+      if (["start", "stop", "agent_start", "agent_stop", "agent_restart"].includes(action)) {
+        setPendingCommandStates((current) => [
+          ...current.filter(
+            (item) => !(item.deviceId === deviceId && item.serviceName === serviceName && item.action === action)
+          ),
+          {
+            id: `${deviceId}:${serviceName || "agent"}:${action}`,
+            deviceId,
+            serviceName,
+            action,
+            scope: serviceName ? "service" : "agent",
+            targetStatus: getCommandProgressTarget(action),
+            successMessage: commandCopy.success,
+          },
+        ]);
+      }
+      setDashboardInfo(commandCopy.pending);
+      pushToast("Perintah dikirim", commandCopy.pending, "info");
       loadAll(true);
       if (action === "update") {
         setUpdateModal((current) => ({
@@ -5294,6 +5535,7 @@ export default function App() {
     } catch (commandError) {
       const message = formatEdgeFunctionError(commandError);
       setError(message);
+      pushToast("Perintah gagal", message, "error");
       if (action === "update") {
         setUpdateModal((current) => ({
           ...current,
@@ -5355,9 +5597,12 @@ export default function App() {
       const data = await invokeAdmin("syncGuestLink", { deviceId });
       await copyTextToClipboard(data.guestUrl);
       setError("");
+      setDashboardInfo("Tautan guest berhasil disalin.");
+      pushToast("Tautan disalin", "Tautan guest perangkat sudah masuk ke clipboard.", "success");
       loadAll(true);
     } catch (copyError) {
       setError(formatEdgeFunctionError(copyError));
+      pushToast("Gagal menyalin tautan", formatEdgeFunctionError(copyError), "error");
     } finally {
       setBusyAction("");
     }
@@ -5368,8 +5613,13 @@ export default function App() {
       setBusyAction(`account:${action}`);
       await invokeAdmin(action, payload);
       await loadAll(true);
+      if (action === "updateAuthPolicy") {
+        setDashboardInfo("Aturan policy berhasil disimpan.");
+        pushToast("Policy tersimpan", "Label jam dan menit sudah mengikuti aturan terbaru.", "success");
+      }
     } catch (accountError) {
       setError(formatEdgeFunctionError(accountError));
+      pushToast("Aksi akun gagal", formatEdgeFunctionError(accountError), "error");
     } finally {
       setBusyAction("");
     }
@@ -5458,8 +5708,10 @@ export default function App() {
       const data = await invokeAdmin("listStorageArtifacts");
       setStorageArtifacts(data.artifacts || []);
       setError("");
+      pushToast("Storage diperbarui", "Daftar pustaka berkas sudah disegarkan dari Supabase.", "success");
     } catch (artifactError) {
       setError(formatEdgeFunctionError(artifactError));
+      pushToast("Storage gagal dimuat", formatEdgeFunctionError(artifactError), "error");
     } finally {
       setBusyAction("");
     }
@@ -5485,6 +5737,7 @@ export default function App() {
         jobId: artifact.jobId,
         deviceId: artifact.deviceId,
         fileName,
+        isFolder: Boolean(artifact.isFolder),
       });
       setStorageArtifacts((current) =>
         current.filter((entry) => (entry.id || `${entry.bucket}:${entry.objectKey}`) !== (artifact.id || `${artifact.bucket}:${artifact.objectKey}`))
@@ -5492,8 +5745,21 @@ export default function App() {
       setDeleteArtifactTarget(null);
       await refreshStorageArtifacts();
       await loadAll(true);
+      setDashboardInfo(
+        artifact.isFolder
+          ? `Folder ${fileName} berhasil dihapus dari storage.`
+          : `Berkas ${fileName} berhasil dihapus dari storage.`
+      );
+      pushToast(
+        artifact.isFolder ? "Folder dihapus" : "Berkas dihapus",
+        artifact.isFolder
+          ? "Seluruh isi folder terkait juga dihapus dari Supabase storage."
+          : "Artefak berhasil dihapus dari Supabase storage.",
+        "success"
+      );
     } catch (artifactError) {
       setError(formatEdgeFunctionError(artifactError));
+      pushToast("Gagal menghapus storage", formatEdgeFunctionError(artifactError), "error");
     } finally {
       setBusyAction("");
     }
@@ -6001,12 +6267,13 @@ export default function App() {
                 >
                   Hentikan
                 </ActionButton>
-                <PublicLinkActions
-                  url={service.public_url || ""}
-                  label={`Tautan ${serviceLabel} untuk ${selectedDevice.deviceName}`}
-                  compact
-                  onActionComplete={setError}
-                />
+                  <PublicLinkActions
+                    url={service.public_url || ""}
+                    label={`Tautan ${serviceLabel} untuk ${selectedDevice.deviceName}`}
+                    compact
+                    onActionComplete={setError}
+                    onFeedback={handleInlineFeedback}
+                  />
               </div>
             </article>
           );
@@ -6064,14 +6331,52 @@ export default function App() {
             eyebrow="Akses"
             title="Tautan E-Rapor"
             description="Tautan utama disingkat di layar dan detail lengkap tetap tersedia lewat overlay."
-            actions={<PublicLinkActions url={selectedGuestUrl} label={`Tautan akses untuk ${selectedDevice.deviceName}`} compact onActionComplete={setError} />}
+            actions={<PublicLinkActions url={selectedGuestUrl} label={`Tautan akses untuk ${selectedDevice.deviceName}`} compact onActionComplete={setError} onFeedback={handleInlineFeedback} />}
           />
           <div className="fresh-link-bar">
             <LongText value={selectedGuestUrl} href={selectedGuestUrl} label="Tautan akses" className="mono" maxLength={70} />
           </div>
         </article>
+        {(isSuperAdmin || isOperator) ? (
+          <article className="fresh-panel">
+            <SectionHeader
+              eyebrow="Agent"
+              title="Kontrol agent"
+              description="Kontrol ini memengaruhi agent perangkat secara penuh. Stop agent akan menghentikan layanan yang dikelola, tetapi heartbeat online perangkat tetap dijaga."
+            />
+            <div className="fresh-actions agent-command-actions">
+              <ActionButton
+                className="primary-button"
+                icon={Play}
+                busy={busyAction === `${selectedDevice.deviceId}:device:agent_start`}
+                disabled={busyAction !== ""}
+                onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_start")}
+              >
+                Start Agent
+              </ActionButton>
+              <ActionButton
+                className="secondary-button"
+                icon={Square}
+                busy={busyAction === `${selectedDevice.deviceId}:device:agent_stop`}
+                disabled={busyAction !== ""}
+                onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_stop")}
+              >
+                Stop Agent
+              </ActionButton>
+              <ActionButton
+                className="secondary-button"
+                icon={RotateCcw}
+                busy={busyAction === `${selectedDevice.deviceId}:device:agent_restart`}
+                disabled={busyAction !== ""}
+                onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_restart")}
+              >
+                Restart Agent
+              </ActionButton>
+            </div>
+          </article>
+        ) : null}
         <article className="fresh-panel">
-          <SectionHeader eyebrow="Services" title="Kontrol layanan" description="Pantau status layanan dan jalankan aksi operasional untuk perangkat ini." />
+          <SectionHeader eyebrow="Services" title="Kontrol layanan" description="Tombol pada tiap kartu hanya memengaruhi layanan tersebut, bukan seluruh perangkat." />
           {renderFreshServiceList()}
         </article>
       </section>
@@ -6382,8 +6687,8 @@ export default function App() {
           <article className="fresh-panel">
             <SectionHeader eyebrow="Policy" title="Aturan persetujuan" description="Nilai angka memakai field khusus dan URL reset dinormalisasi ke HTTPS." />
             <div className="fresh-form-grid">
-              <MaskedTextField label="Persetujuan Operator" mask="number" inputMode="numeric" value={authPolicy.operatorAutoApproveHours} onChange={(value) => setAuthPolicy((current) => ({ ...current, operatorAutoApproveHours: Number(value || 24) }))} />
-              <MaskedTextField label="Pengguna lingkungan" mask="number" inputMode="numeric" value={authPolicy.environmentUserAutoApproveHours} onChange={(value) => setAuthPolicy((current) => ({ ...current, environmentUserAutoApproveHours: Number(value || 8) }))} />
+              <MaskedTextField label="Persetujuan Operator (jam)" mask="number" inputMode="numeric" value={authPolicy.operatorAutoApproveHours} onChange={(value) => setAuthPolicy((current) => ({ ...current, operatorAutoApproveHours: Number(value || 24) }))} />
+              <MaskedTextField label="Pengguna lingkungan (jam)" mask="number" inputMode="numeric" value={authPolicy.environmentUserAutoApproveHours} onChange={(value) => setAuthPolicy((current) => ({ ...current, environmentUserAutoApproveHours: Number(value || 8) }))} />
               <label>
                 <span>Pengguna mandiri</span>
                 <select value={authPolicy.standaloneUserApprovalMode} onChange={(event) => setAuthPolicy((current) => ({ ...current, standaloneUserApprovalMode: event.target.value }))}>
@@ -6391,8 +6696,8 @@ export default function App() {
                   <option value="auto">Otomatis</option>
                 </select>
               </label>
-              <MaskedTextField label="Waktu persetujuan mandiri" mask="number" inputMode="numeric" value={authPolicy.standaloneUserAutoApproveHours} onChange={(value) => setAuthPolicy((current) => ({ ...current, standaloneUserAutoApproveHours: Number(value || 24) }))} />
-              <MaskedTextField label="Interval pemeriksaan" mask="number" inputMode="numeric" value={authPolicy.maintenanceIntervalMinutes} onChange={(value) => setAuthPolicy((current) => ({ ...current, maintenanceIntervalMinutes: Number(value || 15) }))} />
+              <MaskedTextField label="Waktu persetujuan mandiri (jam)" mask="number" inputMode="numeric" value={authPolicy.standaloneUserAutoApproveHours} onChange={(value) => setAuthPolicy((current) => ({ ...current, standaloneUserAutoApproveHours: Number(value || 24) }))} />
+              <MaskedTextField label="Interval pemeriksaan (menit)" mask="number" inputMode="numeric" value={authPolicy.maintenanceIntervalMinutes} onChange={(value) => setAuthPolicy((current) => ({ ...current, maintenanceIntervalMinutes: Number(value || 15) }))} />
               <MaskedTextField label="Halaman reset password" mask="url" value={authPolicy.passwordResetRedirectUrl} onChange={(value) => setAuthPolicy((current) => ({ ...current, passwordResetRedirectUrl: value }))} placeholder="https://example.com/auth/reset-password" />
               <ActionButton className="primary-button" busy={busyAction === "account:updateAuthPolicy"} onClick={() => handleAccountAction("updateAuthPolicy", authPolicy)}>Simpan aturan</ActionButton>
             </div>
@@ -6473,7 +6778,7 @@ export default function App() {
   }
 
   return (
-    <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab}`}>
+    <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab} ${deviceScopedOffline ? "is-device-offline" : ""}`.trim()}>
       <div className={`app-shell ${sidebarPinned ? "sidebar-is-pinned" : ""}`}>
         <SidebarNav
           profile={profile}
@@ -6568,10 +6873,12 @@ export default function App() {
         title="Hapus berkas storage?"
         message={
           deleteArtifactTarget
-            ? `Berkas "${deleteArtifactTarget.fileName || safeFileNameFromKey(deleteArtifactTarget.objectKey)}" akan dihapus dari storage cloud dan dihilangkan dari pustaka berkas.`
+            ? `${
+                deleteArtifactTarget.isFolder ? "Folder" : "Berkas"
+              } "${deleteArtifactTarget.fileName || safeFileNameFromKey(deleteArtifactTarget.objectKey)}" akan dihapus dari storage cloud dan dihilangkan dari pustaka berkas.`
             : ""
         }
-        confirmLabel="Hapus berkas"
+        confirmLabel={deleteArtifactTarget?.isFolder ? "Hapus folder" : "Hapus berkas"}
         cancelLabel="Batal"
         destructive
         busy={busyAction === `artifact-delete:${deleteArtifactTarget?.id || deleteArtifactTarget?.objectKey || ""}`}
@@ -6593,6 +6900,7 @@ export default function App() {
           })
         }
       />
+      <ToastViewport items={toastItems} onDismiss={dismissToast} />
 
       {renderFreshScene()}
         </section>

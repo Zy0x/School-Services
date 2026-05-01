@@ -44,6 +44,53 @@ async function executeCommands({
     }
   }
 
+  async function publishServiceSnapshot(deviceId, serviceName, snapshot, overrides = {}) {
+    const locationPayload = await buildLocationPayload(serviceName);
+    await supabaseApi.upsertServiceStatus({
+      deviceId,
+      serviceName,
+      port: snapshot.port,
+      status: overrides.status || snapshot.status,
+      publicUrl:
+        Object.prototype.hasOwnProperty.call(overrides, "publicUrl")
+          ? overrides.publicUrl
+          : tunnelManager.getPublicUrl(serviceName),
+      desiredState: snapshot.desiredState,
+      lastError:
+        Object.prototype.hasOwnProperty.call(overrides, "lastError")
+          ? overrides.lastError
+          : snapshot.lastError,
+      ...locationPayload,
+    });
+  }
+
+  async function stopManagedServices(deviceId, reason) {
+    for (const service of serviceManager.list()) {
+      serviceManager.setDesiredState(service.serviceName, "stopped", reason);
+      const snapshot = await serviceManager.stopService(service.serviceName);
+      await tunnelManager.suspendTunnel(service.serviceName);
+      if (urlCache) {
+        urlCache.clear(service.serviceName);
+      }
+      if (shortcutManager) {
+        shortcutManager.syncServiceUrl(service.serviceName, null);
+      }
+      await publishServiceSnapshot(deviceId, service.serviceName, snapshot, {
+        status: "stopped",
+        publicUrl: null,
+        lastError: null,
+      });
+    }
+  }
+
+  async function startManagedServices(deviceId, reason) {
+    for (const service of serviceManager.list()) {
+      serviceManager.setDesiredState(service.serviceName, "running", reason);
+      const snapshot = await serviceManager.startService(service.serviceName);
+      await publishServiceSnapshot(deviceId, service.serviceName, snapshot);
+    }
+  }
+
   for (const command of commands) {
     logger.info(
       `Executing command ${command.action} for ${command.service_name || "all services"}`,
@@ -57,17 +104,7 @@ async function executeCommands({
       if (command.action === "start" && command.service_name) {
         serviceManager.setDesiredState(command.service_name, "running", "remote-start");
         const snapshot = await serviceManager.startService(command.service_name);
-        const locationPayload = await buildLocationPayload(command.service_name);
-        await supabaseApi.upsertServiceStatus({
-          deviceId: command.device_id,
-          serviceName: command.service_name,
-          port: snapshot.port,
-          status: snapshot.status,
-          publicUrl: tunnelManager.getPublicUrl(command.service_name),
-          desiredState: snapshot.desiredState,
-          lastError: snapshot.lastError,
-          ...locationPayload,
-        });
+        await publishServiceSnapshot(command.device_id, command.service_name, snapshot);
         logger.info(`Command start completed for ${command.service_name}`, {
           serviceName: command.service_name,
           status: snapshot.status,
@@ -83,22 +120,33 @@ async function executeCommands({
         if (shortcutManager) {
           shortcutManager.syncServiceUrl(command.service_name, null);
         }
-        const locationPayload = await buildLocationPayload(command.service_name);
-        await supabaseApi.upsertServiceStatus({
-          deviceId: command.device_id,
-          serviceName: command.service_name,
-          port: snapshot.port,
-          status: snapshot.status,
+        await publishServiceSnapshot(command.device_id, command.service_name, snapshot, {
           publicUrl: null,
-          desiredState: snapshot.desiredState,
-          lastError: snapshot.lastError,
-          ...locationPayload,
         });
         logger.info(`Command stop completed for ${command.service_name}`, {
           serviceName: command.service_name,
           status: snapshot.status,
           desiredState: snapshot.desiredState,
           publicUrl: null,
+        });
+      } else if (command.action === "agent_stop") {
+        await stopManagedServices(command.device_id, "remote-agent-stop");
+        logger.info("Command agent_stop completed.", {
+          serviceName: null,
+          action: command.action,
+        });
+      } else if (command.action === "agent_start") {
+        await startManagedServices(command.device_id, "remote-agent-start");
+        logger.info("Command agent_start completed.", {
+          serviceName: null,
+          action: command.action,
+        });
+      } else if (command.action === "agent_restart") {
+        await stopManagedServices(command.device_id, "remote-agent-restart-stop");
+        await startManagedServices(command.device_id, "remote-agent-restart-start");
+        logger.info("Command agent_restart completed.", {
+          serviceName: null,
+          action: command.action,
         });
       } else if (command.action === "kill") {
         await tunnelManager.stopAll();

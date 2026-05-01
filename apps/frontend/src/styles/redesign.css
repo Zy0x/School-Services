@@ -5176,3 +5176,152 @@ textarea {
   width: 100%;
   min-height: 36px;
 }
+.console-shell.app-shell-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.console-shell.app-shell-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 240ms ease;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 118, 128, 0.14), transparent 32%),
+    radial-gradient(circle at 82% 12%, rgba(219, 63, 76, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(255, 240, 242, 0.52), rgba(255, 248, 246, 0.14));
+}
+
+.console-shell.app-shell-page.is-device-offline::before {
+  opacity: 1;
+}
+
+.app-route-header {
+  padding-inline: 0;
+  padding-block: 8px 6px;
+}
+
+.route-breadcrumbs {
+  margin-bottom: 10px;
+}
+
+.metric-card.device-update-card {
+  gap: 8px;
+}
+
+.device-update-summary {
+  gap: 6px;
+}
+
+.device-update-version {
+  font-size: clamp(18px, 2vw, 20px);
+}
+
+.device-update-note {
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.agent-command-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.masked-field input,
+label > input,
+label > select,
+label > textarea {
+  padding-inline: 16px;
+}
+
+.password-input-shell {
+  padding-right: 12px;
+}
+
+.password-input-shell input {
+  min-height: 48px;
+  padding-left: 18px;
+  padding-right: 132px;
+}
+
+.password-toggle {
+  min-width: 92px;
+  margin-right: 2px;
+}
+
+.toast-viewport {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  display: grid;
+  gap: 10px;
+  width: min(340px, calc(100vw - 28px));
+}
+
+.toast-card {
+  position: relative;
+  padding: 14px 42px 14px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(67, 57, 109, 0.12);
+  background: rgba(253, 251, 246, 0.96);
+  box-shadow: var(--shadow-enterprise);
+  backdrop-filter: blur(18px) saturate(1.18);
+}
+
+.toast-card strong {
+  display: block;
+  font-size: 13px;
+}
+
+.toast-card p {
+  margin: 4px 0 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.toast-card.tone-success {
+  border-color: rgba(122, 167, 28, 0.28);
+  background: rgba(243, 255, 220, 0.96);
+}
+
+.toast-card.tone-error {
+  border-color: rgba(217, 63, 76, 0.22);
+  background: rgba(255, 242, 243, 0.97);
+}
+
+.toast-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-muted);
+}
+
+@media (max-width: 920px) {
+  .agent-command-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .toast-viewport {
+    right: 12px;
+    left: 12px;
+    bottom: 92px;
+    width: auto;
+  }
+
+  .password-input-shell input {
+    padding-right: 120px;
+  }
+}

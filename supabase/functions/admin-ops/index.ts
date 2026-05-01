@@ -41,12 +41,20 @@ function safeFileNameFromKey(objectKey: string) {
   return clean.split("/").filter(Boolean).pop() || clean || "berkas";
 }
 
+function normalizeStorageKey(value: unknown) {
+  return String(value || "").trim().replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function isStorageFolderEntry(entry: Record<string, unknown> | null | undefined) {
+  return Boolean(entry) && !entry?.id && !entry?.updated_at && !entry?.created_at;
+}
+
 async function storageObjectExists(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   bucket: string,
   objectKey: string
 ) {
-  const cleanKey = String(objectKey || "").trim().replace(/^\/+/, "");
+  const cleanKey = normalizeStorageKey(objectKey);
   if (!bucket || !cleanKey) {
     return false;
   }
@@ -63,6 +71,47 @@ async function storageObjectExists(
   }
 
   return (data || []).some((entry) => String(entry.name || "").trim() === fileName);
+}
+
+async function collectStorageKeysByPrefix(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  bucket: string,
+  prefix: string
+) {
+  const normalizedPrefix = normalizeStorageKey(prefix);
+  if (!bucket || !normalizedPrefix) {
+    return [];
+  }
+
+  const folders = [normalizedPrefix];
+  const keys = new Set<string>();
+
+  while (folders.length) {
+    const currentPrefix = folders.pop() || "";
+    const { data, error } = await service.storage.from(bucket).list(currentPrefix, {
+      limit: 1000,
+      sortBy: { column: "name", order: "asc" },
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    for (const entry of data || []) {
+      const name = String(entry.name || "").trim();
+      if (!name) {
+        continue;
+      }
+      const childKey = currentPrefix ? `${currentPrefix}/${name}` : name;
+      if (isStorageFolderEntry(entry as Record<string, unknown>)) {
+        folders.push(childKey);
+      } else {
+        keys.add(childKey);
+      }
+    }
+  }
+
+  return [...keys];
 }
 
 function normalizeArtifactJob(job: Record<string, unknown>, deviceName = "") {
@@ -98,6 +147,7 @@ function normalizeArtifactJob(job: Record<string, unknown>, deviceName = "") {
     expiresAt: job.artifact_expires_at || result.expiresAt || null,
     deletedAt: job.artifact_deleted_at || null,
     fromJob: true,
+    isFolder: false,
   };
 }
 
@@ -219,7 +269,7 @@ async function requireDeviceAccess(
 
 function sanitizeCommandAction(value: unknown) {
   const action = String(value || "").trim().toLowerCase();
-  if (["start", "stop", "kill", "update"].includes(action)) {
+  if (["start", "stop", "kill", "update", "agent_start", "agent_stop", "agent_restart"].includes(action)) {
     return action;
   }
   throw new Error("Aksi command tidak dikenali.");
@@ -963,13 +1013,14 @@ async function queueScopedCommand(
 ) {
   const deviceId = String(body.deviceId || "").trim();
   const action = sanitizeCommandAction(body.commandAction || body.command || body.actionName);
-  const serviceName = action === "kill" || action === "update" ? null : String(body.serviceName || "").trim();
+  const deviceWideAction = ["kill", "update", "agent_start", "agent_stop", "agent_restart"].includes(action);
+  const serviceName = deviceWideAction ? null : String(body.serviceName || "").trim();
   await requireDeviceAccess(service, actor, deviceId);
 
-  if (action !== "kill" && action !== "update" && !serviceName) {
+  if (!deviceWideAction && !serviceName) {
     throw new Error("Nama service wajib diisi untuk aksi start/stop.");
   }
-  if (action === "kill" && !isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
+  if ((action === "kill" || action.startsWith("agent_")) && !isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
     throw new Error("Hanya SuperAdmin atau Operator yang dapat menghentikan agent.");
   }
   if (action === "update") {
@@ -1171,6 +1222,7 @@ async function listStorageArtifacts(
       if (!objectName || knownKeys.has(`${bucket}:${objectName}`)) {
         continue;
       }
+      const isFolder = isStorageFolderEntry(object as Record<string, unknown>);
       orphanedObjects.push({
         id: `${bucket}:${objectName}`,
         bucket,
@@ -1183,12 +1235,13 @@ async function listStorageArtifacts(
         jobType: "storage_object",
         status: "orphaned",
         deliveryMode: bucket === ARCHIVE_BUCKET ? "persistent" : "temp",
-        size: Number(object.metadata?.size || 0) || null,
+        size: isFolder ? null : Number(object.metadata?.size || 0) || null,
         contentType: object.metadata?.mimetype || null,
         createdAt: object.created_at || object.updated_at || null,
         expiresAt: null,
         deletedAt: null,
         fromJob: false,
+        isFolder,
       });
     }
   }
@@ -1210,8 +1263,9 @@ async function deleteStorageArtifact(
   }
 
   const bucket = String(body.bucket || "").trim();
-  const objectKey = String(body.objectKey || "").trim();
+  const objectKey = normalizeStorageKey(body.objectKey);
   const jobId = Number(body.jobId || 0);
+  const isFolder = body.isFolder === true;
 
   if (!FILE_BUCKETS.includes(bucket)) {
     throw new Error("Bucket tidak dikenali.");
@@ -1234,7 +1288,16 @@ async function deleteStorageArtifact(
     removalTargets.get(nextBucket)?.add(nextObjectKey);
   }
 
-  addRemovalTarget(bucket, objectKey);
+  if (isFolder) {
+    if (await storageObjectExists(service, bucket, objectKey)) {
+      addRemovalTarget(bucket, objectKey);
+    }
+    for (const childKey of await collectStorageKeysByPrefix(service, bucket, objectKey)) {
+      addRemovalTarget(bucket, childKey);
+    }
+  } else {
+    addRemovalTarget(bucket, objectKey);
+  }
 
   if (jobId) {
     const { data: job, error: jobError } = await service
@@ -1297,12 +1360,13 @@ async function deleteStorageArtifact(
     job_id: jobId || null,
     action: "delete_artifact",
     target_path: objectKey,
-    details: {
-      bucket,
-      objectKey,
-      fileName: String(body.fileName || safeFileNameFromKey(objectKey)),
-      removedTargetCount: [...removalTargets.values()].reduce((total, keys) => total + keys.size, 0),
-    },
+      details: {
+        bucket,
+        objectKey,
+        isFolder,
+        fileName: String(body.fileName || safeFileNameFromKey(objectKey)),
+        removedTargetCount: [...removalTargets.values()].reduce((total, keys) => total + keys.size, 0),
+      },
   });
 
   return {

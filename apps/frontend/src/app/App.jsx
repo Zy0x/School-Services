@@ -4508,6 +4508,9 @@ export default function App() {
     typeof window === "undefined" ? { section: "overview", deviceId: "" } : parseAppRoute(window.location.pathname)
   );
   const [now, setNow] = useState(Date.now());
+  const [pageVisible, setPageVisible] = useState(
+    typeof document === "undefined" ? true : document.visibilityState !== "hidden"
+  );
   const [busyAction, setBusyAction] = useState("");
   const [currentPath, setCurrentPath] = useState("");
   const [directoryJobId, setDirectoryJobId] = useState(null);
@@ -4554,6 +4557,7 @@ export default function App() {
     error: "",
   });
   const fileInputRef = useRef(null);
+  const pageVisibleRef = useRef(pageVisible);
 
   function dismissToast(id) {
     setToastItems((current) => current.filter((item) => item.id !== id));
@@ -4861,6 +4865,31 @@ export default function App() {
   }, [guestDeviceId]);
 
   useEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+
+    const handleVisibilityChange = () => {
+      setPageVisible(document.visibilityState !== "hidden");
+    };
+
+    handleVisibilityChange();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleVisibilityChange);
+    window.addEventListener("blur", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleVisibilityChange);
+      window.removeEventListener("blur", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    pageVisibleRef.current = pageVisible;
+  }, [pageVisible]);
+
+  useEffect(() => {
     if (!session || guestDeviceId || resetPasswordMode) {
       setProfile(null);
       return;
@@ -4980,8 +5009,11 @@ export default function App() {
       return undefined;
     }
 
-    loadAll();
+    loadAll({ background: false, includeArtifacts: selectedTab === "files" && filesView === "storage" });
     const refreshId = window.setInterval(() => {
+      if (!pageVisibleRef.current) {
+        return;
+      }
       loadAll({
         background: true,
         includeArtifacts: selectedTab === "files" && filesView === "storage",
@@ -4993,6 +5025,18 @@ export default function App() {
       window.clearInterval(refreshId);
     };
   }, [session, profile?.role, guestDeviceId, selectedTab, filesView]);
+
+  useEffect(() => {
+    if (!session || !profile || guestDeviceId || !pageVisible) {
+      return;
+    }
+
+    loadAll({
+      background: true,
+      includeArtifacts: selectedTab === "files" && filesView === "storage",
+    });
+    setNow(Date.now());
+  }, [pageVisible, session, profile?.role, guestDeviceId, selectedTab, filesView]);
 
   useEffect(() => {
     if (appRoute.section === "devices" && appRoute.deviceId) {
@@ -5032,6 +5076,18 @@ export default function App() {
     setArtifactDeviceFilter((current) => (current === syncedDeviceId ? current : syncedDeviceId));
     setActivityDeviceId((current) => (current === syncedDeviceId ? current : syncedDeviceId));
   }, [selectedDeviceId]);
+
+  useEffect(() => {
+    if (!dashboardInfo) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setDashboardInfo((current) => (current === dashboardInfo ? "" : current));
+    }, 4200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [dashboardInfo]);
 
   const deviceEntries = useMemo(() => {
     const grouped = new Map();
@@ -6653,6 +6709,16 @@ export default function App() {
               className="page-device-combobox"
             />
             <input ref={fileInputRef} type="file" hidden onChange={(event) => triggerUpload(event.target.files?.[0])} />
+            {filteredRoots.length ? (
+              <div className="remote-root-quick-actions">
+                <SectionHeader
+                  eyebrow="Quick action"
+                  title="Akses cepat lokasi"
+                  description="Buka drive dan lokasi umum perangkat langsung dari kartu cepat."
+                />
+                <RootGrid roots={filteredRoots} onOpen={openPath} />
+              </div>
+            ) : null}
             <div className="fresh-link-bar">
               <LongText value={currentPath || "This PC"} label="Path aktif" className="mono" maxLength={80} empty="This PC" />
             </div>

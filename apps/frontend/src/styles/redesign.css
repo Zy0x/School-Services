@@ -5214,19 +5214,23 @@ textarea {
 }
 
 .metric-card.device-update-card {
-  gap: 4px;
+  gap: 2px;
+  padding-block: 16px 14px;
 }
 
 .device-update-head {
+  grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
+  gap: 6px;
 }
 
 .device-update-summary {
-  gap: 2px;
+  gap: 0;
 }
 
 .device-update-version {
   font-size: clamp(18px, 2vw, 20px);
+  margin-top: 2px;
 }
 
 .device-update-note {
@@ -5234,6 +5238,12 @@ textarea {
   font-size: 12px;
   line-height: 1.35;
   font-weight: 700;
+  margin-top: 0;
+}
+
+.remote-root-quick-actions {
+  display: grid;
+  gap: 10px;
 }
 
 .agent-command-actions {

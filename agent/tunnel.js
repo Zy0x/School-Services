@@ -1,4 +1,5 @@
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const logger = require("./logger");
@@ -52,6 +53,42 @@ class TunnelManager {
       logPath: path.join(this.stateDir, `${serviceName}.cloudflared.log`),
       metaPath: path.join(this.stateDir, `${serviceName}.json`),
     };
+  }
+
+  getFallbackTunnelDir() {
+    const fallbackDir = path.join(os.tmpdir(), "school-services", "tunnels");
+    fs.mkdirSync(fallbackDir, { recursive: true });
+    return fallbackDir;
+  }
+
+  getWritableTunnelPaths(serviceName) {
+    const primaryPaths = this.getTunnelPaths(serviceName);
+
+    try {
+      fs.writeFileSync(primaryPaths.logPath, "", "utf8");
+      return primaryPaths;
+    } catch (error) {
+      if (!["EPERM", "EACCES"].includes(String(error?.code || ""))) {
+        throw error;
+      }
+
+      const fallbackDir = this.getFallbackTunnelDir();
+      const fallbackPaths = {
+        logPath: path.join(fallbackDir, `${serviceName}.cloudflared.log`),
+        metaPath: primaryPaths.metaPath,
+      };
+      logger.warn(
+        `Tunnel log path is not writable for ${serviceName}. Falling back to temp directory.`,
+        {
+          serviceName,
+          logPath: primaryPaths.logPath,
+          fallbackLogPath: fallbackPaths.logPath,
+          error: error.message,
+        }
+      );
+      fs.writeFileSync(fallbackPaths.logPath, "", "utf8");
+      return fallbackPaths;
+    }
   }
 
   deleteLog(serviceName) {
@@ -642,8 +679,7 @@ class TunnelManager {
     });
 
     const args = this.buildCloudflaredArgs(service);
-    const { logPath } = this.getTunnelPaths(service.serviceName);
-    fs.writeFileSync(logPath, "", "utf8");
+    const { logPath } = this.getWritableTunnelPaths(service.serviceName);
     const stdoutFd = fs.openSync(logPath, "a");
 
     try {

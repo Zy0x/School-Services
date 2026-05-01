@@ -5937,7 +5937,7 @@ export default function App() {
             <LongText value={selectedDevice.deviceId} label="ID perangkat" className="mono" maxLength={34} />
             {selectedDevice.deviceAlias ? <small>Nama asli: {selectedDevice.rawDeviceName}</small> : null}
           </div>
-          <div className="fresh-actions">
+          <div className="fresh-actions device-hero-actions">
             <StatusChip status={selectedDeviceBadge.status} label={selectedDeviceBadge.label} />
             <ActionButton className="secondary-button" onClick={() => openAliasModal(selectedDevice)}>Edit alias</ActionButton>
           </div>
@@ -6148,9 +6148,11 @@ export default function App() {
             </div>
             <RootGrid roots={filteredRoots} onOpen={openPath} />
             <div className="fresh-file-list-shell">
-              <div className={`floating-selection-actions ${currentPath || selectedPaths.length ? "is-visible" : ""}`}>
+              <div className="floating-selection-actions remote-file-actions is-visible">
                 <ActionButton className="secondary-button" disabled={!currentPath} onClick={() => fileInputRef.current?.click()}>Unggah ke sini</ActionButton>
-                <ActionButton className="primary-button" disabled={selectedPaths.length === 0} onClick={queueDownloadSelection}>Unduh pilihan</ActionButton>
+                {selectedPaths.length ? (
+                  <ActionButton className="primary-button" onClick={queueDownloadSelection}>Unduh pilihan</ActionButton>
+                ) : null}
               </div>
               <FileTable
                 currentPath={currentPath}

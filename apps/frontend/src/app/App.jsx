@@ -439,6 +439,30 @@ function buildBreadcrumbs(targetPath) {
   return crumbs;
 }
 
+function buildThisPcDirectoryResult(roots) {
+  const source = Array.isArray(roots) ? roots : [];
+  const driveRoots = source.filter((root) => String(root.root_type || "") === "drive");
+  const items = (driveRoots.length ? driveRoots : source).map((root) => ({
+    name: String(root.label || root.path || "Drive"),
+    path: String(root.path || ""),
+    type: "directory",
+    size: null,
+    modifiedAt: null,
+    hidden: false,
+    virtualKind: String(root.root_type || "drive"),
+    description: String(root.metadata?.description || "").trim(),
+    locationStatus: String(root.metadata?.locationStatus || root.root_type || "drive"),
+  }));
+
+  return {
+    path: "",
+    parentPath: "",
+    items,
+    warnings: [],
+    virtualRootLabel: "This PC",
+  };
+}
+
 function dismissOnBackdrop(event, onClose) {
   if (event.target === event.currentTarget) {
     onClose?.();
@@ -3321,11 +3345,23 @@ function FileTable({
   onPreview,
   onOpenParent,
   loading = false,
+  loadingLabel = "",
+  loadingProgress = null,
+  virtualRootLabel = "",
 }) {
   if (loading) {
     return (
       <div className="explorer-shell explorer-loading-shell" aria-busy="true">
         <Skeleton lines={4} />
+        {loadingLabel ? <div className="explorer-loading-copy">{loadingLabel}</div> : null}
+        {loadingProgress ? (
+          <div className="explorer-loading-progress" aria-label={`${loadingProgress.label} ${loadingProgress.percent}%`}>
+            <div className="explorer-loading-progress-track">
+              <span style={{ width: `${loadingProgress.percent}%` }} />
+            </div>
+            <small>{loadingProgress.label}</small>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -3341,26 +3377,33 @@ function FileTable({
   const breadcrumbs = buildBreadcrumbs(currentPath);
   const folderCount = items.filter((item) => item.type === "directory").length;
   const fileCount = items.filter((item) => item.type === "file").length;
+  const showingVirtualRoot = !currentPath && virtualRootLabel;
 
   return (
     <div className="explorer-shell">
       <div className="explorer-toolbar">
         <div className="explorer-breadcrumbs">
-          <button type="button" className="utility-button" onClick={onOpenParent}>
-            Naik
-          </button>
-          {breadcrumbs.map((crumb) => (
-            <button
-              key={crumb.path}
-              type="button"
-              className={`breadcrumb-chip ${
-                crumb.path === currentPath ? "breadcrumb-chip-active" : ""
-              }`}
-              onClick={() => onOpen(crumb.path)}
-            >
-              {crumb.label}
-            </button>
-          ))}
+          {showingVirtualRoot ? (
+            <span className="breadcrumb-chip breadcrumb-chip-active">{virtualRootLabel}</span>
+          ) : (
+            <>
+              <button type="button" className="utility-button" onClick={onOpenParent}>
+                Naik
+              </button>
+              {breadcrumbs.map((crumb) => (
+                <button
+                  key={crumb.path}
+                  type="button"
+                  className={`breadcrumb-chip ${
+                    crumb.path === currentPath ? "breadcrumb-chip-active" : ""
+                  }`}
+                  onClick={() => onOpen(crumb.path)}
+                >
+                  {crumb.label}
+                </button>
+              ))}
+            </>
+          )}
         </div>
         <div className="explorer-summary">
           <span>{folderCount} folder</span>
@@ -3428,9 +3471,9 @@ function FileTable({
                     </div>
                   </div>
                 </div>
-                <span>{getFileKindLabel(item)}</span>
+                <span>{item.virtualKind ? String(item.virtualKind).replace(/_/g, " ") : getFileKindLabel(item)}</span>
                 <span>{item.type === "directory" ? "-" : formatBytes(item.size)}</span>
-                <span>{formatDate(item.modifiedAt)}</span>
+                <span>{item.description || formatDate(item.modifiedAt)}</span>
                 <button
                   type="button"
                   className={`utility-button ${item.type === "directory" ? "open-folder-button" : ""}`}
@@ -4309,6 +4352,7 @@ export default function App() {
   const [busyAction, setBusyAction] = useState("");
   const [currentPath, setCurrentPath] = useState("");
   const [directoryJobId, setDirectoryJobId] = useState(null);
+  const [rootDiscoveryJobId, setRootDiscoveryJobId] = useState(null);
   const [directoryResult, setDirectoryResult] = useState(null);
   const [previewJobId, setPreviewJobId] = useState(null);
   const [previewResult, setPreviewResult] = useState(null);
@@ -4381,6 +4425,7 @@ export default function App() {
     setBusyAction("");
     setCurrentPath("");
     setDirectoryJobId(null);
+    setRootDiscoveryJobId(null);
     setDirectoryResult(null);
     setPreviewJobId(null);
     setPreviewResult(null);
@@ -4849,7 +4894,8 @@ export default function App() {
     busyAction.startsWith("job:list_directory") ||
     busyAction.startsWith("job:discover_roots") ||
     busyAction.startsWith("job:preview_file") ||
-    directoryJobId !== null;
+    directoryJobId !== null ||
+    rootDiscoveryJobId !== null;
   const routeBreadcrumbs = getRouteBreadcrumbs(appRoute, profile, {
     filesView,
     deviceName:
@@ -4975,6 +5021,10 @@ export default function App() {
         : [],
     [roots, selectedDevice]
   );
+  const selectedDeviceDriveRoots = useMemo(
+    () => selectedDeviceRoots.filter((root) => String(root.root_type || "") === "drive"),
+    [selectedDeviceRoots]
+  );
 
   useEffect(() => {
     setCurrentPath("");
@@ -4993,11 +5043,20 @@ export default function App() {
     if (!selectedDevice || selectedTab !== "files" || filesView !== "remote") {
       return;
     }
-    if (currentPath || directoryJobId || !selectedDeviceRoots.length) {
+    if (currentPath || directoryJobId || rootDiscoveryJobId || !selectedDeviceRoots.length) {
       return;
     }
-    openPath(selectedDeviceRoots[0].path);
-  }, [selectedDevice?.deviceId, selectedDeviceRoots, currentPath, directoryJobId, selectedTab, filesView]);
+    setDirectoryResult(buildThisPcDirectoryResult(selectedDeviceDriveRoots.length ? selectedDeviceDriveRoots : selectedDeviceRoots));
+  }, [
+    selectedDevice?.deviceId,
+    selectedDeviceRoots,
+    selectedDeviceDriveRoots,
+    currentPath,
+    directoryJobId,
+    rootDiscoveryJobId,
+    selectedTab,
+    filesView,
+  ]);
 
   useEffect(() => {
     setFilePage(1);
@@ -5039,6 +5098,25 @@ export default function App() {
       setDirectoryJobId(null);
     }
   }, [directoryJobId, fileJobs]);
+
+  useEffect(() => {
+    if (!rootDiscoveryJobId) {
+      return;
+    }
+
+    const job = fileJobs.find((entry) => entry.id === rootDiscoveryJobId);
+    if (!job) {
+      return;
+    }
+
+    if (job.status === "completed") {
+      setRootDiscoveryJobId(null);
+      loadAll({ background: true, includeArtifacts: false });
+    } else if (job.status === "failed") {
+      setError(job.error || "Gagal memuat drive perangkat.");
+      setRootDiscoveryJobId(null);
+    }
+  }, [rootDiscoveryJobId, fileJobs]);
 
   useEffect(() => {
     if (!previewJobId) {
@@ -5492,7 +5570,10 @@ export default function App() {
 
   async function refreshRoots() {
     setFilesView("remote");
-    await createFileJob("discover_roots");
+    const job = await createFileJob("discover_roots");
+    if (job) {
+      setRootDiscoveryJobId(job.id);
+    }
   }
 
   async function previewItem(item) {
@@ -6069,6 +6150,29 @@ export default function App() {
       })
       .filter(Boolean)
       .sort((left, right) => left._priority - right._priority);
+    const activeExplorerJob =
+      (directoryJobId ? fileJobs.find((entry) => entry.id === directoryJobId) : null) ||
+      (rootDiscoveryJobId ? fileJobs.find((entry) => entry.id === rootDiscoveryJobId) : null) ||
+      null;
+    const explorerLoadingProgress = activeExplorerJob
+      ? {
+          percent: Math.min(
+            100,
+            Math.max(
+              8,
+              Math.round(
+                (Number(activeExplorerJob.progress_current || 0) /
+                  Math.max(1, Number(activeExplorerJob.progress_total || 1))) *
+                  100
+              )
+            )
+          ),
+          label:
+            activeExplorerJob.job_type === "discover_roots"
+              ? "Memindai drive dan lokasi perangkat"
+              : "Membaca isi folder perangkat",
+        }
+      : null;
 
     const refreshCurrentPath = () => {
       if (currentPath) {
@@ -6167,9 +6271,8 @@ export default function App() {
             />
             <input ref={fileInputRef} type="file" hidden onChange={(event) => triggerUpload(event.target.files?.[0])} />
             <div className="fresh-link-bar">
-              <LongText value={currentPath || ""} label="Path aktif" className="mono" maxLength={80} empty="This PC siap dipilih dari daftar lokasi." />
+              <LongText value={currentPath || "This PC"} label="Path aktif" className="mono" maxLength={80} empty="This PC" />
             </div>
-            <RootGrid roots={filteredRoots} onOpen={openPath} />
             <div className="fresh-file-list-shell">
               <div className="floating-selection-actions remote-file-actions is-visible">
                 <div className="remote-file-actions-copy">
@@ -6194,6 +6297,9 @@ export default function App() {
                 onPreview={previewItem}
                 onOpenParent={openParentPath}
                 loading={fileExplorerBusy}
+                loadingLabel={explorerLoadingProgress?.label || ""}
+                loadingProgress={explorerLoadingProgress}
+                virtualRootLabel={directoryResult?.virtualRootLabel || ""}
               />
             </div>
           </article>

@@ -41,6 +41,30 @@ function safeFileNameFromKey(objectKey: string) {
   return clean.split("/").filter(Boolean).pop() || clean || "berkas";
 }
 
+async function storageObjectExists(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  bucket: string,
+  objectKey: string
+) {
+  const cleanKey = String(objectKey || "").trim().replace(/^\/+/, "");
+  if (!bucket || !cleanKey) {
+    return false;
+  }
+
+  const slashIndex = cleanKey.lastIndexOf("/");
+  const folder = slashIndex >= 0 ? cleanKey.slice(0, slashIndex) : "";
+  const fileName = slashIndex >= 0 ? cleanKey.slice(slashIndex + 1) : cleanKey;
+  const { data, error } = await service.storage.from(bucket).list(folder, {
+    limit: 100,
+    search: fileName,
+  });
+  if (error) {
+    throw error;
+  }
+
+  return (data || []).some((entry) => String(entry.name || "").trim() === fileName);
+}
+
 function normalizeArtifactJob(job: Record<string, unknown>, deviceName = "") {
   const bucket = String(job.artifact_bucket || "").trim();
   const objectKey = String(job.artifact_object_key || "").trim();
@@ -1098,9 +1122,25 @@ async function listStorageArtifacts(
   const deviceMap = new Map(
     (devices || []).map((device) => [String(device.device_id), String(device.device_name || "")])
   );
-  const artifacts = (jobs || []).map((job) =>
-    normalizeArtifactJob(job, deviceMap.get(String(job.device_id)) || "")
-  );
+  const artifacts: Record<string, unknown>[] = [];
+  for (const job of jobs || []) {
+    const normalized = normalizeArtifactJob(job, deviceMap.get(String(job.device_id)) || "");
+    if (normalized.deletedAt) {
+      const exists = normalized.bucket && normalized.objectKey
+        ? await storageObjectExists(service, String(normalized.bucket), String(normalized.objectKey))
+        : false;
+      if (!exists) {
+        continue;
+      }
+      artifacts.push({
+        ...normalized,
+        status: "orphaned",
+        error: "Berkas ditandai terhapus tetapi object masih ada di storage.",
+      });
+      continue;
+    }
+    artifacts.push(normalized);
+  }
   const knownKeys = new Set(
     artifacts
       .filter((artifact) => artifact.bucket && artifact.objectKey)

@@ -1203,6 +1203,10 @@ label > span,
   color: var(--ink);
 }
 
+.masked-field input {
+  padding-inline: 16px;
+}
+
 .console-shell,
 .guest-console-shell {
   width: 100%;
@@ -3880,6 +3884,19 @@ textarea {
 .device-combobox-search input,
 .device-combobox-control input {
   padding-inline: 0;
+}
+
+.password-input-shell {
+  padding-right: 10px;
+}
+
+.password-input-shell input {
+  padding-left: 16px;
+  padding-right: 124px;
+}
+
+.password-toggle {
+  min-width: 86px;
 }
 
 .route-breadcrumbs {

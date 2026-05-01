@@ -630,11 +630,26 @@ class FileWorker {
     return results.filter((root) => root.path);
   }
 
-  async handleDiscoverRoots() {
-    const roots = await this.buildRoots();
+  async handleDiscoverRoots(job) {
+    await this.bestEffortUpdateFileJob(job.id, {
+      progress_current: 0,
+      progress_total: 3,
+    });
+    const driveRoots = await this.getDriveRoots();
+    await this.bestEffortUpdateFileJob(job.id, {
+      progress_current: 1,
+      progress_total: 3,
+    });
+    const quickAccess = this.getQuickAccessRoots();
+    await this.bestEffortUpdateFileJob(job.id, {
+      progress_current: 2,
+      progress_total: 3,
+    });
+    const appRoots = await this.getApplicationRoots();
+    const roots = [...driveRoots, ...quickAccess, ...appRoots];
     await this.supabaseApi.replaceFileRoots(this.device.deviceId, roots);
     this.lastRootsSyncAt = Date.now();
-    return { roots };
+    return { roots, progressCurrent: 3, progressTotal: 3 };
   }
 
   resolveExistingPath(targetPath) {
@@ -955,13 +970,20 @@ class FileWorker {
         focusedPath: targetPath,
         items: [this.buildDirectoryEntry(path.dirname(targetPath), path.basename(targetPath))],
         warnings,
+        progressCurrent: 1,
+        progressTotal: 1,
       };
     }
 
     const entryNames = fs.readdirSync(targetPath);
     const entries = [];
+    const progressTotal = Math.max(1, entryNames.length);
+    await this.bestEffortUpdateFileJob(job.id, {
+      progress_current: 0,
+      progress_total: progressTotal,
+    });
 
-    for (const entryName of entryNames) {
+    for (const [index, entryName] of entryNames.entries()) {
       try {
         entries.push(this.buildDirectoryEntry(targetPath, entryName));
       } catch (error) {
@@ -969,6 +991,12 @@ class FileWorker {
           name: entryName,
           path: path.join(targetPath, entryName),
           message: error.message,
+        });
+      }
+      if (index === entryNames.length - 1 || index % 25 === 24) {
+        await this.bestEffortUpdateFileJob(job.id, {
+          progress_current: index + 1,
+          progress_total: progressTotal,
         });
       }
     }
@@ -989,6 +1017,8 @@ class FileWorker {
       parentPath: path.dirname(targetPath),
       items: entries,
       warnings,
+      progressCurrent: progressTotal,
+      progressTotal,
     };
   }
 

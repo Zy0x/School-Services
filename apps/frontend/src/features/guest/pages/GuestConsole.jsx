@@ -270,42 +270,28 @@ export function GuestConsole({ deviceId }) {
                 <CircleArrowUp size={18} strokeWidth={2.2} />
               </span>
               <div>
-                <span className="section-eyebrow">Tautan utama</span>
-                <strong>Tautan E-Rapor</strong>
+                <span className="section-eyebrow">Ringkasan akses</span>
+                <strong>{guestStatus.headline}</strong>
               </div>
             </div>
-            <div className="guest-link-focus-box guest-link-hero-box">
-              <LongText
-                value={service?.public_url || ""}
-                href={canOpenService ? service?.public_url : ""}
-                label="Tautan E-Rapor"
-                className="mono"
-                maxLength={96}
-                empty="Belum tersedia"
-              />
-            </div>
             <p className="guest-access-summary">{accessSummary}</p>
-            <div className="guest-link-focus-actions guest-link-hero-actions">
-              <a
-                className={`primary-button footer-link-button guest-open-button ${canOpenService ? "" : "button-disabled-link"}`}
-                href={canOpenService ? service?.public_url : undefined}
-                target="_blank"
-                rel="noreferrer"
-                aria-disabled={!canOpenService}
-                onClick={(event) => {
-                  if (!canOpenService) {
-                    event.preventDefault();
-                  }
-                }}
-              >
-                Buka E-Rapor
-              </a>
-              <GuestPublicLinkActions
-                url={service?.public_url || ""}
-                label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
-                compact
-                onActionComplete={setError}
-              />
+            <div className="guest-summary-list">
+              <div>
+                <span>Perangkat</span>
+                <strong>{deviceBadge.label}</strong>
+              </div>
+              <div>
+                <span>Layanan</span>
+                <strong>{guestStatus.runtimeLabel}</strong>
+              </div>
+              <div>
+                <span>Tautan</span>
+                <strong>{guestStatus.publicLabel}</strong>
+              </div>
+              <div>
+                <span>Versi</span>
+                <strong>{guestUpdate.localVersion}</strong>
+              </div>
             </div>
           </article>
         </section>
@@ -371,12 +357,12 @@ export function GuestConsole({ deviceId }) {
               />
             </section>
 
-            <article className={`guest-panel guest-service-panel tone-${statusTone(guestRuntimeStatus)}`}>
-              <div className="guest-service-head">
+            <article className={`guest-panel guest-access-main tone-${statusTone(guestRuntimeStatus)}`}>
+              <div className="guest-access-main-head">
                 <div>
-                  <span className="section-eyebrow">Service</span>
+                  <span className="section-eyebrow">Akses utama</span>
                   <strong>{serviceLabel}</strong>
-                  <small className="mono">{state.device?.deviceId || deviceId}</small>
+                  <p>Panel ini memusatkan tautan, status service, dan kontrol dasar dalam satu tempat.</p>
                 </div>
                 <div className="guest-service-pills">
                   <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
@@ -385,29 +371,73 @@ export function GuestConsole({ deviceId }) {
                 </div>
               </div>
 
-              <div className="guest-detail-grid">
-                <div>
-                  <span>Kondisi layanan</span>
-                  <strong>{service?.desired_state === "running" ? "Siap dijalankan" : service?.desired_state || "-"}</strong>
-                </div>
-                <div>
-                  <span>Terakhir diperbarui</span>
-                  <strong>{formatRelativeTime(service?.last_ping)}</strong>
-                </div>
-                <div>
-                  <span>Terakhir tersambung</span>
-                  <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
-                </div>
-                <div>
-                  <span>Lokasi aplikasi</span>
-                  <strong className="mono">
-                    <LongText value={service?.resolved_path || ""} label="Lokasi aplikasi" maxLength={48} />
-                  </strong>
-                </div>
-                <div>
-                  <span>Kesiapan aplikasi</span>
-                  <strong>{service?.location_status || "unknown"}</strong>
-                </div>
+              <div className="guest-access-main-grid">
+                <section className="guest-access-main-primary">
+                  <div className="guest-link-focus-box guest-link-hero-box">
+                    <LongText
+                      value={service?.public_url || ""}
+                      href={canOpenService ? service?.public_url : ""}
+                      label="Tautan E-Rapor"
+                      className="mono"
+                      maxLength={96}
+                      empty="Belum tersedia"
+                    />
+                  </div>
+                  <p className="guest-access-summary">{accessSummary}</p>
+                  <div className="guest-link-focus-actions guest-link-hero-actions">
+                    <a
+                      className={`primary-button footer-link-button guest-open-button ${canOpenService ? "" : "button-disabled-link"}`}
+                      href={canOpenService ? service?.public_url : undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-disabled={!canOpenService}
+                      onClick={(event) => {
+                        if (!canOpenService) {
+                          event.preventDefault();
+                        }
+                      }}
+                    >
+                      Buka E-Rapor
+                    </a>
+                    <PublicLinkActions
+                      url={service?.public_url || ""}
+                      label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
+                      compact
+                      onActionComplete={setError}
+                    />
+                  </div>
+                </section>
+
+                <section className="guest-access-main-side">
+                  <div className="guest-service-ident">
+                    <strong>{state.device?.deviceName || deviceId}</strong>
+                    <small className="mono">{state.device?.deviceId || deviceId}</small>
+                  </div>
+                  <div className="guest-detail-grid">
+                    <div>
+                      <span>Kondisi layanan</span>
+                      <strong>{service?.desired_state === "running" ? "Siap dijalankan" : service?.desired_state || "-"}</strong>
+                    </div>
+                    <div>
+                      <span>Terakhir diperbarui</span>
+                      <strong>{formatRelativeTime(service?.last_ping)}</strong>
+                    </div>
+                    <div>
+                      <span>Terakhir tersambung</span>
+                      <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
+                    </div>
+                    <div>
+                      <span>Lokasi aplikasi</span>
+                      <strong className="mono">
+                        <LongText value={service?.resolved_path || ""} label="Lokasi aplikasi" maxLength={48} />
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Kesiapan aplikasi</span>
+                      <strong>{service?.location_status || "unknown"}</strong>
+                    </div>
+                  </div>
+                </section>
               </div>
 
               {service?.location_details?.message ? (

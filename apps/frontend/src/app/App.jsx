@@ -2926,12 +2926,6 @@ function GuestConsole({ deviceId }) {
         : Monitor;
   const guestMetricItems = [
     {
-      label: "Terakhir tersambung",
-      value: formatRelativeTime(state.device?.lastSeen),
-      helper: "Heartbeat agent terbaru",
-      icon: Activity,
-    },
-    {
       label: "Status layanan",
       value: guestStatus.runtimeLabel,
       helper: `${serviceLabel} pada perangkat ini`,
@@ -2946,11 +2940,10 @@ function GuestConsole({ deviceId }) {
       tone: guestStatus.publicStatus === "ready" ? "good" : guestStatus.publicStatus === "disabled" ? "warn" : "",
     },
     {
-      label: "Kesiapan akses",
-      value: guestStatus.headline,
-      helper: guestStatus.description,
-      icon: Monitor,
-      tone: guestStatus.ready ? "good" : guestStatus.overallStatus === "offline" ? "warn" : "",
+      label: "Terakhir tersambung",
+      value: formatRelativeTime(state.device?.lastSeen),
+      helper: "Heartbeat agent terbaru",
+      icon: Activity,
     },
   ];
 
@@ -3013,12 +3006,12 @@ function GuestConsole({ deviceId }) {
                 <span className="section-eyebrow">Perangkat tamu</span>
                 <h2>{state.device?.deviceName || deviceId}</h2>
                 <LongText value={state.device?.deviceId || deviceId} label="ID perangkat" className="mono" maxLength={34} />
-                <small>Halaman guest mengikuti layout dashboard internal dengan aksi yang disesuaikan untuk akses tamu.</small>
+                <small>Fokus utama halaman ini adalah membuka E-Rapor dengan cepat saat tautan sudah aktif.</small>
               </div>
               <div className="fresh-actions device-hero-actions">
-                <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
                 <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
                 <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
+                <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
               </div>
             </article>
 
@@ -3042,28 +3035,42 @@ function GuestConsole({ deviceId }) {
               />
             </section>
 
-            <article className="fresh-panel guest-access-panel">
-              <SectionHeader
-                eyebrow="Akses"
-                title="Tautan E-Rapor"
-                description="Tautan utama disingkat di layar dan detail lengkap tetap tersedia lewat overlay."
-                actions={
-                  <PublicLinkActions
-                    url={service?.public_url || ""}
-                    label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
-                    compact
-                    onActionComplete={setError}
-                  />
-                }
-              />
-              <div className="fresh-link-bar">
+            <article className="fresh-panel guest-access-panel guest-link-focus-panel">
+              <div className="guest-link-focus-copy">
+                <span className="section-eyebrow">Akses utama</span>
+                <h3>Tautan E-Rapor</h3>
+                <p>Panel ini menjadi fokus utama. Jika tautan aktif, buka E-Rapor langsung dari sini. Jika belum, gunakan kontrol layanan di bawah.</p>
+              </div>
+              <div className="guest-link-focus-box">
                 <LongText
                   value={service?.public_url || ""}
                   href={canOpenService ? service?.public_url : ""}
                   label="Tautan E-Rapor"
                   className="mono"
-                  maxLength={72}
+                  maxLength={88}
                   empty="Belum tersedia"
+                />
+              </div>
+              <div className="fresh-actions guest-link-focus-actions">
+                <a
+                  className={`primary-button footer-link-button ${canOpenService ? "" : "button-disabled-link"}`}
+                  href={canOpenService ? service?.public_url : undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-disabled={!canOpenService}
+                  onClick={(event) => {
+                    if (!canOpenService) {
+                      event.preventDefault();
+                    }
+                  }}
+                >
+                  Buka E-Rapor
+                </a>
+                <PublicLinkActions
+                  url={service?.public_url || ""}
+                  label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
+                  compact
+                  onActionComplete={setError}
                 />
               </div>
             </article>
@@ -3082,25 +3089,7 @@ function GuestConsole({ deviceId }) {
                 </div>
               </div>
 
-              <div className="guest-callout">
-                <div>
-                  <div className="section-eyebrow">Status utama</div>
-                  <strong>{guestStatus.headline}</strong>
-                </div>
-                <p>{guestStatus.description}</p>
-              </div>
-
               <div className="fresh-data-grid guest-detail-grid">
-                <div>
-                  <span>Tautan E-Rapor</span>
-                  <strong className="mono">
-                    {service?.public_url ? (
-                      <LongText value={service.public_url} href={service.public_url} label="Tautan E-Rapor" maxLength={54} />
-                    ) : (
-                      "Belum tersedia"
-                    )}
-                  </strong>
-                </div>
                 <div>
                   <span>Kondisi layanan</span>
                   <strong>{service?.desired_state === "running" ? "Siap dijalankan" : service?.desired_state || "-"}</strong>
@@ -3114,14 +3103,14 @@ function GuestConsole({ deviceId }) {
                   <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
                 </div>
                 <div>
-                  <span>Kesiapan aplikasi</span>
-                  <strong>{service?.location_status || "unknown"}</strong>
-                </div>
-                <div>
                   <span>Lokasi aplikasi</span>
                   <strong className="mono">
                     <LongText value={service?.resolved_path || ""} label="Lokasi aplikasi" maxLength={48} />
                   </strong>
+                </div>
+                <div>
+                  <span>Kesiapan aplikasi</span>
+                  <strong>{service?.location_status || "unknown"}</strong>
                 </div>
               </div>
 
@@ -3143,20 +3132,9 @@ function GuestConsole({ deviceId }) {
                   <ActionButton className="secondary-button" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
                     Hentikan
                   </ActionButton>
-                  <a
-                    className={`primary-button footer-link-button ${canOpenService ? "" : "button-disabled-link"}`}
-                    href={canOpenService ? service.public_url : undefined}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-disabled={!canOpenService}
-                    onClick={(event) => {
-                      if (!canOpenService) {
-                        event.preventDefault();
-                      }
-                    }}
-                  >
-                    Buka E-Rapor
-                  </a>
+                  <ActionButton className="secondary-button" busy={busy && commandModal.action === "update"} disabled={busy} onClick={() => sendCommand("update")}>
+                    Update
+                  </ActionButton>
               </div>
             </article>
           </section>

@@ -2889,6 +2889,7 @@ function GuestConsole({ deviceId }) {
   const guestUpdate = getDeviceUpdateModel(state.device);
   const canOpenService = guestStatus.ready;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
+  const serviceLabel = formatServiceDisplayName(service?.service_name || "rapor");
   const loginUrl = buildAuthUrl({
     mode: "login",
     linkDeviceId: deviceId,
@@ -2918,50 +2919,47 @@ function GuestConsole({ deviceId }) {
           <Avatar3D size="sm" />
           <div>
             <div className="section-eyebrow">School Services</div>
-            <strong>Akses Perangkat</strong>
+            <strong>Guest Access</strong>
           </div>
         </div>
         <div className="guest-nav-actions">
-          <a className="secondary-button footer-link-button" href={loginUrl}>
-            Masuk
-          </a>
-          <a className="primary-button footer-link-button" href={registerUrl}>
-            Daftar
-          </a>
+          <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
         </div>
       </header>
 
       <section className="guest-hero">
         <div className="guest-hero-copy">
-          <div className="section-eyebrow">Status Layanan</div>
+          <div className="section-eyebrow">Akses perangkat tamu</div>
           <h1>{state.device?.deviceName || deviceId}</h1>
           <p>{guestStatus.description}</p>
           <div className="guest-hero-badges">
-            <StatusChip
-              status={deviceBadge.status}
-              label={deviceBadge.label}
-            />
-            <StatusChip
-              status={guestRuntimeBadge.status}
-              label={guestRuntimeBadge.label}
-            />
-            <StatusChip
-              status={guestStatus.publicStatus}
-              label={guestStatus.publicLabel}
-            />
+            <StatusChip status={guestRuntimeBadge.status} label={guestRuntimeBadge.label} />
+            <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
+            <StatusChip status={guestStatus.overallStatus} label={guestStatus.headline} />
+          </div>
+          <div className="guest-hero-meta">
+            <span>ID perangkat</span>
+            <LongText value={state.device?.deviceId || deviceId} label="ID perangkat" className="mono" maxLength={36} />
           </div>
         </div>
-        <div className="guest-hero-actions">
-          <StatusChip status={guestStatus.overallStatus} label={guestStatus.headline} />
-          <button
-            type="button"
-            className={`secondary-button ${refreshing ? "button-busy" : ""}`}
-            onClick={() => loadGuest({ silent: true })}
-            disabled={refreshing}
-          >
-            {refreshing ? "Menyegarkan..." : "Segarkan"}
-          </button>
-        </div>
+        <aside className="guest-hero-side">
+          <div className="guest-hero-side-card">
+            <span className="section-eyebrow">Aksi cepat</span>
+            <strong>{guestStatus.headline}</strong>
+            <small>Masuk untuk menautkan perangkat ini ke akun Anda atau buka E-Rapor bila layanan sudah siap.</small>
+            <div className="guest-hero-actions">
+              <ActionButton className="secondary-button" busy={refreshing} icon={RefreshCw} onClick={() => loadGuest({ silent: true })}>
+                Segarkan
+              </ActionButton>
+              <a className="secondary-button footer-link-button" href={loginUrl}>
+                Masuk
+              </a>
+              <a className="primary-button footer-link-button" href={registerUrl}>
+                Daftar
+              </a>
+            </div>
+          </div>
+        </aside>
       </section>
 
       {error ? <div className="error-banner">{error}</div> : null}
@@ -2972,38 +2970,43 @@ function GuestConsole({ deviceId }) {
         ) : (
           <>
             <section className="guest-status-grid">
-              <article className="metric-card guest-status-card">
-                <span>Koneksi perangkat</span>
-                <strong>
-                  {state.device?.deviceStatus === "online"
+              <GuestMetricCard
+                label="Koneksi perangkat"
+                value={
+                  state.device?.deviceStatus === "online"
                     ? "Terhubung"
                     : state.device?.deviceStatus === "pending_setup"
                       ? "Disiapkan"
-                      : state.device?.deviceStatus || "offline"}
-                </strong>
-                <StatusChip
-                  status={deviceBadge.status}
-                  label={deviceBadge.label}
-                />
-              </article>
-              <article className="metric-card guest-status-card">
-                <span>Status layanan</span>
-                <strong>{guestStatus.runtimeLabel}</strong>
-                <StatusChip
-                  status={guestRuntimeBadge.status}
-                  label={guestStatus.runtimeChipLabel}
-                />
-              </article>
-              <article className="metric-card guest-status-card">
-                <span>Tautan akses</span>
-                <strong>{guestStatus.publicLabel}</strong>
-                <StatusChip status={guestStatus.publicStatus} />
-              </article>
-              <article className="metric-card guest-status-card">
-                <span>Kesiapan akses</span>
-                <strong>{guestStatus.headline}</strong>
-                <StatusChip status={guestStatus.overallStatus} />
-              </article>
+                      : state.device?.deviceStatus || "offline"
+                }
+                helper="Status heartbeat perangkat saat ini."
+                icon={Monitor}
+                status={deviceBadge.status}
+                statusLabel={deviceBadge.label}
+              />
+              <GuestMetricCard
+                label="Status layanan"
+                value={guestStatus.runtimeLabel}
+                helper={`${serviceLabel} di perangkat ini.`}
+                icon={Server}
+                status={guestRuntimeBadge.status}
+                statusLabel={guestStatus.runtimeChipLabel}
+              />
+              <GuestMetricCard
+                label="Tautan akses"
+                value={guestStatus.publicLabel}
+                helper="Ketersediaan URL publik E-Rapor."
+                icon={CircleArrowUp}
+                status={guestStatus.publicStatus}
+              />
+              <GuestMetricCard
+                label="Terakhir tersambung"
+                value={formatRelativeTime(state.device?.lastSeen)}
+                helper="Waktu heartbeat agent terakhir."
+                icon={Activity}
+                status={deviceBadge.status}
+                statusLabel={deviceBadge.label}
+              />
               <DeviceUpdateCard
                 deviceRecord={state.device}
                 deviceStatus={state.device?.deviceStatus}
@@ -3016,18 +3019,13 @@ function GuestConsole({ deviceId }) {
             <article className="service-panel guest-service-panel">
               <div className="service-card-header">
                 <div>
-                  <strong>E-Rapor</strong>
+                  <strong>{serviceLabel}</strong>
+                  <small>Kontrol akses layanan untuk tamu dan operator lapangan.</small>
                   <LongText value={state.device?.deviceId || ""} label="ID perangkat" className="mono" maxLength={32} />
                 </div>
                 <div className="service-status-group">
-                  <StatusChip
-                    status={deviceBadge.status}
-                    label={deviceBadge.label}
-                  />
-                  <StatusChip
-                    status={guestRuntimeBadge.status}
-                    label={guestStatus.runtimeChipLabel}
-                  />
+                  <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
+                  <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
                   <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
                 </div>
               </div>
@@ -3088,22 +3086,12 @@ function GuestConsole({ deviceId }) {
 
               <div className="guest-cta-row">
                 <div className="panel-actions">
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={busy}
-                    onClick={() => sendCommand("start")}
-                  >
-                    {busy ? "Memproses..." : "Mulai"}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={busy || !isRunning}
-                    onClick={() => sendCommand("stop")}
-                  >
+                  <ActionButton className="primary-button" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
+                    Mulai
+                  </ActionButton>
+                  <ActionButton className="secondary-button" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
                     Hentikan
-                  </button>
+                  </ActionButton>
                   <a
                     className={`primary-button footer-link-button ${canOpenService ? "" : "button-disabled-link"}`}
                     href={canOpenService ? service.public_url : undefined}
@@ -3140,13 +3128,12 @@ function GuestConsole({ deviceId }) {
             onClose={() => setCommandModal((current) => ({ ...current, open: false }))}
           />
         ) : (
-          <div className="guest-modal-backdrop" role="status" aria-live="polite">
-          <div className="guest-modal-card">
-            <Skeleton className="modal-skeleton-icon" />
-            <strong>{commandModal.title}</strong>
-            <p>{commandModal.message}</p>
-          </div>
-          </div>
+          <CommandProgressOverlay
+            open
+            title={commandModal.title}
+            message={commandModal.message}
+            percent={busy ? 42 : 78}
+          />
         )
       ) : null}
     </main>
@@ -3488,6 +3475,29 @@ function RootGrid({ roots, onOpen }) {
         </button>
       ))}
     </div>
+  );
+}
+
+function GuestMetricCard({
+  label,
+  value,
+  helper = "",
+  icon: Icon = Gauge,
+  status = "",
+  statusLabel = "",
+}) {
+  return (
+    <article className="metric-card guest-status-card">
+      <div className="guest-status-card-top">
+        <span className="guest-status-card-icon" aria-hidden="true">
+          <Icon size={18} strokeWidth={2.2} />
+        </span>
+        <span>{label}</span>
+      </div>
+      <strong>{value}</strong>
+      {helper ? <small>{helper}</small> : null}
+      {status ? <StatusChip status={status} label={statusLabel || undefined} /> : null}
+    </article>
   );
 }
 

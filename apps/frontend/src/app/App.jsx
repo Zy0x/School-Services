@@ -889,12 +889,16 @@ function getStatusIcon(status) {
   return Loader2;
 }
 
-function StatusPill({ status, label }) {
+function StatusPill({ status, label, className = "", iconOnly = false, title = "" }) {
   const Icon = getStatusIcon(status);
   return (
-    <span className={`status-chip tone-${statusTone(status)}`}>
+    <span
+      className={`status-chip tone-${statusTone(status)} ${className}`.trim()}
+      title={title || undefined}
+      aria-label={title || label || getStatusLabel(status)}
+    >
       <Icon size={14} strokeWidth={2.2} aria-hidden="true" />
-      {label || getStatusLabel(status)}
+      {iconOnly ? null : label || getStatusLabel(status)}
     </span>
   );
 }
@@ -3113,6 +3117,7 @@ function DeviceUpdateCard({
   const remoteUpdateSupported = supportsRemoteUpdate(deviceRecord);
   const statusLabel = busy && update.status !== "updating" ? "Update diminta" : update.label;
   const toneStatus = busy && update.status !== "updating" ? "reconnecting" : update.toneStatus;
+  const compactStatus = toneStatus === "ready" && statusLabel === "Sudah terbaru";
   const canUpdate =
     showAction &&
     typeof onUpdate === "function" &&
@@ -3131,14 +3136,19 @@ function DeviceUpdateCard({
         <span className="device-update-icon" aria-hidden="true">
           <Rocket size={18} strokeWidth={2.2} />
         </span>
-        <div>
-          <span className="device-update-title">Versi & update</span>
+        <div className="device-update-summary">
+          <div className="device-update-topline">
+            <span className="device-update-title">Versi & update</span>
+            <StatusChip
+              status={toneStatus}
+              label={compactStatus ? "" : statusLabel}
+              iconOnly={compactStatus}
+              title={statusLabel}
+              className={compactStatus ? "device-update-status-chip compact" : "device-update-status-chip"}
+            />
+          </div>
           <strong className="device-update-version">{update.localVersion}</strong>
         </div>
-      </div>
-      <div className="device-update-status-line">
-        <span>Status</span>
-        <StatusChip status={toneStatus} label={statusLabel} />
       </div>
       {showAction && canUpdate ? (
         <ActionButton

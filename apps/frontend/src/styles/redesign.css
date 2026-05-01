@@ -4003,11 +4003,7 @@ textarea {
   grid-template-rows: auto auto 1fr auto;
 }
 
-.device-update-lines {
-  align-content: start;
-}
-
-.device-update-status-line .status-chip {
+.device-update-status-chip {
   max-width: 100%;
 }
 
@@ -4999,6 +4995,18 @@ textarea {
 .device-update-head {
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 8px;
+  align-items: start;
+}
+
+.device-update-summary {
+  min-width: 0;
+}
+
+.device-update-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .device-update-title {
@@ -5012,20 +5020,18 @@ textarea {
   line-height: 1.02;
 }
 
-.device-update-status-line {
-  gap: 8px;
-  align-items: center;
-}
-
-.device-update-status-line > span:first-child {
-  font-size: 10px;
-  line-height: 1.1;
-}
-
-.device-update-status-line .status-chip {
+.device-update-status-chip {
   min-height: 30px;
   padding-inline: 10px;
   font-size: 11px;
+  flex-shrink: 0;
+}
+
+.device-update-status-chip.compact {
+  width: 30px;
+  min-width: 30px;
+  padding-inline: 0;
+  justify-content: center;
 }
 
 .device-update-action {

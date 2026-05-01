@@ -1293,8 +1293,6 @@ function TopCommandBar({
   notificationOpen = false,
   onNotificationToggle,
   onNotificationClose,
-  density = "comfortable",
-  onDensityChange,
 }) {
   const notificationCount = notifications.length;
   return (
@@ -1322,22 +1320,6 @@ function TopCommandBar({
         </button>
         <NotificationPopover open={notificationOpen} items={notifications} onClose={onNotificationClose} />
       </div>
-      <div className="density-toggle" role="group" aria-label="Kepadatan dashboard">
-        <button
-          type="button"
-          className={density === "comfortable" ? "is-active" : ""}
-          onClick={() => onDensityChange?.("comfortable")}
-        >
-          Cozy
-        </button>
-        <button
-          type="button"
-          className={density === "compact" ? "is-active" : ""}
-          onClick={() => onDensityChange?.("compact")}
-        >
-          Compact
-        </button>
-      </div>
       <ActionButton className="secondary-button" busy={loading} icon={RefreshCw} onClick={onRefresh}>
         Refresh
       </ActionButton>
@@ -1356,6 +1338,20 @@ function matchesDeviceQuery(device, query) {
   return [device.deviceName, device.deviceAlias, device.rawDeviceName, device.deviceId]
     .map((value) => String(value || "").toLowerCase())
     .some((value) => value.includes(needle));
+}
+
+function formatServiceDisplayName(name) {
+  const normalized = String(name || "").trim().toLowerCase();
+  if (normalized === "rapor") {
+    return "E-Rapor";
+  }
+  if (normalized === "dapodik") {
+    return "Dapodik";
+  }
+  if (!normalized) {
+    return "-";
+  }
+  return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function DeviceCombobox({
@@ -1408,46 +1404,52 @@ function DeviceCombobox({
 
   return (
     <div className={`device-combobox ${open ? "is-open" : ""} ${className}`.trim()} ref={comboboxRef}>
-      <label>
-        <span>{label}</span>
-        <div className="device-combobox-control">
-          <Search size={16} strokeWidth={2.2} aria-hidden="true" />
-          <input
-            value={query}
-            onFocus={() => setOpen(true)}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setOpen(true);
-            }}
-            placeholder={selectedDevice ? selectedDevice.deviceName : allLabel}
-            aria-expanded={open}
-          />
-          <button
-            type="button"
-            className="device-combobox-toggle"
-            aria-label={open ? "Tutup daftar perangkat" : "Buka daftar perangkat"}
-            onClick={() => setOpen((current) => !current)}
-          >
-            <ChevronDown size={16} strokeWidth={2.2} aria-hidden="true" />
-          </button>
-        </div>
-      </label>
-      <button type="button" className="device-combobox-current" onClick={() => setOpen((current) => !current)}>
+      <label className="device-combobox-label">{label}</label>
+      <button
+        type="button"
+        className="device-combobox-current"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
         <span>
           <strong>{selectedDevice ? selectedDevice.deviceName : allLabel}</strong>
-          <small>{selectedDevice ? selectedDevice.deviceId : "Menampilkan seluruh perangkat"}</small>
+          <small>
+            {selectedDevice
+              ? `${selectedDevice.deviceId}${selectedDevice.deviceAlias ? ` | Alias: ${selectedDevice.deviceAlias}` : ""}`
+              : "Menampilkan seluruh perangkat"}
+          </small>
         </span>
-        {selectedDevice ? (
-          <StatusChip
-            status={getDeviceStatusBadgeModel(selectedDevice.deviceStatus).status}
-            label={getDeviceStatusBadgeModel(selectedDevice.deviceStatus).label}
-          />
-        ) : null}
+        <span className="device-combobox-current-meta">
+          {selectedDevice ? (
+            <StatusChip
+              status={getDeviceStatusBadgeModel(selectedDevice.deviceStatus).status}
+              label={getDeviceStatusBadgeModel(selectedDevice.deviceStatus).label}
+            />
+          ) : (
+            <StatusChip status="ready" label={`${devices.length} device`} />
+          )}
+          <ChevronDown size={16} strokeWidth={2.2} aria-hidden="true" />
+        </span>
       </button>
       {open ? (
         <div className="device-combobox-menu">
+          <div className="device-combobox-search">
+            <Search size={16} strokeWidth={2.2} aria-hidden="true" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Cari nama device, alias, atau device id"
+              aria-label={`Cari ${label.toLowerCase()}`}
+            />
+          </div>
           {includeAll ? (
-            <button type="button" className="device-combobox-option" onMouseDown={(event) => event.preventDefault()} onClick={() => selectDevice("all")}>
+            <button
+              type="button"
+              className={`device-combobox-option ${selectedDeviceId === "all" ? "is-selected" : ""}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectDevice("all")}
+            >
               <span>
                 <strong>{allLabel}</strong>
                 <small>Gabungan semua perangkat</small>
@@ -1539,6 +1541,24 @@ function Pagination({ page, totalItems, pageSize = 10, onPageChange }) {
       </div>
     </div>
   );
+}
+
+function getRemoteRootPreference(root) {
+  const label = String(root?.label || root?.name || "").trim().toUpperCase();
+  const path = String(root?.path || "").trim().toUpperCase();
+  const combined = `${label} ${path}`;
+  const priorities = [
+    { key: "DAPODIK", score: 1, label: "Dapodik" },
+    { key: "E-RAPOR", score: 2, label: "E-Rapor" },
+    { key: "ERAPOR", score: 2, label: "E-Rapor" },
+    { key: "DESKTOP", score: 3, label: "Desktop" },
+    { key: "DOCUMENTS", score: 4, label: "Documents" },
+    { key: "DOWNLOAD", score: 5, label: "Download" },
+    { key: "VIDEOS", score: 6, label: "Videos" },
+    { key: "PICTURES", score: 7, label: "Pictures" },
+  ];
+  const match = priorities.find((entry) => combined.includes(entry.key));
+  return match || null;
 }
 
 function getPriorityBanner({ route, profile, devices, fileJobs, accounts }) {
@@ -2969,29 +2989,45 @@ function DeviceUpdateCard({
 
   return (
     <article className="metric-card device-update-card">
-      <span className="device-update-title">
-        <Rocket size={17} strokeWidth={2.2} aria-hidden="true" />
-        Versi & update
-      </span>
-      <strong className="device-update-version">{update.localVersion}</strong>
-      <div className="device-update-lines">
-        <span>Latest GitHub: {update.latestVersion}</span>
-        <span>Dicek: {formatRelativeTime(update.checkedAt)}</span>
-        {update.startedAt ? <span>Mulai update: {formatRelativeTime(update.startedAt)}</span> : null}
+      <div className="device-update-head">
+        <span className="device-update-icon" aria-hidden="true">
+          <Rocket size={18} strokeWidth={2.2} />
+        </span>
+        <div>
+          <span className="device-update-title">Versi & update</span>
+          <strong className="device-update-version">{update.localVersion}</strong>
+        </div>
       </div>
-      <div className="service-status-group device-update-status-row">
+      <div className="device-update-status-line">
+        <span>Status</span>
         <StatusChip status={toneStatus} label={statusLabel} />
-        {showAction && canUpdate ? (
-          <ActionButton
-            className="primary-button"
-            busy={busy}
-            disabled={busy}
-            onClick={onUpdate}
-          >
-            Update Agent & Service
-          </ActionButton>
+      </div>
+      <div className="device-update-lines">
+        <div>
+          <span>Latest GitHub</span>
+          <strong>{update.latestVersion}</strong>
+        </div>
+        <div>
+          <span>Interval cek</span>
+          <strong>{formatRelativeTime(update.checkedAt)}</strong>
+        </div>
+        {update.startedAt ? (
+          <div>
+            <span>Mulai update</span>
+            <strong>{formatRelativeTime(update.startedAt)}</strong>
+          </div>
         ) : null}
       </div>
+      {showAction && canUpdate ? (
+        <ActionButton
+          className="primary-button device-update-action"
+          busy={busy}
+          disabled={busy}
+          onClick={onUpdate}
+        >
+          Update Agent & Service
+        </ActionButton>
+      ) : null}
       {update.error ? <div className="job-error">{update.error}</div> : null}
       {unsupportedUpdateMessage ? <div className="job-error">{unsupportedUpdateMessage}</div> : null}
     </article>
@@ -3341,9 +3377,9 @@ function ArtifactInventory({
   return (
     <article className="jobs-panel artifact-inventory-panel file-library-panel">
       <SectionHeader
-        eyebrow="Supabase Storage"
-        title="Kumpulan Berkas"
-        description="Berkas dikelompokkan berdasarkan bucket Supabase. Aktivitas proses tetap tersedia di bagian riwayat."
+        eyebrow="Storage"
+        title="Pustaka berkas"
+        description="Berkas dikelompokkan berdasarkan bucket storage. Aktivitas proses tetap tersedia di bagian riwayat."
         actions={
           <ActionButton
             className="secondary-button"
@@ -3495,13 +3531,13 @@ function SupabaseFileTable({
   return (
     <article className="fresh-panel supabase-file-table-panel">
       <SectionHeader
-        eyebrow="Supabase Storage"
-        title="Kumpulan Berkas"
-        description="Seluruh artifact yang sudah diambil dari perangkat dan tersimpan di storage Supabase."
+        eyebrow="Storage"
+        title="Pustaka berkas"
+        description="Seluruh artefak yang sudah diambil dari perangkat dan tersimpan di storage pusat."
       />
       {artifacts.length ? (
         <>
-          <div className="supabase-file-table" role="table" aria-label="Daftar berkas Supabase">
+          <div className="supabase-file-table" role="table" aria-label="Daftar berkas storage">
             <div className="supabase-file-row supabase-file-head" role="row">
               <span>Nama file/folder</span>
               <span>Path</span>
@@ -3564,7 +3600,7 @@ function SupabaseFileTable({
           <Pagination page={safePage} totalItems={artifacts.length} pageSize={pageSize} onPageChange={onPageChange} />
         </>
       ) : (
-        <EmptyState title="Belum ada berkas" description="Artifact Supabase yang cocok dengan filter akan tampil di sini." />
+        <EmptyState title="Belum ada berkas" description="Artefak storage yang cocok dengan filter akan tampil di sini." />
       )}
       {detailArtifact ? (
         <DetailDrawer
@@ -4121,13 +4157,14 @@ export default function App() {
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [fleetSearch, setFleetSearch] = useState("");
+  const [fleetPage, setFleetPage] = useState(1);
   const [filePage, setFilePage] = useState(1);
   const [accountPage, setAccountPage] = useState(1);
   const [activityDeviceId, setActivityDeviceId] = useState("");
   const [fileActivityOpen, setFileActivityOpen] = useState(false);
   const [fileActivityExpanded, setFileActivityExpanded] = useState(false);
   const [logOverlayOpen, setLogOverlayOpen] = useState(false);
-  const [dashboardDensity, setDashboardDensity] = useState("comfortable");
+  const [filesView, setFilesView] = useState("storage");
   const [updateModal, setUpdateModal] = useState({
     open: false,
     deviceId: "",
@@ -4194,6 +4231,8 @@ export default function App() {
     setArtifactBucketFilter("all");
     setArtifactDeviceFilter("all");
     setArtifactSearch("");
+    setFleetPage(1);
+    setFilesView("storage");
   }
 
   function clearGuestLinkRequest() {
@@ -4734,8 +4773,18 @@ export default function App() {
   );
 
   useEffect(() => {
+    setCurrentPath("");
+    setDirectoryResult(null);
+    setSelectedPaths([]);
+  }, [selectedDevice?.deviceId]);
+
+  useEffect(() => {
     setFilePage(1);
   }, [artifactBucketFilter, artifactDeviceFilter, artifactSearch]);
+
+  useEffect(() => {
+    setFleetPage(1);
+  }, [fleetSearch]);
 
   useEffect(() => {
     setAccountPage(1);
@@ -5182,6 +5231,7 @@ export default function App() {
 
   async function openPath(nextPath) {
     setCurrentPath(nextPath);
+    setFilesView("remote");
     const job = await createFileJob("list_directory", { sourcePath: nextPath });
     if (job) {
       setDirectoryJobId(job.id);
@@ -5205,6 +5255,7 @@ export default function App() {
   }
 
   async function refreshRoots() {
+    setFilesView("remote");
     await createFileJob("discover_roots");
   }
 
@@ -5443,6 +5494,13 @@ export default function App() {
     runningJobs: activeRunningJobs,
   });
   const filteredFleetDevices = deviceEntries.filter((device) => matchesDeviceQuery(device, fleetSearch));
+  const fleetPageSize = 10;
+  const totalFleetPages = Math.max(1, Math.ceil(filteredFleetDevices.length / fleetPageSize));
+  const safeFleetPage = Math.min(Math.max(1, fleetPage), totalFleetPages);
+  const pagedFleetDevices = filteredFleetDevices.slice(
+    (safeFleetPage - 1) * fleetPageSize,
+    safeFleetPage * fleetPageSize
+  );
   const updateAvailableCount = deviceEntries.filter((device) => getDeviceUpdateModel(device.deviceRecord).updateAvailable).length;
   const deviceWarningCount = deviceEntries.reduce((total, device) => total + (device.issueCount > 0 || device.deviceStatus === "offline" ? 1 : 0), 0);
   const latestErrorLogs = logs.filter((log) => ["error", "warn"].includes(log.level)).slice(0, 3);
@@ -5557,15 +5615,19 @@ export default function App() {
     return (
       <div className="fresh-service-list">
         {visibleServices.map((service) => {
+          const serviceLabel = formatServiceDisplayName(service.service_name);
           const runtimeBadge = getServiceStatusBadgeModel(service.serviceStatus);
           const publicBadge = getPublicLinkBadgeModel(service);
           const runningNow = service.serviceStatus === "running" && service.desired_state !== "stopped";
           return (
-            <article key={service.id} className={`fresh-service-card tone-${statusTone(service.serviceStatus)}`}>
+            <article
+              key={service.id}
+              className={`fresh-service-card tone-${statusTone(service.serviceStatus)} service-${service.service_name}`}
+            >
               <div className="fresh-card-head">
                 <div>
                   <span className="section-eyebrow">Service</span>
-                  <strong>{service.service_name}</strong>
+                  <strong>{serviceLabel}</strong>
                   <small className="mono">localhost:{service.port}</small>
                 </div>
                 <div className="fresh-pill-group">
@@ -5578,7 +5640,7 @@ export default function App() {
                   <span>{getPublicUrlLabel(service)}</span>
                   <strong>
                     {service.public_url ? (
-                      <LongText value={service.public_url} href={service.public_url} label={`Tautan ${service.service_name}`} maxLength={44} />
+                      <LongText value={service.public_url} href={service.public_url} label={`Tautan ${serviceLabel}`} maxLength={44} />
                     ) : (
                       "Belum tersedia"
                     )}
@@ -5624,7 +5686,7 @@ export default function App() {
                 </ActionButton>
                 <PublicLinkActions
                   url={service.public_url || ""}
-                  label={`Tautan ${service.service_name} untuk ${selectedDevice.deviceName}`}
+                  label={`Tautan ${serviceLabel} untuk ${selectedDevice.deviceName}`}
                   compact
                   onActionComplete={setError}
                 />
@@ -5714,7 +5776,7 @@ export default function App() {
           <SectionHeader
             eyebrow="Fleet"
             title="Perangkat"
-            description="Cari berdasarkan nama perangkat, alias, atau device id."
+            description="Tampilkan 10 perangkat per halaman dengan pencarian nama, alias, atau device id."
             actions={
               <label className="fleet-search-field">
                 <Search size={16} aria-hidden="true" />
@@ -5723,7 +5785,7 @@ export default function App() {
             }
           />
           <div className="fleet-strip" aria-label="Daftar perangkat">
-            {filteredFleetDevices.length ? filteredFleetDevices.map((device) => {
+            {pagedFleetDevices.length ? pagedFleetDevices.map((device) => {
               const badge = getDeviceStatusBadgeModel(device.deviceStatus);
               return (
                 <button
@@ -5742,6 +5804,14 @@ export default function App() {
               );
             }) : <EmptyState title="Device tidak ditemukan" description="Ubah kata kunci pencarian fleet." />}
           </div>
+          {filteredFleetDevices.length > fleetPageSize ? (
+            <Pagination
+              page={safeFleetPage}
+              totalItems={filteredFleetDevices.length}
+              pageSize={fleetPageSize}
+              onPageChange={setFleetPage}
+            />
+          ) : null}
         </article>
         <article className="fresh-panel">
           <SectionHeader eyebrow="Detail cepat" title={selectedDevice?.deviceName || "Belum ada perangkat"} description="Ringkasan perangkat terpilih." />
@@ -5756,105 +5826,143 @@ export default function App() {
       return <EmptyState title="Tidak tersedia" description="Berkas hanya tersedia untuk SuperAdmin." />;
     }
 
-    const filteredRoots = selectedDeviceRoots.filter((root) => {
-      const label = String(root.label || root.name || root.path || "").trim().toUpperCase();
-      const rootPath = String(root.path || "").trim().toUpperCase();
-      return !["C", "C:", "C:\\", "D", "D:", "D:\\"].includes(label) && !["C:", "C:\\", "D:", "D:\\"].includes(rootPath);
-    });
+    const filteredRoots = selectedDeviceRoots
+      .map((root) => {
+        const match = getRemoteRootPreference(root);
+        return match ? { ...root, label: match.label, _priority: match.score } : null;
+      })
+      .filter(Boolean)
+      .sort((left, right) => left._priority - right._priority);
+
+    const refreshCurrentPath = () => {
+      if (currentPath) {
+        openPath(currentPath);
+        return;
+      }
+      refreshRoots();
+    };
 
     return (
       <section className="fresh-section-stack">
-        <article className="fresh-panel file-library-filter-panel">
-          <SectionHeader
-            eyebrow="Supabase Storage"
-            title="Filter berkas"
-            description="File library utama dibatasi 10 item per halaman."
-            actions={<ActionButton className="secondary-button" busy={busyAction === "artifacts:refresh"} icon={RefreshCw} onClick={refreshStorageArtifacts}>Segarkan bucket</ActionButton>}
-          />
-          <div className="artifact-filter-bar file-library-filters">
-            <label>
-              <span>Bucket</span>
-              <select value={artifactBucketFilter} onChange={(event) => setArtifactBucketFilter(event.target.value)}>
-                <option value="all">Semua bucket</option>
-                <option value="agent-temp-artifacts">Berkas sementara</option>
-                <option value="agent-archives">Arsip permanen</option>
-                <option value="agent-preview-cache">Cache pratinjau</option>
-                <option value="admin-upload-staging">Unggahan admin</option>
-              </select>
-            </label>
-            <label>
-              <span>Device</span>
-              <select value={artifactDeviceFilter} onChange={(event) => setArtifactDeviceFilter(event.target.value)}>
-                <option value="all">Semua device</option>
-                {artifactDeviceOptions.map((device) => (
-                  <option key={device.id} value={device.id}>{device.label}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Cari</span>
-              <input value={artifactSearch} onChange={(event) => setArtifactSearch(event.target.value)} placeholder="rapor-2026.zip" />
-            </label>
+        <article className="fresh-panel files-view-panel">
+          <SectionHeader eyebrow="Berkas" title="Sumber berkas" description="Pisahkan storage arsip dan remote file agar halaman tetap fokus." />
+          <div className="subpage-tabs" role="tablist" aria-label="Sub halaman berkas">
+            <button
+              type="button"
+              className={`tab-button ${filesView === "storage" ? "is-active" : ""}`}
+              aria-selected={filesView === "storage"}
+              onClick={() => setFilesView("storage")}
+            >
+              Storage
+            </button>
+            <button
+              type="button"
+              className={`tab-button ${filesView === "remote" ? "is-active" : ""}`}
+              aria-selected={filesView === "remote"}
+              onClick={() => setFilesView("remote")}
+            >
+              Remote File
+            </button>
           </div>
         </article>
-        <SupabaseFileTable
-          artifacts={visibleStorageArtifacts}
-          page={filePage}
-          onPageChange={setFilePage}
-          busyAction={busyAction}
-          onDownload={handleArtifactDownload}
-          onDelete={deleteStorageArtifact}
-        />
-        <article className="fresh-panel">
-          <SectionHeader
-            eyebrow="Device filesystem"
-            title="Akses berkas perangkat"
-            description="Pilih perangkat, buka folder, lalu unggah atau unduh file yang dipilih."
-            actions={
-              <>
-                <ActionButton className="secondary-button" onClick={() => setLogOverlayOpen(true)}>Log</ActionButton>
-                <ActionButton className="secondary-button" onClick={refreshRoots}>Segarkan lokasi</ActionButton>
-              </>
-            }
-          />
-          <DeviceCombobox
-            devices={deviceEntries}
-            selectedDeviceId={selectedDevice?.deviceId || ""}
-            onSelect={setSelectedDeviceId}
-            label="Pilih perangkat berkas"
-            className="page-device-combobox"
-          />
-          <input ref={fileInputRef} type="file" hidden onChange={(event) => triggerUpload(event.target.files?.[0])} />
-          <div className="fresh-link-bar">
-            <LongText value={currentPath || ""} label="Path aktif" className="mono" maxLength={80} empty="Pilih lokasi berkas" />
-          </div>
-          <RootGrid roots={filteredRoots} onOpen={openPath} />
-          <div className="fresh-file-list-shell">
-            <div className={`floating-selection-actions ${currentPath || selectedPaths.length ? "is-visible" : ""}`}>
-              <ActionButton className="secondary-button" disabled={!currentPath} onClick={() => fileInputRef.current?.click()}>Unggah ke sini</ActionButton>
-              <ActionButton className="primary-button" disabled={selectedPaths.length === 0} onClick={queueDownloadSelection}>Unduh pilihan</ActionButton>
-            </div>
-            <FileTable
-              currentPath={currentPath}
-              items={directoryResult?.items || []}
-              warnings={directoryResult?.warnings || []}
-              focusedPath={directoryResult?.focusedPath || null}
-              selectedPaths={selectedPaths}
-              onToggle={toggleSelection}
-              onOpen={openPath}
-              onPreview={previewItem}
-              onOpenParent={openParentPath}
+        {filesView === "storage" ? (
+          <>
+            <article className="fresh-panel file-library-filter-panel">
+              <SectionHeader
+                eyebrow="Storage"
+                title="Pustaka berkas"
+                description="Daftar arsip utama dibatasi 10 item per halaman."
+                actions={<ActionButton className="secondary-button" busy={busyAction === "artifacts:refresh"} icon={RefreshCw} onClick={refreshStorageArtifacts}>Segarkan storage</ActionButton>}
+              />
+              <div className="artifact-filter-bar file-library-filters">
+                <label>
+                  <span>Bucket</span>
+                  <select value={artifactBucketFilter} onChange={(event) => setArtifactBucketFilter(event.target.value)}>
+                    <option value="all">Semua bucket</option>
+                    <option value="agent-temp-artifacts">Berkas sementara</option>
+                    <option value="agent-archives">Arsip permanen</option>
+                    <option value="agent-preview-cache">Cache pratinjau</option>
+                    <option value="admin-upload-staging">Unggahan admin</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Device</span>
+                  <select value={artifactDeviceFilter} onChange={(event) => setArtifactDeviceFilter(event.target.value)}>
+                    <option value="all">Semua device</option>
+                    {artifactDeviceOptions.map((device) => (
+                      <option key={device.id} value={device.id}>{device.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Cari</span>
+                  <input value={artifactSearch} onChange={(event) => setArtifactSearch(event.target.value)} placeholder="rapor-2026.zip" />
+                </label>
+              </div>
+            </article>
+            <SupabaseFileTable
+              artifacts={visibleStorageArtifacts}
+              page={filePage}
+              onPageChange={setFilePage}
+              busyAction={busyAction}
+              onDownload={handleArtifactDownload}
+              onDelete={deleteStorageArtifact}
             />
-          </div>
-        </article>
-        <FloatingFileActivity
-          jobs={selectedDeviceJobs}
-          open={fileActivityOpen}
-          expanded={fileActivityExpanded}
-          onToggleOpen={() => setFileActivityOpen((current) => !current)}
-          onToggleExpanded={() => setFileActivityExpanded((current) => !current)}
-          onDownload={handleArtifactDownload}
-        />
+          </>
+        ) : (
+          <article className="fresh-panel">
+            <SectionHeader
+              eyebrow="Remote file"
+              title="Akses berkas perangkat"
+              description="Pilih perangkat, buka This PC, lalu unggah atau unduh file yang dipilih."
+              actions={
+                <>
+                  <ActionButton className="secondary-button" onClick={() => setLogOverlayOpen(true)}>Log</ActionButton>
+                  <ActionButton className="secondary-button" onClick={refreshCurrentPath}>Refresh list</ActionButton>
+                </>
+              }
+            />
+            <DeviceCombobox
+              devices={deviceEntries}
+              selectedDeviceId={selectedDevice?.deviceId || ""}
+              onSelect={setSelectedDeviceId}
+              label="Pilih perangkat"
+              className="page-device-combobox"
+            />
+            <input ref={fileInputRef} type="file" hidden onChange={(event) => triggerUpload(event.target.files?.[0])} />
+            <div className="fresh-link-bar">
+              <LongText value={currentPath || ""} label="Path aktif" className="mono" maxLength={80} empty="This PC siap dipilih dari daftar lokasi." />
+            </div>
+            <RootGrid roots={filteredRoots} onOpen={openPath} />
+            <div className="fresh-file-list-shell">
+              <div className={`floating-selection-actions ${currentPath || selectedPaths.length ? "is-visible" : ""}`}>
+                <ActionButton className="secondary-button" disabled={!currentPath} onClick={() => fileInputRef.current?.click()}>Unggah ke sini</ActionButton>
+                <ActionButton className="primary-button" disabled={selectedPaths.length === 0} onClick={queueDownloadSelection}>Unduh pilihan</ActionButton>
+              </div>
+              <FileTable
+                currentPath={currentPath}
+                items={directoryResult?.items || []}
+                warnings={directoryResult?.warnings || []}
+                focusedPath={directoryResult?.focusedPath || null}
+                selectedPaths={selectedPaths}
+                onToggle={toggleSelection}
+                onOpen={openPath}
+                onPreview={previewItem}
+                onOpenParent={openParentPath}
+              />
+            </div>
+          </article>
+        )}
+        {filesView === "remote" ? (
+          <FloatingFileActivity
+            jobs={selectedDeviceJobs}
+            open={fileActivityOpen}
+            expanded={fileActivityExpanded}
+            onToggleOpen={() => setFileActivityOpen((current) => !current)}
+            onToggleExpanded={() => setFileActivityExpanded((current) => !current)}
+            onDownload={handleArtifactDownload}
+          />
+        ) : null}
         <LogOverlay open={logOverlayOpen} logs={logs} jobs={fileJobs} deviceId={selectedDevice?.deviceId || "all"} onClose={() => setLogOverlayOpen(false)} />
       </section>
     );
@@ -5994,24 +6102,27 @@ export default function App() {
   }
 
   function renderFreshScene() {
-    const renderers = {
-      overview: renderFreshOverview,
-      devices: renderFreshDeviceDetail,
-      files: renderFreshFiles,
-      activity: renderFreshActivity,
-      accounts: renderFreshAccounts,
-      profile: () => <ProfilePanel profile={profile} session={session} onSignOut={signOut} />,
-    };
-    const Renderer = renderers[selectedTab] || renderers.overview;
+    let scene = renderFreshOverview();
+    if (selectedTab === "devices") {
+      scene = renderFreshDeviceDetail();
+    } else if (selectedTab === "files") {
+      scene = renderFreshFiles();
+    } else if (selectedTab === "activity") {
+      scene = renderFreshActivity();
+    } else if (selectedTab === "accounts") {
+      scene = renderFreshAccounts();
+    } else if (selectedTab === "profile") {
+      scene = <ProfilePanel profile={profile} session={session} onSignOut={signOut} />;
+    }
     return (
       <section className="fresh-console-stage">
-        <Renderer />
+        {scene}
       </section>
     );
   }
 
   return (
-    <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab} density-${dashboardDensity}`}>
+    <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab}`}>
       <div className={`app-shell ${sidebarPinned ? "sidebar-is-pinned" : ""} ${sidebarExpanded ? "sidebar-is-expanded" : ""}`}>
         <SidebarNav
           profile={profile}
@@ -6033,8 +6144,6 @@ export default function App() {
             notificationOpen={notificationOpen}
             onNotificationToggle={() => setNotificationOpen((current) => !current)}
             onNotificationClose={() => setNotificationOpen(false)}
-            density={dashboardDensity}
-            onDensityChange={setDashboardDensity}
           />
           <RouteHeader
             route={appRoute}
@@ -6124,3 +6233,4 @@ export default function App() {
     </main>
   );
 }
+

@@ -3143,12 +3143,14 @@ function DeviceUpdateCard({
           <Rocket size={18} strokeWidth={2.2} />
         </span>
         <div className="device-update-summary">
-          <span className="device-update-title">Versi & update</span>
+          <div className="device-update-topline">
+            <span className="device-update-title">Versi & update</span>
+            <span className={`device-update-status-note tone-${statusTone(toneStatus)}`}>
+              <StatusIcon size={13} strokeWidth={2.2} aria-hidden="true" />
+              {statusNoteLabel}
+            </span>
+          </div>
           <strong className="device-update-version">{update.localVersion}</strong>
-          <span className={`device-update-status-note tone-${statusTone(toneStatus)}`}>
-            <StatusIcon size={13} strokeWidth={2.2} aria-hidden="true" />
-            {statusNoteLabel}
-          </span>
         </div>
       </div>
       {showAction && canUpdate ? (

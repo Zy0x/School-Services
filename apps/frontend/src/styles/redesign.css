@@ -5063,8 +5063,15 @@ textarea {
 
 .device-update-summary {
   display: grid;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
+}
+
+.device-update-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .device-update-title {
@@ -5073,8 +5080,14 @@ textarea {
 }
 
 .device-update-version {
-  font-size: 20px;
-  line-height: 1.02;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 18px;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
 }
 
 .device-update-status-note {
@@ -5082,11 +5095,11 @@ textarea {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  width: fit-content;
-  justify-self: start;
-  padding: 5px 9px;
+  flex-shrink: 0;
+  max-width: 100%;
+  padding: 4px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 850;
   line-height: 1.1;
   white-space: nowrap;

@@ -5090,39 +5090,69 @@ textarea {
   text-wrap: balance;
 }
 
-.device-update-status-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
+.device-update-indicator {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
   flex-shrink: 0;
-  max-width: 100%;
-  padding: 4px 8px;
   border-radius: 999px;
-  font-size: 10px;
-  font-weight: 850;
-  line-height: 1.1;
-  white-space: nowrap;
+  outline: none;
 }
 
-.device-update-status-note.tone-good {
+.device-update-indicator.tone-ready {
   color: #3f7b26;
   background: rgba(200, 240, 63, 0.22);
 }
 
-.device-update-status-note.tone-warn {
+.device-update-indicator.tone-available,
+.device-update-indicator.tone-updating {
   color: #8b5a13;
   background: rgba(217, 138, 24, 0.12);
 }
 
-.device-update-status-note.tone-bad {
+.device-update-indicator.tone-failed {
   color: #a12633;
   background: rgba(217, 63, 76, 0.12);
 }
 
-.device-update-status-note.tone-neutral {
+.device-update-indicator.tone-unknown {
   color: var(--ink-muted);
   background: rgba(105, 100, 123, 0.1);
+}
+
+.device-update-indicator:focus-visible {
+  box-shadow: 0 0 0 3px rgba(96, 55, 246, 0.16);
+}
+
+.device-update-indicator-bubble {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 160px;
+  max-width: min(240px, calc(100vw - 48px));
+  padding: 8px 10px;
+  border: 1px solid rgba(67, 57, 109, 0.12);
+  border-radius: 12px;
+  background: rgba(253, 251, 246, 0.98);
+  box-shadow: var(--shadow-enterprise);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.device-update-indicator:hover .device-update-indicator-bubble,
+.device-update-indicator:focus-visible .device-update-indicator-bubble,
+.device-update-indicator:focus-within .device-update-indicator-bubble {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .device-update-action {

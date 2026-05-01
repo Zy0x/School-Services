@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   Bell,
+  CircleArrowUp,
   CheckCircle2,
   ChevronDown,
   ChevronsLeft,
@@ -1414,6 +1415,43 @@ function ProfileInfoField({ label, value, mono = false }) {
         />
       ) : null}
     </div>
+  );
+}
+
+function DeviceUpdateStatusIndicator({ update, toneStatus }) {
+  let Icon = Info;
+  let tooltip = "Versi terbaru belum diketahui.";
+  let indicatorTone = "unknown";
+
+  if (update.status === "current") {
+    Icon = CheckCircle2;
+    tooltip = "Versi ini sudah menggunakan rilis terbaru.";
+    indicatorTone = "ready";
+  } else if (update.status === "available") {
+    Icon = CircleArrowUp;
+    tooltip = `Perlu update ke ${update.latestVersion || "versi terbaru"}.`;
+    indicatorTone = "available";
+  } else if (update.status === "updating") {
+    Icon = CircleArrowUp;
+    tooltip = update.latestVersion
+      ? `Sedang update ke ${update.latestVersion}.`
+      : "Sedang memasang pembaruan.";
+    indicatorTone = "updating";
+  } else if (update.status === "failed") {
+    Icon = AlertTriangle;
+    tooltip = update.error || "Update gagal. Periksa log agent.";
+    indicatorTone = "failed";
+  } else if (toneStatus === "reconnecting") {
+    Icon = CircleArrowUp;
+    tooltip = "Permintaan update sudah dikirim.";
+    indicatorTone = "updating";
+  }
+
+  return (
+    <span className={`device-update-indicator tone-${indicatorTone}`} tabIndex={0} aria-label={tooltip}>
+      <Icon size={14} strokeWidth={2.2} aria-hidden="true" />
+      <span className="device-update-indicator-bubble">{tooltip}</span>
+    </span>
   );
 }
 
@@ -3120,10 +3158,7 @@ function DeviceUpdateCard({
 }) {
   const update = getDeviceUpdateModel(deviceRecord);
   const remoteUpdateSupported = supportsRemoteUpdate(deviceRecord);
-  const statusLabel = busy && update.status !== "updating" ? "Update diminta" : update.label;
   const toneStatus = busy && update.status !== "updating" ? "reconnecting" : update.toneStatus;
-  const statusNoteLabel = toneStatus === "ready" && statusLabel === "Sudah terbaru" ? "Latest" : statusLabel;
-  const StatusIcon = getStatusIcon(toneStatus);
   const canUpdate =
     showAction &&
     typeof onUpdate === "function" &&
@@ -3145,10 +3180,7 @@ function DeviceUpdateCard({
         <div className="device-update-summary">
           <div className="device-update-topline">
             <span className="device-update-title">Versi & update</span>
-            <span className={`device-update-status-note tone-${statusTone(toneStatus)}`}>
-              <StatusIcon size={13} strokeWidth={2.2} aria-hidden="true" />
-              {statusNoteLabel}
-            </span>
+            <DeviceUpdateStatusIndicator update={update} toneStatus={toneStatus} />
           </div>
           <strong className="device-update-version">{update.localVersion}</strong>
         </div>

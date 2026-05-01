@@ -4947,3 +4947,95 @@ textarea {
     min-height: 56px;
   }
 }
+
+/* Compact device metric cards */
+.route-devices .fresh-metric-grid,
+.fresh-panel .fresh-section-stack .fresh-metric-grid {
+  gap: 10px;
+}
+
+.fresh-metric,
+.device-update-card {
+  min-height: 112px;
+  padding: 14px;
+  border-radius: 12px;
+}
+
+.fresh-metric {
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.fresh-metric-icon,
+.device-update-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+
+.fresh-metric span {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.fresh-metric strong {
+  margin-top: 5px;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.fresh-metric small {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.device-update-card {
+  gap: 7px;
+}
+
+.device-update-head {
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+}
+
+.device-update-title {
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+.device-update-version {
+  margin-top: 2px;
+  font-size: 20px;
+  line-height: 1.05;
+}
+
+.device-update-status-line {
+  gap: 8px;
+}
+
+.device-update-status-line > span:first-child,
+.device-update-lines span {
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.device-update-status-line .status-chip {
+  min-height: 30px;
+  padding-inline: 10px;
+  font-size: 11px;
+}
+
+.device-update-lines {
+  gap: 6px;
+}
+
+.device-update-lines > div {
+  padding: 7px 8px;
+  border-radius: 9px;
+}
+
+.device-update-lines strong {
+  font-size: 12px;
+  line-height: 1.15;
+}

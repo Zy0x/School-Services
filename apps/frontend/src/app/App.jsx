@@ -26,6 +26,7 @@ import {
   Rocket,
   Search,
   Server,
+  Share2,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -435,6 +436,56 @@ function buildBreadcrumbs(targetPath) {
   }
 
   return crumbs;
+}
+
+function dismissOnBackdrop(event, onClose) {
+  if (event.target === event.currentTarget) {
+    onClose?.();
+  }
+}
+
+function formatArtifactDetailValue(artifact) {
+  const parts = Array.isArray(artifact?.result?.parts) ? artifact.result.parts : [];
+  const lines = [
+    `Nama: ${artifact?.fileName || safeFileNameFromKey(artifact?.objectKey || "") || "-"}`,
+    `Bucket: ${artifact?.bucket || "-"}`,
+    `Path: ${artifact?.sourcePath || artifact?.objectKey || "-"}`,
+    `Device: ${artifact?.deviceName || artifact?.deviceId || "-"}`,
+    `Status: ${artifact?.status || "-"}`,
+    `Waktu: ${formatDate(artifact?.createdAt || artifact?.completedAt)}`,
+    `Ukuran: ${formatBytes(Number(artifact?.size || 0))}`,
+  ];
+
+  if (parts.length) {
+    lines.push("", "Bagian ZIP:");
+    parts.forEach((part, index) => {
+      lines.push(`${index + 1}. ${part.fileName || safeFileNameFromKey(part.objectKey || "") || "-"}`);
+      lines.push(`   Bucket: ${part.bucket || artifact?.bucket || "-"}`);
+      lines.push(`   Key: ${part.objectKey || "-"}`);
+    });
+  }
+
+  return lines.join("\n");
+}
+
+function getRouteBreadcrumbs(route, profile, options = {}) {
+  const items = [
+    { label: profile?.role === "super_admin" ? "SuperAdmin" : profile?.role === "operator" ? "Operator" : "User" },
+  ];
+  const copy = getRouteCopy(route.section, profile?.role || "user");
+  items.push({ label: copy.title });
+
+  if (route.section === "files" && options.filesView) {
+    items.push({ label: options.filesView === "remote" ? "Remote File" : "Storage" });
+  }
+  if (route.section === "devices" && options.deviceName) {
+    items.push({ label: options.deviceName });
+  }
+  if (route.section === "activity" && options.deviceName) {
+    items.push({ label: options.deviceName });
+  }
+
+  return items;
 }
 
 function isFresh(timestamp) {
@@ -1026,7 +1077,13 @@ function DetailDrawer({ title = "Detail", value, onClose }) {
   }
 
   const drawer = (
-    <div className="detail-drawer-backdrop" role="dialog" aria-modal="true" aria-labelledby="detail-drawer-title">
+    <div
+      className="detail-drawer-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="detail-drawer-title"
+      onMouseDown={(event) => dismissOnBackdrop(event, onClose)}
+    >
       <section className="detail-drawer">
         <div className="detail-drawer-header">
           <div>
@@ -1054,6 +1111,50 @@ function DetailDrawer({ title = "Detail", value, onClose }) {
   }
 
   return createPortal(drawer, document.body);
+}
+
+function ConfirmDialog({
+  open,
+  title = "Konfirmasi",
+  message = "",
+  confirmLabel = "Lanjutkan",
+  cancelLabel = "Batal",
+  destructive = false,
+  busy = false,
+  onConfirm,
+  onClose,
+}) {
+  if (!open) {
+    return null;
+  }
+
+  const dialog = (
+    <div
+      className="guest-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-dialog-title"
+      onMouseDown={(event) => dismissOnBackdrop(event, onClose)}
+    >
+      <div className="guest-modal-card dashboard-modal-card confirm-dialog-card">
+        <strong id="confirm-dialog-title">{title}</strong>
+        <p>{message}</p>
+        <div className="guest-modal-actions">
+          <ActionButton className="secondary-button" disabled={busy} onClick={onClose}>
+            {cancelLabel}
+          </ActionButton>
+          <ActionButton className={destructive ? "danger-button" : "primary-button"} busy={busy} onClick={onConfirm}>
+            {confirmLabel}
+          </ActionButton>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (typeof document === "undefined") {
+    return dialog;
+  }
+  return createPortal(dialog, document.body);
 }
 
 function LongText({
@@ -1160,12 +1261,39 @@ function getDashboardNavItems({ isSuperAdmin, isOperator, deviceCount, pendingAc
 }
 
 function NotificationPopover({ open, items, onClose }) {
+  const popoverRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    function handleOutside(event) {
+      if (popoverRef.current && !popoverRef.current.contains(event.target)) {
+        onClose?.();
+      }
+    }
+
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        onClose?.();
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open, onClose]);
+
   if (!open) {
     return null;
   }
 
   return (
-    <div className="notification-popover" role="dialog" aria-label="Notifikasi dashboard">
+    <div ref={popoverRef} className="notification-popover" role="dialog" aria-label="Notifikasi dashboard">
       <div className="notification-popover-head">
         <div>
           <span className="section-eyebrow">Notifikasi</span>
@@ -1609,11 +1737,21 @@ function PriorityBanner({ route, profile, devices, fileJobs, accounts }) {
   );
 }
 
-function RouteHeader({ route, profile }) {
+function RouteHeader({ route, profile, breadcrumbs = [] }) {
   const copy = getRouteCopy(route.section, profile.role);
   return (
     <header className="app-route-header">
       <div>
+        {breadcrumbs.length ? (
+          <nav className="route-breadcrumbs" aria-label="Breadcrumb">
+            {breadcrumbs.map((item, index) => (
+              <span key={`${item.label}-${index}`} className="route-breadcrumb-item">
+                {index > 0 ? <ChevronDown size={14} strokeWidth={2.2} aria-hidden="true" /> : null}
+                <span>{item.label}</span>
+              </span>
+            ))}
+          </nav>
+        ) : null}
         <h1>{copy.title}</h1>
         <p>{copy.subtitle}</p>
       </div>
@@ -1924,22 +2062,22 @@ function PublicLinkActions({
   return (
     <div className={`link-action-stack ${compact ? "link-action-stack-compact" : ""}`}>
       <div className="panel-actions public-link-actions">
-        <button
-          type="button"
+        <ActionButton
           className="secondary-button"
           disabled={disabled}
+          icon={Copy}
           onClick={handleCopy}
         >
           Salin tautan
-        </button>
-        <button
-          type="button"
+        </ActionButton>
+        <ActionButton
           className="secondary-button"
           disabled={disabled}
+          icon={Share2}
           onClick={handleWhatsAppShare}
         >
           Bagikan WhatsApp
-        </button>
+        </ActionButton>
       </div>
       {feedback ? <div className="micro-feedback">{feedback}</div> : null}
     </div>
@@ -2303,8 +2441,8 @@ function ProfilePanel({ profile, session, onSignOut }) {
   }
 
   return (
-    <section className="panel-stack">
-      <article className="service-panel">
+    <section className="panel-stack profile-panel-shell">
+      <article className="service-panel profile-summary-panel">
         <div className="panel-heading-row">
           <h3>Profil</h3>
           <div className="service-status-group">
@@ -2332,7 +2470,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
         </div>
       </article>
 
-      <article className="service-panel">
+      <article className="service-panel profile-password-panel">
         <div className="panel-heading-row">
           <h3>Ganti Password</h3>
         </div>
@@ -3070,7 +3208,7 @@ function UpdateProgressModal({
           : message;
 
   return (
-    <div className="guest-modal-backdrop" role="status" aria-live="polite">
+    <div className="guest-modal-backdrop" role="status" aria-live="polite" onMouseDown={(event) => dismissOnBackdrop(event, canClose ? onClose : undefined)}>
       <div className="guest-modal-card update-progress-card">
         <div className={`update-progress-orb tone-${model.status}`}>
           <span className="update-progress-core" aria-hidden="true" />
@@ -3153,7 +3291,16 @@ function FileTable({
   onOpen,
   onPreview,
   onOpenParent,
+  loading = false,
 }) {
+  if (loading) {
+    return (
+      <div className="explorer-shell explorer-loading-shell" aria-busy="true">
+        <Skeleton lines={4} />
+      </div>
+    );
+  }
+
   if (!items || items.length === 0) {
     return (
       <div className="empty-state">
@@ -3605,7 +3752,7 @@ function SupabaseFileTable({
       {detailArtifact ? (
         <DetailDrawer
           title={detailArtifact.fileName || safeFileNameFromKey(detailArtifact.objectKey) || "Detail berkas"}
-          value={JSON.stringify(detailArtifact, null, 2)}
+          value={formatArtifactDetailValue(detailArtifact)}
           onClose={() => setDetailArtifact(null)}
         />
       ) : null}
@@ -3668,7 +3815,7 @@ function LogOverlay({ open, logs, jobs = [], deviceId, onClose }) {
   const scopedLogs = logs.filter((log) => !deviceId || deviceId === "all" || log.device_id === deviceId);
   const scopedJobs = jobs.filter((job) => !deviceId || deviceId === "all" || job.device_id === deviceId);
   return (
-    <div className="detail-drawer-backdrop log-overlay-backdrop" role="dialog" aria-modal="true" aria-labelledby="log-overlay-title">
+    <div className="detail-drawer-backdrop log-overlay-backdrop" role="dialog" aria-modal="true" aria-labelledby="log-overlay-title" onMouseDown={(event) => dismissOnBackdrop(event, onClose)}>
       <section className="log-overlay-card">
         <div className="detail-drawer-header">
           <div>
@@ -3913,7 +4060,7 @@ function DeviceAliasModal({
   }
 
   return (
-    <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="device-alias-title">
+    <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="device-alias-title" onMouseDown={(event) => dismissOnBackdrop(event, onClose)}>
       <div className="guest-modal-card dashboard-modal-card">
         <strong id="device-alias-title">Ubah nama tampilan perangkat</strong>
         <p>
@@ -3965,7 +4112,7 @@ function TransferHistoryModal({
   const contextLabel = device?.deviceName || deviceId || "Semua perangkat";
 
   return (
-    <div className="guest-modal-backdrop modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="transfer-history-title">
+    <div className="guest-modal-backdrop modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="transfer-history-title" onMouseDown={(event) => dismissOnBackdrop(event, onClose)}>
       <div className="guest-modal-card transfer-modal-card">
         <div className="modal-title-row">
           <div>
@@ -4165,6 +4312,7 @@ export default function App() {
   const [fileActivityExpanded, setFileActivityExpanded] = useState(false);
   const [logOverlayOpen, setLogOverlayOpen] = useState(false);
   const [filesView, setFilesView] = useState("storage");
+  const [deleteArtifactTarget, setDeleteArtifactTarget] = useState(null);
   const [updateModal, setUpdateModal] = useState({
     open: false,
     deviceId: "",
@@ -4233,6 +4381,7 @@ export default function App() {
     setArtifactSearch("");
     setFleetPage(1);
     setFilesView("storage");
+    setDeleteArtifactTarget(null);
   }
 
   function clearGuestLinkRequest() {
@@ -4655,6 +4804,20 @@ export default function App() {
     null;
   const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
   const selectedDeviceBadge = getDeviceStatusBadgeModel(selectedDevice?.deviceStatus || "offline");
+  const fileExplorerBusy =
+    busyAction.startsWith("job:list_directory") ||
+    busyAction.startsWith("job:discover_roots") ||
+    busyAction.startsWith("job:preview_file") ||
+    directoryJobId !== null;
+  const routeBreadcrumbs = getRouteBreadcrumbs(appRoute, profile, {
+    filesView,
+    deviceName:
+      appRoute.section === "devices"
+        ? selectedDevice?.deviceName
+        : appRoute.section === "activity" && activityDeviceId && activityDeviceId !== "all"
+          ? deviceEntries.find((entry) => entry.deviceId === activityDeviceId)?.deviceName || activityDeviceId
+          : "",
+  });
 
   useEffect(() => {
     if (!autoUpdatingDevice) {
@@ -4779,12 +4942,35 @@ export default function App() {
   }, [selectedDevice?.deviceId]);
 
   useEffect(() => {
+    if (!selectedDevice || selectedTab !== "files" || filesView !== "remote") {
+      return;
+    }
+    refreshRoots();
+  }, [selectedDevice?.deviceId, selectedTab, filesView]);
+
+  useEffect(() => {
+    if (!selectedDevice || selectedTab !== "files" || filesView !== "remote") {
+      return;
+    }
+    if (currentPath || directoryJobId || !selectedDeviceRoots.length) {
+      return;
+    }
+    openPath(selectedDeviceRoots[0].path);
+  }, [selectedDevice?.deviceId, selectedDeviceRoots, currentPath, directoryJobId, selectedTab, filesView]);
+
+  useEffect(() => {
     setFilePage(1);
   }, [artifactBucketFilter, artifactDeviceFilter, artifactSearch]);
 
   useEffect(() => {
     setFleetPage(1);
   }, [fleetSearch]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+  }, [appRoute.section, appRoute.deviceId, filesView]);
 
   useEffect(() => {
     setAccountPage(1);
@@ -5160,12 +5346,27 @@ export default function App() {
     }
   }
 
-  async function deleteStorageArtifact(artifact) {
-    const fileName = artifact?.fileName || artifact?.objectKey || "berkas";
-    const confirmed = window.confirm(`Hapus berkas "${fileName}" dari bucket ${artifact?.bucket}?`);
-    if (!confirmed) {
+  function requestDeleteStorageArtifact(artifact) {
+    setDeleteArtifactTarget(artifact || null);
+  }
+
+  async function deleteStorageArtifact() {
+    const artifact = deleteArtifactTarget;
+    if (!artifact) {
       return;
     }
+
+    const fileName = artifact?.fileName || artifact?.objectKey || "berkas";
+    const parts = Array.isArray(artifact?.result?.parts) ? artifact.result.parts : [];
+    const removeTargets = [
+      ...(artifact?.bucket && artifact?.objectKey ? [{ bucket: artifact.bucket, objectKey: artifact.objectKey }] : []),
+      ...parts
+        .filter((part) => part?.bucket && part?.objectKey)
+        .map((part) => ({ bucket: part.bucket, objectKey: part.objectKey })),
+    ].filter(
+      (target, index, current) =>
+        current.findIndex((candidate) => candidate.bucket === target.bucket && candidate.objectKey === target.objectKey) === index
+    );
 
     try {
       setBusyAction(`artifact-delete:${artifact.id || artifact.objectKey}`);
@@ -5176,6 +5377,18 @@ export default function App() {
         deviceId: artifact.deviceId,
         fileName,
       });
+      for (const target of removeTargets) {
+        const { error: removeError } = await legacyDataClient.storage
+          .from(target.bucket)
+          .remove([target.objectKey]);
+        if (removeError && !/not found/i.test(String(removeError.message || ""))) {
+          throw removeError;
+        }
+      }
+      setStorageArtifacts((current) =>
+        current.filter((entry) => (entry.id || `${entry.bucket}:${entry.objectKey}`) !== (artifact.id || `${artifact.bucket}:${artifact.objectKey}`))
+      );
+      setDeleteArtifactTarget(null);
       await refreshStorageArtifacts();
       await loadAll(true);
     } catch (artifactError) {
@@ -5906,7 +6119,7 @@ export default function App() {
               onPageChange={setFilePage}
               busyAction={busyAction}
               onDownload={handleArtifactDownload}
-              onDelete={deleteStorageArtifact}
+              onDelete={requestDeleteStorageArtifact}
             />
           </>
         ) : (
@@ -5949,6 +6162,7 @@ export default function App() {
                 onOpen={openPath}
                 onPreview={previewItem}
                 onOpenParent={openParentPath}
+                loading={fileExplorerBusy}
               />
             </div>
           </article>
@@ -6148,6 +6362,7 @@ export default function App() {
           <RouteHeader
             route={appRoute}
             profile={profile}
+            breadcrumbs={routeBreadcrumbs}
           />
           <PriorityBanner
             route={appRoute}
@@ -6161,7 +6376,7 @@ export default function App() {
       {error ? <div className="error-banner">{error}</div> : null}
       {dashboardInfo ? <div className="service-note">{dashboardInfo}</div> : null}
       {showGuestLinkPrompt ? (
-        <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="guest-link-title">
+        <div className="guest-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="guest-link-title" onMouseDown={(event) => dismissOnBackdrop(event, dismissGuestDeviceLink)}>
           <div className="guest-modal-card">
             <strong id="guest-link-title">Tautkan perangkat ini ke akun Anda?</strong>
             <p>
@@ -6210,6 +6425,21 @@ export default function App() {
         deviceId={selectedDeviceId === "all" ? "" : selectedDeviceId}
         onClose={() => setTransferHistoryOpen(false)}
         onDownload={handleArtifactDownload}
+      />
+      <ConfirmDialog
+        open={Boolean(deleteArtifactTarget)}
+        title="Hapus berkas storage?"
+        message={
+          deleteArtifactTarget
+            ? `Berkas "${deleteArtifactTarget.fileName || safeFileNameFromKey(deleteArtifactTarget.objectKey)}" akan dihapus dari storage cloud dan dihilangkan dari pustaka berkas.`
+            : ""
+        }
+        confirmLabel="Hapus berkas"
+        cancelLabel="Batal"
+        destructive
+        busy={busyAction === `artifact-delete:${deleteArtifactTarget?.id || deleteArtifactTarget?.objectKey || ""}`}
+        onConfirm={deleteStorageArtifact}
+        onClose={() => setDeleteArtifactTarget(null)}
       />
       <UpdateProgressModal
         open={updateModal.open}

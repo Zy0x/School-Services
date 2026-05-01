@@ -3841,3 +3841,242 @@ label > span,
     flex-wrap: wrap;
   }
 }
+
+/* Dashboard cleanup pass */
+input,
+select,
+textarea {
+  padding-inline: 14px;
+}
+
+.password-input-shell input,
+.fleet-search-field input,
+.device-combobox-search input,
+.device-combobox-control input {
+  padding-inline: 0;
+}
+
+.route-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.route-breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.public-link-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  gap: 10px;
+}
+
+.link-action-stack {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+
+.link-action-stack .micro-feedback {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.fresh-link-bar {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+}
+
+.collapsible-sidebar .app-nav-list {
+  justify-items: stretch;
+}
+
+.collapsible-sidebar .app-nav-item .nav-icon {
+  justify-self: center;
+}
+
+.collapsible-sidebar:not(.is-expanded):not(.is-pinned) .app-nav-list {
+  justify-items: center;
+}
+
+.collapsible-sidebar:not(.is-expanded):not(.is-pinned) .app-nav-item .nav-icon {
+  margin: 0;
+}
+
+.collapsible-sidebar:not(.is-expanded):not(.is-pinned) .app-sidebar-brand {
+  min-height: 54px;
+}
+
+.device-combobox-current,
+.device-combobox-option,
+.notification-item,
+.fresh-actions .action-button {
+  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.notification-popover {
+  width: min(420px, calc(100vw - 28px));
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+}
+
+.notification-popover-head {
+  align-items: flex-start;
+}
+
+.notification-popover-head strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.notification-popover-list {
+  gap: 10px;
+}
+
+.notification-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+}
+
+.notification-item strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.notification-item p {
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.notification-item.tone-warn {
+  background: rgba(251, 239, 217, 0.72);
+}
+
+.notification-item.tone-info {
+  background: rgba(226, 243, 251, 0.72);
+}
+
+.notification-item.tone-bad {
+  background: rgba(217, 63, 76, 0.08);
+}
+
+.fresh-actions {
+  width: 100%;
+  align-items: stretch;
+}
+
+.fresh-actions > .status-chip {
+  align-self: center;
+}
+
+.fresh-actions .action-button,
+.public-link-actions .action-button,
+.device-update-action {
+  min-height: 42px;
+}
+
+.device-update-card,
+.fresh-metric {
+  min-height: 168px;
+}
+
+.device-update-card {
+  grid-template-rows: auto auto 1fr auto;
+}
+
+.device-update-lines {
+  align-content: start;
+}
+
+.device-update-status-line .status-chip {
+  max-width: 100%;
+}
+
+.explorer-loading-shell {
+  padding: 18px;
+}
+
+.floating-file-activity-panel {
+  gap: 12px;
+}
+
+.floating-file-activity-list {
+  display: grid;
+  gap: 8px;
+}
+
+.floating-file-job {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid rgba(67, 57, 109, 0.1);
+  border-radius: 12px;
+  background: #fbf9f3;
+}
+
+.profile-panel-shell {
+  width: min(100%, 980px);
+  margin-inline: auto;
+}
+
+.profile-summary-panel,
+.profile-password-panel {
+  padding: 20px;
+}
+
+.profile-summary-panel .service-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-summary-panel .service-detail-grid > div:last-child {
+  grid-column: 1 / -1;
+}
+
+.profile-password-panel .service-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-password-panel .service-detail-grid > div:last-child {
+  grid-column: 1 / -1;
+}
+
+.confirm-dialog-card {
+  width: min(100%, 460px);
+}
+
+@media (max-width: 920px) {
+  .public-link-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-summary-panel .service-detail-grid,
+  .profile-password-panel .service-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-summary-panel .service-detail-grid > div:last-child,
+  .profile-password-panel .service-detail-grid > div:last-child {
+    grid-column: auto;
+  }
+}

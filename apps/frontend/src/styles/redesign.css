@@ -2423,7 +2423,9 @@ label > span,
   top: 12px;
   z-index: 8;
   display: none;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
   pointer-events: none;
@@ -2892,7 +2894,7 @@ label > span,
   grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr);
   gap: var(--content-gap);
   align-items: start;
-  transition: grid-template-columns 180ms ease;
+  transition: none;
 }
 
 .app-shell > .app-content {
@@ -2923,7 +2925,7 @@ label > span,
   z-index: 72;
   overflow: hidden;
   will-change: width;
-  transition: width 180ms ease, box-shadow 180ms ease, transform 180ms ease, background-color 180ms ease;
+  transition: width 140ms ease-out, box-shadow 140ms ease-out, background-color 140ms ease-out;
 }
 
 .collapsible-sidebar.is-expanded {
@@ -3017,6 +3019,12 @@ label > span,
   text-align: left;
 }
 
+.app-nav-icon-shell {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+
 .collapsible-sidebar .app-nav-item .nav-icon {
   width: 20px;
   height: 20px;
@@ -3041,6 +3049,24 @@ label > span,
 .collapsible-sidebar .app-nav-badge {
   min-width: 22px;
   height: 22px;
+}
+
+.app-nav-icon-badge {
+  position: absolute;
+  top: -7px;
+  right: -9px;
+  min-width: 18px;
+  height: 18px;
+  display: none;
+  place-items: center;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: var(--lime);
+  color: #211c45;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 0 0 2px rgba(253, 251, 246, 0.98);
 }
 
 .collapsible-sidebar:not(.is-expanded) .app-nav-item {
@@ -4162,14 +4188,14 @@ textarea {
 }
 
 .remote-file-actions {
-  position: fixed;
-  right: min(392px, calc(100vw - 680px));
-  bottom: 18px;
-  z-index: 86;
-  display: inline-flex;
-  width: auto;
-  max-width: min(360px, calc(100vw - 420px));
-  padding: 8px;
+  position: sticky;
+  top: 12px;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  width: 100%;
+  max-width: 100%;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: rgba(253, 251, 246, 0.96);
@@ -4177,8 +4203,26 @@ textarea {
   pointer-events: auto;
 }
 
+.remote-file-actions-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.remote-file-actions-copy strong {
+  font-size: 14px;
+  line-height: 1.15;
+}
+
+.remote-file-actions-copy small {
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
 .remote-file-actions .action-button {
-  min-width: max-content;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .account-table-wrap {
@@ -4226,38 +4270,51 @@ textarea {
   padding: 18px;
 }
 
-.profile-summary-panel .service-detail-grid {
+.profile-identity-grid,
+.profile-password-grid {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-.profile-summary-panel .service-detail-grid > div,
-.profile-password-panel .service-detail-grid > div {
+.profile-info-card,
+.profile-password-grid > .password-field {
   min-height: 0;
   align-content: start;
 }
 
-.profile-summary-panel .service-detail-grid > div:last-child,
-.profile-password-panel .service-detail-grid > div:last-child {
-  grid-column: auto;
+.profile-info-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid rgba(67, 57, 109, 0.08);
+  border-radius: 16px;
+  background: rgba(248, 245, 255, 0.46);
 }
 
-.profile-summary-panel .service-detail-grid strong,
-.profile-password-panel .service-detail-grid strong {
-  font-size: 18px;
-  line-height: 1.2;
+.profile-info-card > span {
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
 }
 
-.profile-password-panel .service-detail-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.profile-info-card > strong {
+  font-size: 17px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
-.profile-password-panel .service-detail-grid > div:last-child {
-  grid-column: 1 / -1;
+.profile-copy-button {
+  justify-self: start;
 }
 
-.profile-password-panel .panel-actions {
+.profile-password-actions {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .collapsible-sidebar:not(.is-expanded):not(.is-pinned) {
@@ -4317,8 +4374,7 @@ textarea {
   }
 
   .remote-file-actions {
-    right: 18px;
-    max-width: calc(100vw - 36px);
+    grid-template-columns: 1fr;
   }
 }
 
@@ -4364,7 +4420,7 @@ textarea {
     right: auto;
     bottom: auto;
     max-width: 100%;
-    justify-content: stretch;
+    grid-template-columns: 1fr;
   }
 }
 
@@ -4385,7 +4441,7 @@ textarea {
     min-height: calc(100vh - 32px);
     align-items: start;
     gap: var(--content-gap);
-    transition: grid-template-columns 180ms ease;
+    transition: none;
   }
 
   .app-shell {
@@ -4796,7 +4852,9 @@ textarea {
   }
 
   .profile-summary-panel .service-detail-grid,
-  .profile-password-panel .service-detail-grid {
+  .profile-password-panel .service-detail-grid,
+  .profile-identity-grid,
+  .profile-password-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -4869,6 +4927,10 @@ textarea {
     display: none !important;
   }
 
+  .collapsible-sidebar:not(.is-expanded):not(.is-pinned) .app-nav-icon-badge {
+    display: grid;
+  }
+
   .collapsible-sidebar.is-expanded .app-sidebar-copy,
   .collapsible-sidebar.is-pinned .app-sidebar-copy,
   .collapsible-sidebar.is-expanded .app-nav-copy,
@@ -4884,6 +4946,11 @@ textarea {
   .collapsible-sidebar.is-expanded .app-nav-badge,
   .collapsible-sidebar.is-pinned .app-nav-badge {
     display: grid;
+  }
+
+  .collapsible-sidebar.is-expanded .app-nav-icon-badge,
+  .collapsible-sidebar.is-pinned .app-nav-icon-badge {
+    display: none;
   }
 
   .collapsible-sidebar:not(.is-expanded):not(.is-pinned) .app-nav-list {

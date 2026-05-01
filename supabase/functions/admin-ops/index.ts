@@ -1180,12 +1180,59 @@ async function deleteStorageArtifact(
     throw new Error("objectKey wajib diisi.");
   }
 
-  const { error: removeError } = await service.storage.from(bucket).remove([objectKey]);
-  if (removeError) {
-    throw removeError;
+  let updatedJob = null;
+  let jobRecord: Record<string, unknown> | null = null;
+  const removalTargets = new Map<string, Set<string>>();
+
+  function addRemovalTarget(nextBucket: string, nextObjectKey: string) {
+    if (!nextBucket || !nextObjectKey || !FILE_BUCKETS.includes(nextBucket)) {
+      return;
+    }
+    if (!removalTargets.has(nextBucket)) {
+      removalTargets.set(nextBucket, new Set());
+    }
+    removalTargets.get(nextBucket)?.add(nextObjectKey);
   }
 
-  let updatedJob = null;
+  addRemovalTarget(bucket, objectKey);
+
+  if (jobId) {
+    const { data: job, error: jobError } = await service
+      .from("file_jobs")
+      .select("*")
+      .eq("id", jobId)
+      .maybeSingle();
+
+    if (jobError) {
+      throw jobError;
+    }
+
+    jobRecord = job || null;
+    addRemovalTarget(String(job?.artifact_bucket || ""), String(job?.artifact_object_key || ""));
+
+    const result = job?.result && typeof job.result === "object"
+      ? job.result as Record<string, unknown>
+      : null;
+    const parts = Array.isArray(result?.parts) ? result.parts : [];
+    for (const part of parts) {
+      if (!part || typeof part !== "object") {
+        continue;
+      }
+      addRemovalTarget(String((part as Record<string, unknown>).bucket || ""), String((part as Record<string, unknown>).objectKey || ""));
+    }
+  }
+
+  for (const [targetBucket, objectKeys] of removalTargets.entries()) {
+    const keys = [...objectKeys].filter(Boolean);
+    if (!keys.length) {
+      continue;
+    }
+    const { error: removeError } = await service.storage.from(targetBucket).remove(keys);
+    if (removeError) {
+      throw removeError;
+    }
+  }
+
   if (jobId) {
     const { data, error } = await service
       .from("file_jobs")
@@ -1205,7 +1252,7 @@ async function deleteStorageArtifact(
   }
 
   await service.from("file_audit_logs").insert({
-    device_id: String(updatedJob?.device_id || body.deviceId || "storage"),
+    device_id: String(updatedJob?.device_id || jobRecord?.device_id || body.deviceId || "storage"),
     requested_by: actor.user.id,
     job_id: jobId || null,
     action: "delete_artifact",
@@ -1214,6 +1261,7 @@ async function deleteStorageArtifact(
       bucket,
       objectKey,
       fileName: String(body.fileName || safeFileNameFromKey(objectKey)),
+      removedTargetCount: [...removalTargets.values()].reduce((total, keys) => total + keys.size, 0),
     },
   });
 

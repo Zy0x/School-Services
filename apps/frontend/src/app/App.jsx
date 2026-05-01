@@ -1383,7 +1383,10 @@ function SidebarNav({
               }
             }}
           >
-            <NavIcon section={item.id} />
+            <span className="app-nav-icon-shell">
+              <NavIcon section={item.id} />
+              {Number(item.badge || 0) > 0 ? <span className="app-nav-icon-badge">{item.badge}</span> : null}
+            </span>
             <span className="app-nav-copy">
               <strong>{item.label}</strong>
               <small>{item.helper}</small>
@@ -1393,6 +1396,24 @@ function SidebarNav({
         ))}
       </nav>
     </aside>
+  );
+}
+
+function ProfileInfoField({ label, value, mono = false }) {
+  const text = String(value || "").trim();
+  return (
+    <div className={`profile-info-card ${mono ? "mono" : ""}`.trim()}>
+      <span>{label}</span>
+      <strong title={text || "-"}>{text || "-"}</strong>
+      {text ? (
+        <IconButton
+          label={`Salin ${label}`}
+          icon={Copy}
+          className="profile-copy-button"
+          onClick={() => copyTextToClipboard(text).catch(() => {})}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -2454,23 +2475,10 @@ function ProfilePanel({ profile, session, onSignOut }) {
             {profile?.role ? <StatusChip status={profile.role} /> : null}
           </div>
         </div>
-        <div className="service-detail-grid">
-          <div>
-            <span>Nama</span>
-            <strong>{profile?.display_name || "-"}</strong>
-          </div>
-          <div>
-            <span>Email</span>
-            <strong>
-              <LongText value={profile?.email || session?.user?.email || ""} label="Email akun" maxLength={34} />
-            </strong>
-          </div>
-          <div>
-            <span>ID akun</span>
-            <strong>
-              <LongText value={session?.user?.id || ""} label="ID akun" className="mono" maxLength={28} />
-            </strong>
-          </div>
+        <div className="profile-identity-grid">
+          <ProfileInfoField label="Nama" value={profile?.display_name || "-"} />
+          <ProfileInfoField label="Email" value={profile?.email || session?.user?.email || ""} />
+          <ProfileInfoField label="ID akun" value={session?.user?.id || ""} mono />
         </div>
       </article>
 
@@ -2478,7 +2486,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
         <div className="panel-heading-row">
           <h3>Ganti Password</h3>
         </div>
-        <div className="service-detail-grid">
+        <div className="profile-password-grid">
           <PasswordField
             label="Password saat ini"
             value={currentPassword}
@@ -2507,22 +2515,19 @@ function ProfilePanel({ profile, session, onSignOut }) {
             visible={showNextPasswords}
             onToggleVisibility={() => setShowNextPasswords((current) => !current)}
           />
-          <div>
-            <span>Aksi akun</span>
-            <div className="panel-actions">
-              <button
-                type="button"
-                className="primary-button"
-                disabled={busy || !currentPassword || !nextPassword || !confirmPassword}
-                onClick={submitPasswordChange}
-              >
-                {busy ? "Menyimpan..." : "Simpan password"}
-              </button>
-              <button type="button" className="secondary-button" disabled={busy} onClick={onSignOut}>
-                Log Out
-              </button>
-            </div>
-          </div>
+        </div>
+        <div className="profile-password-actions">
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy || !currentPassword || !nextPassword || !confirmPassword}
+            onClick={submitPasswordChange}
+          >
+            {busy ? "Menyimpan..." : "Simpan password"}
+          </button>
+          <button type="button" className="secondary-button" disabled={busy} onClick={onSignOut}>
+            Log Out
+          </button>
         </div>
         {error ? <div className="job-error">{error}</div> : null}
         {info ? <div className="service-note">{info}</div> : null}
@@ -4631,10 +4636,19 @@ export default function App() {
     }
   }, [pendingGuestLinkDeviceId, profile]);
 
-  async function loadAll(background = false) {
+  async function loadAll(options = false) {
     if (!session || guestDeviceId) {
       return;
     }
+
+    const background =
+      typeof options === "object" && options !== null
+        ? Boolean(options.background)
+        : Boolean(options);
+    const includeArtifacts =
+      typeof options === "object" && options !== null && Object.prototype.hasOwnProperty.call(options, "includeArtifacts")
+        ? Boolean(options.includeArtifacts)
+        : profile?.role === "super_admin" && selectedTab === "files" && filesView === "storage";
 
     if (!background) {
       setLoading(true);
@@ -4643,7 +4657,7 @@ export default function App() {
     try {
       const [dashboard, artifactPayload] = await Promise.all([
         invokeAdmin("listDashboard"),
-        profile?.role === "super_admin"
+        includeArtifacts
           ? invokeAdmin("listStorageArtifacts")
           : Promise.resolve({ artifacts: [] }),
       ]);
@@ -4679,14 +4693,17 @@ export default function App() {
 
     loadAll();
     const refreshId = window.setInterval(() => {
-      loadAll(true);
+      loadAll({
+        background: true,
+        includeArtifacts: selectedTab === "files" && filesView === "storage",
+      });
       setNow(Date.now());
     }, REFRESH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(refreshId);
     };
-  }, [session, profile, guestDeviceId]);
+  }, [session, profile?.role, guestDeviceId, selectedTab, filesView]);
 
   useEffect(() => {
     if (appRoute.section === "devices" && appRoute.deviceId) {
@@ -5347,16 +5364,6 @@ export default function App() {
     }
 
     const fileName = artifact?.fileName || artifact?.objectKey || "berkas";
-    const parts = Array.isArray(artifact?.result?.parts) ? artifact.result.parts : [];
-    const removeTargets = [
-      ...(artifact?.bucket && artifact?.objectKey ? [{ bucket: artifact.bucket, objectKey: artifact.objectKey }] : []),
-      ...parts
-        .filter((part) => part?.bucket && part?.objectKey)
-        .map((part) => ({ bucket: part.bucket, objectKey: part.objectKey })),
-    ].filter(
-      (target, index, current) =>
-        current.findIndex((candidate) => candidate.bucket === target.bucket && candidate.objectKey === target.objectKey) === index
-    );
 
     try {
       setBusyAction(`artifact-delete:${artifact.id || artifact.objectKey}`);
@@ -5367,14 +5374,6 @@ export default function App() {
         deviceId: artifact.deviceId,
         fileName,
       });
-      for (const target of removeTargets) {
-        const { error: removeError } = await legacyDataClient.storage
-          .from(target.bucket)
-          .remove([target.objectKey]);
-        if (removeError && !/not found/i.test(String(removeError.message || ""))) {
-          throw removeError;
-        }
-      }
       setStorageArtifacts((current) =>
         current.filter((entry) => (entry.id || `${entry.bucket}:${entry.objectKey}`) !== (artifact.id || `${artifact.bucket}:${artifact.objectKey}`))
       );
@@ -6139,10 +6138,16 @@ export default function App() {
             <RootGrid roots={filteredRoots} onOpen={openPath} />
             <div className="fresh-file-list-shell">
               <div className="floating-selection-actions remote-file-actions is-visible">
-                <ActionButton className="secondary-button" disabled={!currentPath} onClick={() => fileInputRef.current?.click()}>Unggah ke sini</ActionButton>
-                {selectedPaths.length ? (
-                  <ActionButton className="primary-button" onClick={queueDownloadSelection}>Unduh pilihan</ActionButton>
-                ) : null}
+                <div className="remote-file-actions-copy">
+                  <strong>{selectedPaths.length ? `${selectedPaths.length} item dipilih` : "Belum ada file dipilih"}</strong>
+                  <small>Unggah ke folder aktif atau unduh file yang sudah dipilih.</small>
+                </div>
+                <ActionButton className="secondary-button" disabled={!currentPath} onClick={() => fileInputRef.current?.click()}>
+                  Unggah ke folder ini
+                </ActionButton>
+                <ActionButton className="primary-button" disabled={!selectedPaths.length} onClick={queueDownloadSelection}>
+                  {selectedPaths.length ? `Unduh pilihan (${selectedPaths.length})` : "Unduh pilihan"}
+                </ActionButton>
               </div>
               <FileTable
                 currentPath={currentPath}
@@ -6329,7 +6334,7 @@ export default function App() {
 
   return (
     <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab}`}>
-      <div className={`app-shell ${sidebarPinned ? "sidebar-is-pinned" : ""} ${sidebarExpanded ? "sidebar-is-expanded" : ""}`}>
+      <div className={`app-shell ${sidebarPinned ? "sidebar-is-pinned" : ""}`}>
         <SidebarNav
           profile={profile}
           activeSection={selectedTab}

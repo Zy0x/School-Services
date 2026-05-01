@@ -5214,23 +5214,32 @@ textarea {
 }
 
 .metric-card.device-update-card {
-  gap: 2px;
+  gap: 6px;
   padding-block: 16px 14px;
 }
 
-.device-update-head {
-  grid-template-columns: 30px minmax(0, 1fr);
+.device-update-topline {
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+}
+
+.device-update-title-row {
+  display: inline-grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .device-update-summary {
-  gap: 0;
+  display: grid;
+  gap: 4px;
+  padding-left: 44px;
 }
 
 .device-update-version {
   font-size: clamp(18px, 2vw, 20px);
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 .device-update-note {

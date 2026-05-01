@@ -3353,18 +3353,18 @@ function DeviceUpdateCard({
 
   return (
     <article className="metric-card device-update-card">
-      <div className="device-update-head">
-        <span className="device-update-icon" aria-hidden="true">
-          <Rocket size={18} strokeWidth={2.2} />
+      <div className="device-update-topline">
+        <span className="device-update-title-row">
+          <span className="device-update-icon" aria-hidden="true">
+            <Rocket size={18} strokeWidth={2.2} />
+          </span>
+          <span className="device-update-title">Versi & update</span>
         </span>
-        <div className="device-update-summary">
-          <div className="device-update-topline">
-            <span className="device-update-title">Versi & update</span>
-            <DeviceUpdateStatusIndicator update={update} toneStatus={toneStatus} />
-          </div>
-          <strong className="device-update-version">{update.localVersion}</strong>
-          <small className="device-update-note">{summary}</small>
-        </div>
+        <DeviceUpdateStatusIndicator update={update} toneStatus={toneStatus} />
+      </div>
+      <div className="device-update-summary">
+        <strong className="device-update-version">{update.localVersion}</strong>
+        <small className="device-update-note">{summary}</small>
       </div>
       {showAction && canUpdate ? (
         <ActionButton
@@ -5281,6 +5281,7 @@ export default function App() {
     }
     return Array.from(options.entries()).map(([id, label]) => ({ id, label }));
   }, [storageArtifacts]);
+  const effectiveArtifactDeviceFilter = selectedDeviceId || "all";
 
   const visibleStorageArtifacts = useMemo(() => {
     const query = artifactSearch.trim().toLowerCase();
@@ -5290,7 +5291,7 @@ export default function App() {
       if (artifactBucketFilter !== "all" && bucket !== artifactBucketFilter) {
         return false;
       }
-      if (artifactDeviceFilter !== "all" && deviceId !== artifactDeviceFilter) {
+      if (effectiveArtifactDeviceFilter !== "all" && deviceId !== effectiveArtifactDeviceFilter) {
         return false;
       }
       if (!query) {
@@ -5306,7 +5307,7 @@ export default function App() {
         .map((value) => String(value || "").toLowerCase())
         .some((value) => value.includes(query));
     });
-  }, [artifactBucketFilter, artifactDeviceFilter, artifactSearch, storageArtifacts]);
+  }, [artifactBucketFilter, artifactSearch, effectiveArtifactDeviceFilter, storageArtifacts]);
 
   const selectedDeviceRoots = useMemo(
     () =>
@@ -6666,7 +6667,7 @@ export default function App() {
                 </label>
                 <label>
                   <span>Device</span>
-                  <select value={artifactDeviceFilter} onChange={(event) => syncGlobalDeviceSelection(event.target.value)}>
+                  <select value={effectiveArtifactDeviceFilter} onChange={(event) => syncGlobalDeviceSelection(event.target.value)}>
                     <option value="all">Semua device</option>
                     {artifactDeviceOptions.map((device) => (
                       <option key={device.id} value={device.id}>{device.label}</option>
@@ -6769,7 +6770,7 @@ export default function App() {
   }
 
   function renderFreshActivity() {
-    const effectiveActivityDeviceId = activityDeviceId || selectedDevice?.deviceId || "all";
+    const effectiveActivityDeviceId = selectedDeviceId || "all";
     const visibleLogs = logs
       .filter((log) => logLevelFilter === "all" || log.level === logLevelFilter)
       .filter((log) => effectiveActivityDeviceId === "all" || log.device_id === effectiveActivityDeviceId)

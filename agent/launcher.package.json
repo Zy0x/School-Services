@@ -1,6 +1,6 @@
 {
   "name": "school-services-launcher",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "private": true,
   "main": "launcher.js",
   "bin": "launcher.js",

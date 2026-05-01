@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, AlertTriangle, CircleArrowUp, ChevronDown, Monitor, RefreshCw, Server, Sparkles } from "lucide-react";
+import { Activity, CircleArrowUp, RefreshCw, Server } from "lucide-react";
 import Avatar3D from "../../../components/Avatar3D.jsx";
 import { legacyDataClient } from "../../../services/legacyDataClient.js";
 import { REFRESH_INTERVAL_MS } from "../../../app/lib/constants.js";
@@ -205,6 +205,10 @@ export function GuestConsole({ deviceId }) {
   const guestUpdate = getDeviceUpdateModel(state.device);
   const canOpenService = guestStatus.ready;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
+  const isDeviceOffline =
+    state.device?.deviceStatus === "offline" ||
+    guestStatus.overallStatus === "offline" ||
+    guestStatus.overallStatus === "blocked";
   const serviceLabel = formatServiceDisplayName(service?.service_name || "rapor");
   const loginUrl = buildAuthUrl({
     mode: "login",
@@ -228,18 +232,6 @@ export function GuestConsole({ deviceId }) {
     }
   }, [guestUpdate.status]);
 
-  const guestPriorityTone =
-    guestStatus.overallStatus === "ready"
-      ? "good"
-      : ["offline", "blocked", "failed", "error"].includes(guestStatus.overallStatus)
-        ? "warn"
-        : "files";
-  const GuestPriorityIcon =
-    guestStatus.overallStatus === "ready"
-      ? Sparkles
-      : guestStatus.overallStatus === "offline" || guestStatus.overallStatus === "blocked"
-        ? AlertTriangle
-        : Monitor;
   const guestMetricItems = [
     {
       label: "Status layanan",
@@ -263,17 +255,14 @@ export function GuestConsole({ deviceId }) {
     },
   ];
 
-  const accessSummary =
-    guestStatus.ready
-      ? "Tautan publik aktif dan siap dibuka."
-      : guestStatus.publicStatus === "disabled"
-        ? "Tautan belum tersedia karena perangkat atau layanan belum siap."
-        : "Tautan publik akan aktif setelah perangkat stabil kembali.";
-
-  const heroTitle = guestStatus.ready ? "Buka E-Rapor" : "Akses E-Rapor";
+  const accessHint = guestStatus.ready
+    ? "Buka tautan publik atau gunakan kontrol layanan di bawah saat diperlukan."
+    : guestStatus.publicStatus === "disabled"
+      ? "Perangkat atau layanan belum siap, jadi tautan publik belum tersedia."
+      : "Status akan diperbarui otomatis begitu perangkat kembali stabil.";
 
   return (
-    <main className="console-shell guest-console-shell route-guest">
+    <main className={`console-shell guest-console-shell route-guest ${isDeviceOffline ? "is-device-offline" : ""}`.trim()}>
       <div className="guest-shell-inner">
         <header className="top-command-bar guest-top-command-bar guest-top-command-surface" aria-label="Status dan aksi guest access">
           <div className="workspace-switcher guest-workspace-switcher">
@@ -296,66 +285,17 @@ export function GuestConsole({ deviceId }) {
           </div>
         </header>
 
-        <section className="guest-hero-grid">
-          <article className="guest-hero-copy guest-panel">
-            <nav className="route-breadcrumbs guest-breadcrumbs" aria-label="Breadcrumb">
-              <span className="route-breadcrumb-item"><span>Guest</span></span>
-              <span className="route-breadcrumb-item"><ChevronDown size={14} strokeWidth={2.2} aria-hidden="true" /><span>{serviceLabel}</span></span>
-            </nav>
-            <span className="section-eyebrow">Akses tamu</span>
-            <h1>{heroTitle}</h1>
-            <p>{guestStatus.description}</p>
+        <section className="guest-hero-grid guest-hero-grid-single">
+          <article className={`guest-hero-copy guest-panel guest-status-hero tone-${statusTone(guestRuntimeStatus)}`}>
+            <span className="section-eyebrow">Status layanan</span>
+            <h1>{guestStatus.headline}</h1>
+            <p>{accessHint}</p>
             <div className="guest-hero-status">
               <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
               <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
               <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
             </div>
           </article>
-
-          <article className="guest-panel guest-access-hero">
-            <div className="guest-access-hero-head">
-              <span className="guest-access-icon" aria-hidden="true">
-                <CircleArrowUp size={18} strokeWidth={2.2} />
-              </span>
-              <div>
-                <span className="section-eyebrow">Ringkasan akses</span>
-                <strong>{guestStatus.headline}</strong>
-              </div>
-            </div>
-            <p className="guest-access-summary">{accessSummary}</p>
-            <div className="guest-summary-list">
-              <div>
-                <span>Perangkat</span>
-                <strong>{deviceBadge.label}</strong>
-              </div>
-              <div>
-                <span>Layanan</span>
-                <strong>{guestStatus.runtimeLabel}</strong>
-              </div>
-              <div>
-                <span>Tautan</span>
-                <strong>{guestStatus.publicLabel}</strong>
-              </div>
-              <div>
-                <span>Versi</span>
-                <strong>{guestUpdate.localVersion}</strong>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section className={`guest-status-banner tone-${guestPriorityTone}`}>
-          <span className="guest-status-banner-icon" aria-hidden="true">
-            <GuestPriorityIcon size={20} strokeWidth={2.2} />
-          </span>
-          <div>
-            <strong>{guestStatus.headline}</strong>
-            <p>
-              {guestStatus.ready
-                ? "Perangkat tersambung, layanan aktif, dan tautan publik siap dipakai."
-                : "Halaman ini tetap menampilkan status koneksi dan jalur akses secara ringkas sampai perangkat siap."}
-            </p>
-          </div>
         </section>
 
         {error ? <div className="error-banner guest-error-banner">{error}</div> : null}
@@ -383,39 +323,12 @@ export function GuestConsole({ deviceId }) {
           </section>
         ) : (
           <section className="guest-main-layout">
-            <section className="guest-status-grid">
-              {guestMetricItems.map((item) => (
-                <article key={item.label} className={`guest-panel guest-metric-card ${item.tone ? `tone-${item.tone}` : ""}`}>
-                  <span className="guest-metric-icon" aria-hidden="true">
-                    <item.icon size={18} strokeWidth={2.2} />
-                  </span>
-                  <div className="guest-metric-copy">
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                    {item.helper ? <small>{item.helper}</small> : null}
-                  </div>
-                </article>
-              ))}
-              <FeatureGuestUpdateCard
-                deviceRecord={state.device}
-                deviceStatus={state.device?.deviceStatus}
-                busy={busy && commandModal.action === "update"}
-                onUpdate={() => sendCommand("update")}
-                showAction
-              />
-            </section>
-
             <article className={`guest-panel guest-access-main tone-${statusTone(guestRuntimeStatus)}`}>
               <div className="guest-access-main-head">
                 <div>
-                  <span className="section-eyebrow">Akses utama</span>
+                  <span className="section-eyebrow">Panel layanan</span>
                   <strong>{serviceLabel}</strong>
-                  <p>Semua akses penting diringkas di sini: tautan publik, status layanan, kondisi perangkat, dan kontrol dasar.</p>
-                </div>
-                <div className="guest-service-pills">
-                  <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
-                  <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
-                  <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
+                  <p>Buka tautan publik, periksa status layanan, dan jalankan kontrol dasar dari satu panel.</p>
                 </div>
               </div>
 
@@ -440,7 +353,6 @@ export function GuestConsole({ deviceId }) {
                       onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin tautan publik.", "error", "Salin gagal")}
                     />
                   </div>
-                  <p className="guest-access-summary">{accessSummary}</p>
                   <div className="guest-link-focus-actions guest-link-hero-actions">
                     <ActionButton
                       className="primary-button guest-open-button"
@@ -535,6 +447,28 @@ export function GuestConsole({ deviceId }) {
                 </div>
               ) : null}
             </article>
+
+            <section className="guest-status-grid">
+              {guestMetricItems.map((item) => (
+                <article key={item.label} className={`guest-panel guest-metric-card ${item.tone ? `tone-${item.tone}` : ""}`}>
+                  <span className="guest-metric-icon" aria-hidden="true">
+                    <item.icon size={18} strokeWidth={2.2} />
+                  </span>
+                  <div className="guest-metric-copy">
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                    {item.helper ? <small>{item.helper}</small> : null}
+                  </div>
+                </article>
+              ))}
+              <FeatureGuestUpdateCard
+                deviceRecord={state.device}
+                deviceStatus={state.device?.deviceStatus}
+                busy={busy && commandModal.action === "update"}
+                onUpdate={() => sendCommand("update")}
+                showAction
+              />
+            </section>
           </section>
         )}
         </section>

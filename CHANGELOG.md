@@ -4,6 +4,20 @@ Semua perubahan penting pada project ini dicatat di file ini.
 
 Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) dengan versi rilis project.
 
+## [2.0.5] - 2026-05-02
+
+### Changed
+
+- Halaman Guest diringkas agar fokus pada satu panel status layanan, panel akses utama, dan informasi sekunder yang benar-benar dibutuhkan.
+- Tampilan offline pada Guest kini memakai latar merah transparan modern yang mengikuti bahasa visual dashboard SuperAdmin.
+- Feedback aksi Guest diperjelas dengan notifikasi untuk buka tautan, salin tautan, bagikan, segarkan status, dan kontrol layanan.
+
+### Fixed
+
+- Elemen status, badge, dan teks yang sebelumnya berulang di halaman Guest dihapus agar tata letak lebih bersih dan konsisten.
+- Panel akses utama dan status layanan Guest kini lebih rapi pada desktop maupun breakpoint kecil.
+- Versi rilis aplikasi dinaikkan menjadi `2.0.5`.
+
 ## [2.0.1] - 2026-04-30
 
 ### Changed

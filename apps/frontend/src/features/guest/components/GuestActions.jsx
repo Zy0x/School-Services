@@ -37,7 +37,7 @@ export function PublicLinkActions({
 
     try {
       await copyTextToClipboard(url);
-      setFeedback("Tautan berhasil disalin.");
+      setFeedback(onFeedback ? "" : "Tautan berhasil disalin.");
       onActionComplete?.("");
       onFeedback?.("Tautan berhasil disalin.", "success");
     } catch (error) {
@@ -54,7 +54,7 @@ export function PublicLinkActions({
     }
 
     window.open(buildWhatsAppShareUrl(url, label), "_blank", "noopener,noreferrer");
-    setFeedback("Tautan siap dibagikan lewat WhatsApp.");
+    setFeedback(onFeedback ? "" : "Tautan siap dibagikan lewat WhatsApp.");
     onActionComplete?.("");
     onFeedback?.("Tautan siap dibagikan lewat WhatsApp.", "success");
   }

@@ -20,6 +20,7 @@ import {
   LongText,
   Skeleton,
   StatusChip,
+  ToastViewport,
 } from "../../../components/ui/core.jsx";
 import { DeviceUpdateCard, UpdateProgressModal } from "../../dashboard/components/updates.jsx";
 import { PublicLinkActions, SiteFooter } from "../components/GuestActions.jsx";
@@ -29,6 +30,7 @@ export function GuestConsole({ deviceId }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [toastItems, setToastItems] = useState([]);
   const [busy, setBusy] = useState(false);
   const [commandModal, setCommandModal] = useState({
     open: false,
@@ -36,6 +38,25 @@ export function GuestConsole({ deviceId }) {
     title: "",
     message: "",
   });
+
+  function dismissToast(id) {
+    setToastItems((current) => current.filter((item) => item.id !== id));
+  }
+
+  function pushToast(title, message = "", tone = "info") {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setToastItems((current) => [...current, { id, title, message, tone }].slice(-4));
+    window.setTimeout(() => {
+      setToastItems((current) => current.filter((item) => item.id !== id));
+    }, 3200);
+  }
+
+  function handleGuestFeedback(message, tone = "info", title = "") {
+    if (!message) {
+      return;
+    }
+    pushToast(title || (tone === "error" ? "Aksi belum berhasil" : "Aksi berhasil"), message, tone);
+  }
 
   async function loadGuest(options = {}) {
     const silent = Boolean(options.silent);
@@ -56,8 +77,15 @@ export function GuestConsole({ deviceId }) {
       }
       setState({ device: data.device, service: data.service });
       setError("");
+      if (options.announce) {
+        pushToast("Status diperbarui", "Informasi guest access sudah disegarkan.", "success");
+      }
     } catch (nextError) {
-      setError(formatEdgeFunctionError(nextError));
+      const message = formatEdgeFunctionError(nextError);
+      setError(message);
+      if (options.announce) {
+        pushToast("Gagal memuat status", message, "error");
+      }
     } finally {
       if (silent) {
         setRefreshing(false);
@@ -123,6 +151,15 @@ export function GuestConsole({ deviceId }) {
         throw new Error(data?.error || "Permintaan belum dapat diproses.");
       }
       await loadGuest({ silent: true });
+      pushToast(
+        isUpdateAction ? "Update dimulai" : action === "start" ? "Perintah start dikirim" : "Perintah stop dikirim",
+        isUpdateAction
+          ? "Agent akan menghentikan layanan, memasang versi baru, lalu aktif kembali otomatis."
+          : action === "start"
+            ? "Layanan E-Rapor sedang disiapkan."
+            : "Permintaan penghentian layanan sedang dijalankan.",
+        "success"
+      );
       setCommandModal((current) => ({
         ...current,
         message:
@@ -140,10 +177,21 @@ export function GuestConsole({ deviceId }) {
     } catch (nextError) {
       const message = formatEdgeFunctionError(nextError);
       setError(message);
+      pushToast("Perintah gagal", message, "error");
       setCommandModal((current) => ({ ...current, open: true, message }));
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleOpenService(event) {
+    if (!canOpenService || !service?.public_url) {
+      event?.preventDefault?.();
+      handleGuestFeedback("Tautan belum aktif. Pastikan perangkat online dan layanan berjalan.", "error", "Tautan belum tersedia");
+      return;
+    }
+    pushToast("Membuka E-Rapor", "Tautan publik dibuka di tab baru.", "success");
+    window.open(service.public_url, "_blank", "noopener,noreferrer");
   }
 
   const service = state.service;
@@ -236,7 +284,7 @@ export function GuestConsole({ deviceId }) {
             </div>
           </div>
           <div className="guest-top-command-actions">
-            <ActionButton className="secondary-button" busy={refreshing} icon={RefreshCw} onClick={() => loadGuest({ silent: true })}>
+            <ActionButton className="secondary-button guest-refresh-button" busy={refreshing} icon={RefreshCw} onClick={() => loadGuest({ silent: true, announce: true })}>
               Segarkan
             </ActionButton>
             <a className="secondary-button footer-link-button action-button" href={loginUrl}>
@@ -362,7 +410,7 @@ export function GuestConsole({ deviceId }) {
                 <div>
                   <span className="section-eyebrow">Akses utama</span>
                   <strong>{serviceLabel}</strong>
-                  <p>Panel ini memusatkan tautan, status service, dan kontrol dasar dalam satu tempat.</p>
+                  <p>Semua akses penting diringkas di sini: tautan publik, status layanan, kondisi perangkat, dan kontrol dasar.</p>
                 </div>
                 <div className="guest-service-pills">
                   <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
@@ -372,7 +420,14 @@ export function GuestConsole({ deviceId }) {
               </div>
 
               <div className="guest-access-main-grid">
-                <section className="guest-access-main-primary">
+                <section className="guest-access-main-primary guest-subpanel">
+                  <div className="guest-subpanel-head">
+                    <div>
+                      <span className="section-eyebrow">Tautan publik</span>
+                      <strong>Tautan E-Rapor</strong>
+                    </div>
+                    <small>{canOpenService ? "Siap dibuka" : "Menunggu layanan aktif"}</small>
+                  </div>
                   <div className="guest-link-focus-box guest-link-hero-box">
                     <LongText
                       value={service?.public_url || ""}
@@ -381,36 +436,35 @@ export function GuestConsole({ deviceId }) {
                       className="mono"
                       maxLength={96}
                       empty="Belum tersedia"
+                      onCopySuccess={() => handleGuestFeedback("Tautan publik berhasil disalin.", "success", "Tautan disalin")}
+                      onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin tautan publik.", "error", "Salin gagal")}
                     />
                   </div>
                   <p className="guest-access-summary">{accessSummary}</p>
                   <div className="guest-link-focus-actions guest-link-hero-actions">
-                    <a
-                      className={`primary-button footer-link-button guest-open-button ${canOpenService ? "" : "button-disabled-link"}`}
-                      href={canOpenService ? service?.public_url : undefined}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-disabled={!canOpenService}
-                      onClick={(event) => {
-                        if (!canOpenService) {
-                          event.preventDefault();
-                        }
-                      }}
+                    <ActionButton
+                      className="primary-button guest-open-button"
+                      disabled={busy}
+                      onClick={handleOpenService}
                     >
                       Buka E-Rapor
-                    </a>
+                    </ActionButton>
                     <PublicLinkActions
                       url={service?.public_url || ""}
                       label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
                       compact
                       onActionComplete={setError}
+                      onFeedback={handleGuestFeedback}
                     />
                   </div>
                 </section>
 
-                <section className="guest-access-main-side">
-                  <div className="guest-service-ident">
-                    <strong>{state.device?.deviceName || deviceId}</strong>
+                <section className="guest-access-main-side guest-subpanel">
+                  <div className="guest-subpanel-head">
+                    <div>
+                      <span className="section-eyebrow">Status service</span>
+                      <strong>{state.device?.deviceName || deviceId}</strong>
+                    </div>
                     <small className="mono">{state.device?.deviceId || deviceId}</small>
                   </div>
                   <div className="guest-detail-grid">
@@ -428,40 +482,58 @@ export function GuestConsole({ deviceId }) {
                     </div>
                     <div>
                       <span>Lokasi aplikasi</span>
-                      <strong className="mono">
-                        <LongText value={service?.resolved_path || ""} label="Lokasi aplikasi" maxLength={48} />
-                      </strong>
+                      <div className="guest-detail-long mono">
+                        <LongText
+                          value={service?.resolved_path || ""}
+                          label="Lokasi aplikasi"
+                          maxLength={48}
+                          onCopySuccess={() => handleGuestFeedback("Lokasi aplikasi berhasil disalin.", "success", "Lokasi disalin")}
+                          onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin lokasi aplikasi.", "error", "Salin gagal")}
+                        />
+                      </div>
                     </div>
                     <div>
                       <span>Kesiapan aplikasi</span>
                       <strong>{service?.location_status || "unknown"}</strong>
                     </div>
                   </div>
+
+                  <div className="guest-cta-row">
+                    <ActionButton className="primary-button" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
+                      Mulai
+                    </ActionButton>
+                    <ActionButton className="secondary-button" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
+                      Hentikan
+                    </ActionButton>
+                    <ActionButton className="secondary-button" busy={busy && commandModal.action === "update"} disabled={busy} onClick={() => sendCommand("update")}>
+                      Update
+                    </ActionButton>
+                  </div>
                 </section>
               </div>
 
               {service?.location_details?.message ? (
                 <div className="guest-inline-note">
-                  <LongText value={service.location_details.message} label="Detail lokasi" maxLength={72} />
+                  <LongText
+                    value={service.location_details.message}
+                    label="Detail lokasi"
+                    maxLength={72}
+                    onCopySuccess={() => handleGuestFeedback("Detail lokasi berhasil disalin.", "success", "Detail disalin")}
+                    onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin detail lokasi.", "error", "Salin gagal")}
+                  />
                 </div>
               ) : null}
               {service?.last_error ? (
                 <div className="guest-inline-error">
-                  <LongText value={service.last_error} label="Error layanan" maxLength={72} />
+                  <LongText
+                    value={service.last_error}
+                    label="Error layanan"
+                    maxLength={72}
+                    onCopySuccess={() => handleGuestFeedback("Pesan error layanan berhasil disalin.", "success", "Error disalin")}
+                    onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin pesan error.", "error", "Salin gagal")}
+                  />
                 </div>
               ) : null}
-
-              <div className="guest-cta-row">
-                <ActionButton className="primary-button" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
-                  Mulai
-                </ActionButton>
-                <ActionButton className="secondary-button" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
-                  Hentikan
-                </ActionButton>
-                <ActionButton className="secondary-button" busy={busy && commandModal.action === "update"} disabled={busy} onClick={() => sendCommand("update")}>
-                  Update
-                </ActionButton>
-              </div>
             </article>
           </section>
         )}
@@ -481,6 +553,7 @@ export function GuestConsole({ deviceId }) {
           <CommandProgressOverlay open title={commandModal.title} message={commandModal.message} percent={busy ? 42 : 78} />
         )
       ) : null}
+      <ToastViewport items={toastItems} onDismiss={dismissToast} />
     </main>
   );
 }

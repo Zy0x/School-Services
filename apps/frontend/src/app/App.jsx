@@ -1,35 +1,26 @@
-import { startTransition, useEffect, useId, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
   Bell,
   CircleArrowUp,
-  CheckCircle2,
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
-  Copy,
   Download,
-  Eye,
   FileText,
   FolderOpen,
   Gauge,
-  Info,
   LayoutDashboard,
-  Loader2,
   LogOut,
   Monitor,
-  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
   RefreshCw,
   RotateCcw,
-  Rocket,
   Search,
   Server,
-  Share2,
   ShieldCheck,
   Sparkles,
   Square,
@@ -38,17 +29,56 @@ import {
   UserPlus,
   Users,
   X,
-  XCircle,
 } from "lucide-react";
 import { legacyDataClient } from "../services/legacyDataClient.js";
 import Avatar3D from "../components/Avatar3D.jsx";
-import githubIcon from "../assets/icons/github.png";
-import paypalIcon from "../assets/icons/paypal.png";
-import trakteerIcon from "../assets/icons/trakteer.png";
+import { REFRESH_INTERVAL_MS, RESET_PASSWORD_PATH, AUTH_PATH, GUEST_BRAND_ICON } from "./lib/constants.js";
+import {
+  buildAuthPath,
+  buildAuthUrl,
+  buildGuestPath,
+  buildGuestUrl,
+  buildResetPasswordUrl,
+  buildRoutePath,
+  getAllowedDashboardSections,
+  getRouteCopy,
+  normalizePathname,
+  parseAppRoute,
+} from "./lib/routes.js";
+import {
+  clearStoredAuthArtifacts,
+  formatEdgeFunctionError,
+  formatPasswordUpdateError,
+  formatSignInError,
+  isInvalidSessionError,
+} from "./lib/errors.js";
+import {
+  ActionButton,
+  CommandProgressOverlay,
+  ConfirmDialog,
+  DetailDrawer,
+  IconButton,
+  InfoHint,
+  LongText,
+  MaskedTextField,
+  PageSkeleton,
+  PasswordField as SharedPasswordField,
+  ProfileInfoField,
+  StatusChip,
+  ToastViewport,
+} from "../components/ui/core.jsx";
+import {
+  DeviceUpdateCard as FeatureDeviceUpdateCard,
+  UpdateProgressModal as FeatureUpdateProgressModal,
+} from "../features/dashboard/components/updates.jsx";
+import {
+  AccountStatusScreen,
+  LoginScreen,
+  PasswordResetScreen as FeaturePasswordResetScreen,
+} from "../features/auth/pages/AuthScreens.jsx";
+import { PublicLinkActions as GuestPublicLinkActions } from "../features/guest/components/GuestActions.jsx";
+import { GuestConsole as FeatureGuestConsole } from "../features/guest/pages/GuestConsole.jsx";
 
-const HEARTBEAT_STALE_MS = Number(import.meta.env.VITE_HEARTBEAT_STALE_MS || 90000);
-const HEARTBEAT_UNSTABLE_MS = Number(import.meta.env.VITE_HEARTBEAT_UNSTABLE_MS || 180000);
-const REFRESH_INTERVAL_MS = Number(import.meta.env.VITE_DASHBOARD_REFRESH_MS || 5000);
 const LOG_LIMIT = 120;
 const JOB_LIMIT = 80;
 const PUBLIC_DASHBOARD_URL = String(
@@ -61,222 +91,11 @@ const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || "").replace(
   ""
 );
 const SUPABASE_ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || "");
-const PAYPAL_URL = "https://paypal.me/theamagenta";
-const TRAKTEER_URL = "https://trakteer.id/zy0x";
-const GITHUB_PROFILE_URL = "https://github.com/Zy0x";
-const GUEST_BRAND_ICON = "/icon.png";
 const ROOT_PATH = "/";
-const AUTH_PATH = "/auth";
-const RESET_PASSWORD_PATH = "/auth/reset-password";
 const LEGACY_RESET_PASSWORD_PATH = "/reset-password";
-const DASHBOARD_SECTIONS = new Set(["overview", "devices", "files", "activity", "accounts", "profile"]);
-
-function normalizePathname(pathname = "") {
-  const normalized = `/${String(pathname || "/").trim()}`.replace(/\/+/g, "/");
-  return normalized.replace(/\/+$/, "") || "/";
-}
-
-function buildPath(pathname = "/", params = {}) {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    const normalized = String(value || "").trim();
-    if (normalized) {
-      search.set(key, normalized);
-    }
-  }
-  const suffix = search.toString();
-  return `${pathname}${suffix ? `?${suffix}` : ""}`;
-}
-
-function buildPublicUrl(pathname = "/", params = {}) {
-  return `${PUBLIC_DASHBOARD_URL}${buildPath(pathname, params)}`;
-}
-
-function parseAppRoute(pathname = "") {
-  const path = normalizePathname(pathname) || "/dashboard";
-  const parts = path.split("/").filter(Boolean);
-  if (parts[0] !== "dashboard") {
-    return { section: "overview", deviceId: "" };
-  }
-
-  const section = DASHBOARD_SECTIONS.has(parts[1]) ? parts[1] : "overview";
-  return {
-    section,
-    deviceId: section === "devices" ? decodeURIComponent(parts[2] || "") : "",
-  };
-}
-
-function buildRoutePath(section = "overview", params = {}) {
-  const safeSection = DASHBOARD_SECTIONS.has(section) ? section : "overview";
-  if (safeSection === "devices" && params.deviceId) {
-    return `/dashboard/devices/${encodeURIComponent(params.deviceId)}`;
-  }
-  return `/dashboard/${safeSection}`;
-}
-
-function getAllowedDashboardSections(role) {
-  const sections = new Set(["overview", "devices", "activity", "profile"]);
-  if (role === "super_admin") {
-    sections.add("files");
-    sections.add("accounts");
-  }
-  if (role === "operator") {
-    sections.add("accounts");
-  }
-  return sections;
-}
-
-function getRouteCopy(section, role) {
-  const fallback = {
-    title: "Ringkasan",
-    subtitle: "Lihat kondisi perangkat dan layanan yang tersedia.",
-    kicker: "School Services",
-  };
-  const copies = {
-    overview: {
-      title: "Ringkasan",
-      subtitle:
-        role === "super_admin"
-          ? "Lihat kondisi perangkat, akun, dan layanan sekolah dari satu tempat."
-          : role === "operator"
-            ? "Kelola perangkat dan akun pengguna di lingkungan Anda."
-            : "Lihat status perangkat dan layanan yang dapat Anda akses.",
-      kicker: role === "super_admin" ? "SuperAdmin" : role === "operator" ? "Operator" : "User",
-    },
-    devices: {
-      title: "Perangkat",
-      subtitle: "Kelola nama tampilan dan layanan pada perangkat yang tersedia untuk akun Anda.",
-      kicker: "Layanan",
-    },
-    files: {
-      title: "Berkas",
-      subtitle: "Lihat dan kelola berkas pada perangkat yang dipilih.",
-      kicker: "SuperAdmin",
-    },
-    activity: {
-      title: "Aktivitas",
-      subtitle: "Lihat riwayat tindakan dan perubahan terbaru.",
-      kicker: "Riwayat",
-    },
-    accounts: {
-      title: role === "operator" ? "Akun Lingkungan" : "Akun & Lingkungan",
-      subtitle:
-        role === "operator"
-          ? "Kelola akun pengguna dan kode akses lingkungan Anda."
-          : "Kelola akun, lingkungan, dan akses perangkat.",
-      kicker: "Akses",
-    },
-    profile: {
-      title: "Profil",
-      subtitle: "Kelola informasi akun dan password Anda.",
-      kicker: "Akun",
-    },
-  };
-  return copies[section] || fallback;
-}
-
-function buildGuestPath(deviceId) {
-  return `/guest/${encodeURIComponent(String(deviceId || "").trim())}`;
-}
-
-function buildGuestUrl(deviceId) {
-  return buildPublicUrl(buildGuestPath(deviceId));
-}
-
-function buildAuthPath(params = {}) {
-  return buildPath(AUTH_PATH, params);
-}
-
-function buildAuthUrl(params = {}) {
-  return buildPublicUrl(AUTH_PATH, params);
-}
-
-function buildResetPasswordUrl() {
-  return buildPublicUrl(RESET_PASSWORD_PATH);
-}
 
 function getFunctionUrl(name) {
   return `${SUPABASE_URL}/functions/v1/${name}`;
-}
-
-function isInvalidSessionError(error) {
-  const message = String(error?.message || error || "");
-  return /invalid admin session|missing authorization header|jwt|unauthorized/i.test(message);
-}
-
-function isSamePasswordError(error) {
-  const code = String(error?.code || "").trim().toLowerCase();
-  const message = String(error?.message || error || "").trim().toLowerCase();
-  return (
-    code === "same_password" ||
-    /same password|different password|password.*same|different from the one currently used/i.test(message)
-  );
-}
-
-function formatEdgeFunctionError(error) {
-  const message = String(error?.message || error || "Unknown error");
-  if (/email rate limit exceeded/i.test(message)) {
-    return "Terlalu banyak permintaan reset password. Coba lagi beberapa menit lagi.";
-  }
-  if (/invalid login credentials/i.test(message)) {
-    return "Email atau password belum sesuai. Periksa kembali lalu coba masuk lagi.";
-  }
-  if (isInvalidSessionError(message)) {
-    return "Sesi login telah berakhir. Silakan masuk lagi.";
-  }
-  if (/missing authorization header/i.test(message)) {
-    return "Sesi Anda tidak lagi valid. Silakan masuk kembali.";
-  }
-  if (/failed to fetch|networkerror/i.test(message)) {
-    return "Koneksi ke layanan sedang bermasalah. Periksa internet Anda lalu coba lagi.";
-  }
-  return message || "Permintaan belum berhasil diproses. Silakan coba lagi.";
-}
-
-function formatSignInError(error) {
-  const message = String(error?.message || error || "");
-  if (/invalid login credentials/i.test(message)) {
-    return "Email atau password belum sesuai. Coba lagi atau gunakan fitur lupa password.";
-  }
-  if (/email not confirmed/i.test(message)) {
-    return "Email akun belum terverifikasi. Periksa inbox Anda lalu coba masuk kembali.";
-  }
-  if (/too many requests|rate limit/i.test(message)) {
-    return "Terlalu banyak percobaan masuk. Tunggu sebentar lalu coba kembali.";
-  }
-  return formatEdgeFunctionError(message);
-}
-
-function formatPasswordUpdateError(error) {
-  if (isInvalidSessionError(error)) {
-    return "Sesi login telah berakhir. Silakan masuk lagi.";
-  }
-  if (isSamePasswordError(error)) {
-    return "Password baru tidak boleh sama dengan password yang lama.";
-  }
-  return String(error?.message || error || "Gagal memperbarui password.");
-}
-
-function clearStoredAuthArtifacts() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const storages = [window.localStorage, window.sessionStorage];
-  for (const storage of storages) {
-    if (!storage) {
-      continue;
-    }
-    for (let index = storage.length - 1; index >= 0; index -= 1) {
-      const key = storage.key(index);
-      if (!key) {
-        continue;
-      }
-      if (/^sb-.*(auth-token|code-verifier)/i.test(key)) {
-        storage.removeItem(key);
-      }
-    }
-  }
 }
 
 async function invokeEdgeFunction(name, body, session = null) {
@@ -917,378 +736,6 @@ function getStatusIcon(status) {
   return Loader2;
 }
 
-function StatusPill({ status, label, className = "", iconOnly = false, title = "" }) {
-  const Icon = getStatusIcon(status);
-  return (
-    <span
-      className={`status-chip tone-${statusTone(status)} ${className}`.trim()}
-      title={title || undefined}
-      aria-label={title || label || getStatusLabel(status)}
-    >
-      <Icon size={14} strokeWidth={2.2} aria-hidden="true" />
-      {iconOnly ? null : label || getStatusLabel(status)}
-    </span>
-  );
-}
-
-function StatusChip(props) {
-  return <StatusPill {...props} />;
-}
-
-function IconButton({ label, icon: Icon = MoreHorizontal, className = "", ...props }) {
-  return (
-    <button type="button" className={`icon-button ${className}`.trim()} aria-label={label} title={label} {...props}>
-      <Icon size={17} strokeWidth={2.2} aria-hidden="true" />
-    </button>
-  );
-}
-
-function InfoHint({ text }) {
-  return (
-    <span className="info-hint" tabIndex={0} aria-label={text}>
-      <Info size={14} strokeWidth={2.4} aria-hidden="true" />
-      <span className="info-hint-bubble">{text}</span>
-    </span>
-  );
-}
-
-function ToastViewport({ items = [], onDismiss }) {
-  if (!items.length) {
-    return null;
-  }
-
-  return createPortal(
-    <div className="toast-viewport" aria-live="polite" aria-atomic="true">
-      {items.map((item) => (
-        <article key={item.id} className={`toast-card tone-${item.tone || "info"}`}>
-          <strong>{item.title}</strong>
-          {item.message ? <p>{item.message}</p> : null}
-          <button type="button" className="toast-dismiss" onClick={() => onDismiss(item.id)} aria-label="Tutup notifikasi">
-            <X size={14} strokeWidth={2.4} aria-hidden="true" />
-          </button>
-        </article>
-      ))}
-    </div>,
-    document.body
-  );
-}
-
-function CommandProgressOverlay({
-  open = false,
-  title = "Menjalankan perintah",
-  message = "Sedang memproses perubahan layanan.",
-  percent = 24,
-}) {
-  if (!open) {
-    return null;
-  }
-
-  return createPortal(
-    <div className="command-progress-overlay" role="status" aria-live="polite" aria-atomic="true">
-      <div className="command-progress-card">
-        <div className="command-progress-orb" aria-hidden="true">
-          <Loader2 size={18} className="button-spinner-icon" />
-        </div>
-        <strong>{title}</strong>
-        <p>{message}</p>
-        <div className="command-progress-track" aria-label={`Progress perintah ${percent}%`}>
-          <span style={{ width: `${percent}%` }} />
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-function ActionButton({
-  children,
-  busy = false,
-  className = "secondary-button",
-  disabled = false,
-  icon: Icon = null,
-  ...props
-}) {
-  return (
-    <button type="button" className={`${className} action-button`} disabled={disabled || busy} {...props}>
-      {busy ? <Loader2 className="button-spinner-icon" size={16} aria-hidden="true" /> : null}
-      {!busy && Icon ? <Icon size={16} strokeWidth={2.2} aria-hidden="true" /> : null}
-      <span>{children}</span>
-    </button>
-  );
-}
-
-function Skeleton({ className = "", lines = 1 }) {
-  if (lines > 1) {
-    return (
-      <div className={`skeleton-stack ${className}`.trim()} aria-hidden="true">
-        {Array.from({ length: lines }).map((_, index) => (
-          <span key={index} className={`skeleton-line skeleton-line-${index + 1}`} />
-        ))}
-      </div>
-    );
-  }
-  return <span className={`skeleton ${className}`.trim()} aria-hidden="true" />;
-}
-
-function PageSkeleton({ title = "Memuat data" }) {
-  return (
-    <main className="console-shell app-shell-page skeleton-page" aria-busy="true" aria-label={title}>
-      <div className="app-shell">
-        <aside className="app-sidebar">
-          <Skeleton className="skeleton-brand" />
-          <Skeleton lines={5} />
-        </aside>
-        <section className="app-content">
-          <section className="top-command-bar">
-            <Skeleton className="skeleton-pill" />
-            <Skeleton className="skeleton-pill" />
-            <Skeleton className="skeleton-avatar" />
-          </section>
-          <section className="app-route-header">
-            <Skeleton lines={3} />
-          </section>
-          <section className="priority-banner">
-            <Skeleton lines={2} />
-            <Skeleton className="skeleton-button" />
-          </section>
-          <section className="dashboard-stats-grid">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <article className="dashboard-stat-card metric-tile" key={index}>
-                <Skeleton lines={3} />
-              </article>
-            ))}
-          </section>
-        </section>
-      </div>
-    </main>
-  );
-}
-
-function GuestStatusSkeleton() {
-  return (
-    <section className="guest-skeleton-grid" aria-busy="true" aria-label="Memuat status perangkat">
-      {Array.from({ length: 5 }).map((_, index) => (
-        <article key={index} className="metric-card guest-status-card">
-          <Skeleton lines={3} />
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function normalizeEmailInput(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function maskReferralCode(value) {
-  const compact = String(value || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 12);
-  if (compact.length <= 4) {
-    return compact;
-  }
-  return `${compact.slice(0, 4)}-${compact.slice(4)}`;
-}
-
-function normalizeUrlInput(value) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed || /^https?:\/\//i.test(trimmed)) {
-    return trimmed;
-  }
-  return `https://${trimmed}`;
-}
-
-function MaskedTextField({
-  label,
-  value,
-  onChange,
-  mask = "text",
-  placeholder = "",
-  autoComplete,
-  disabled = false,
-  type = "text",
-  inputMode,
-  maxLength,
-}) {
-  const inputId = useId();
-
-  function applyMask(nextValue, eventType = "change") {
-    if (mask === "email") {
-      return eventType === "blur" ? normalizeEmailInput(nextValue) : String(nextValue || "");
-    }
-    if (mask === "referral") {
-      return maskReferralCode(nextValue);
-    }
-    if (mask === "url") {
-      return eventType === "blur" ? normalizeUrlInput(nextValue) : String(nextValue || "");
-    }
-    if (mask === "number") {
-      return String(nextValue || "").replace(/[^\d]/g, "");
-    }
-    if (mask === "alias") {
-      return String(nextValue || "").replace(/\s+/g, " ").slice(0, maxLength || 80);
-    }
-    return String(nextValue || "");
-  }
-
-  return (
-    <div className="masked-field">
-      <label htmlFor={inputId}>{label}</label>
-      <input
-        id={inputId}
-        type={type}
-        value={value}
-        onChange={(event) => onChange(applyMask(event.target.value))}
-        onBlur={(event) => onChange(applyMask(event.target.value, "blur"))}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        disabled={disabled}
-        inputMode={inputMode}
-        maxLength={maxLength}
-      />
-    </div>
-  );
-}
-
-function DetailDrawer({ title = "Detail", value, onClose }) {
-  if (!value) {
-    return null;
-  }
-
-  const drawer = (
-    <div
-      className="detail-drawer-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="detail-drawer-title"
-      onMouseDown={(event) => dismissOnBackdrop(event, onClose)}
-    >
-      <section className="detail-drawer">
-        <div className="detail-drawer-header">
-          <div>
-            <span className="section-eyebrow">Detail</span>
-            <strong id="detail-drawer-title">{title}</strong>
-          </div>
-          <IconButton label="Tutup detail" icon={X} onClick={onClose} />
-        </div>
-        <pre className="detail-drawer-content">{String(value)}</pre>
-        <div className="panel-actions">
-          <ActionButton className="secondary-button" onClick={() => copyTextToClipboard(value).catch(() => {})}>
-            <Copy size={16} aria-hidden="true" />
-            Salin
-          </ActionButton>
-          <ActionButton className="primary-button" onClick={onClose}>
-            Tutup
-          </ActionButton>
-        </div>
-      </section>
-    </div>
-  );
-
-  if (typeof document === "undefined") {
-    return drawer;
-  }
-
-  return createPortal(drawer, document.body);
-}
-
-function ConfirmDialog({
-  open,
-  title = "Konfirmasi",
-  message = "",
-  confirmLabel = "Lanjutkan",
-  cancelLabel = "Batal",
-  destructive = false,
-  busy = false,
-  onConfirm,
-  onClose,
-}) {
-  if (!open) {
-    return null;
-  }
-
-  const dialog = (
-    <div
-      className="guest-modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="confirm-dialog-title"
-      onMouseDown={(event) => dismissOnBackdrop(event, onClose)}
-    >
-      <div className="guest-modal-card dashboard-modal-card confirm-dialog-card">
-        <strong id="confirm-dialog-title">{title}</strong>
-        <p>{message}</p>
-        <div className="guest-modal-actions">
-          <ActionButton className="secondary-button" disabled={busy} onClick={onClose}>
-            {cancelLabel}
-          </ActionButton>
-          <ActionButton className={destructive ? "danger-button" : "primary-button"} busy={busy} onClick={onConfirm}>
-            {confirmLabel}
-          </ActionButton>
-        </div>
-      </div>
-    </div>
-  );
-
-  if (typeof document === "undefined") {
-    return dialog;
-  }
-  return createPortal(dialog, document.body);
-}
-
-function LongText({
-  value,
-  label = "Detail",
-  href = "",
-  maxLength = 48,
-  className = "",
-  empty = "-",
-  onCopySuccess = null,
-  onCopyError = null,
-}) {
-  const [open, setOpen] = useState(false);
-  const text = String(value || "");
-  if (!text) {
-    return <span className={`long-text long-text-empty ${className}`.trim()}>{empty}</span>;
-  }
-
-  const display = truncateText(text, maxLength);
-
-  return (
-    <span className={`long-text ${className}`.trim()}>
-      {href ? (
-        <a href={href} target="_blank" rel="noreferrer" title={text}>
-          {display}
-        </a>
-      ) : (
-        <span title={text}>{display}</span>
-      )}
-      <span className="long-text-actions">
-        <IconButton
-          label={`Salin ${label}`}
-          icon={Copy}
-          onClick={() =>
-            copyTextToClipboard(text)
-              .then(() => {
-                if (typeof onCopySuccess === "function") {
-                  onCopySuccess(text, label);
-                }
-              })
-              .catch((error) => {
-                if (typeof onCopyError === "function") {
-                  onCopyError(error, label);
-                }
-              })
-          }
-        />
-        <IconButton label={`Lihat ${label}`} icon={Eye} onClick={() => setOpen(true)} />
-      </span>
-      {open ? <DetailDrawer title={label} value={text} onClose={() => setOpen(false)} /> : null}
-    </span>
-  );
-}
-
 function Surface({ children, className = "", as: Component = "section", ...props }) {
   return (
     <Component className={`surface ${className}`.trim()} {...props}>
@@ -1493,60 +940,6 @@ function SidebarNav({
   );
 }
 
-function ProfileInfoField({ label, value, mono = false }) {
-  const text = String(value || "").trim();
-  return (
-    <div className={`profile-info-card ${mono ? "mono" : ""}`.trim()}>
-      <span>{label}</span>
-      <strong title={text || "-"}>{text || "-"}</strong>
-      {text ? (
-        <IconButton
-          label={`Salin ${label}`}
-          icon={Copy}
-          className="profile-copy-button"
-          onClick={() => copyTextToClipboard(text).catch(() => {})}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function DeviceUpdateStatusIndicator({ update, toneStatus }) {
-  let Icon = Info;
-  let tooltip = "Versi terbaru belum diketahui.";
-  let indicatorTone = "unknown";
-
-  if (update.status === "current") {
-    Icon = CheckCircle2;
-    tooltip = "Versi ini sudah menggunakan rilis terbaru.";
-    indicatorTone = "ready";
-  } else if (update.status === "available") {
-    Icon = CircleArrowUp;
-    tooltip = `Perlu update ke ${update.latestVersion || "versi terbaru"}.`;
-    indicatorTone = "available";
-  } else if (update.status === "updating") {
-    Icon = CircleArrowUp;
-    tooltip = update.latestVersion
-      ? `Sedang update ke ${update.latestVersion}.`
-      : "Sedang memasang pembaruan.";
-    indicatorTone = "updating";
-  } else if (update.status === "failed") {
-    Icon = AlertTriangle;
-    tooltip = update.error || "Update gagal. Periksa log agent.";
-    indicatorTone = "failed";
-  } else if (toneStatus === "reconnecting") {
-    Icon = CircleArrowUp;
-    tooltip = "Permintaan update sudah dikirim.";
-    indicatorTone = "updating";
-  }
-
-  return (
-    <span className={`device-update-indicator tone-${indicatorTone}`} tabIndex={0} aria-label={tooltip}>
-      <Icon size={14} strokeWidth={2.2} aria-hidden="true" />
-      <span className="device-update-indicator-bubble">{tooltip}</span>
-    </span>
-  );
-}
 
 function MobileNav({ activeSection, items, onNavigate }) {
   return (
@@ -1968,14 +1361,6 @@ function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
   );
 }
 
-function SupportIcon({ kind }) {
-  const icons = {
-    github: githubIcon,
-    paypal: paypalIcon,
-    trakteer: trakteerIcon,
-  };
-  return <img src={icons[kind] || trakteerIcon} alt="" aria-hidden="true" />;
-}
 
 async function copyTextToClipboard(text) {
   if (!text) {
@@ -2250,367 +1635,8 @@ function getGuestStatusModel(device, service) {
   };
 }
 
-function PublicLinkActions({
-  url,
-  label = "Tautan akses",
-  compact = false,
-  onActionComplete = null,
-  onFeedback = null,
-}) {
-  const [feedback, setFeedback] = useState("");
-  const disabled = !url;
 
-  async function handleCopy() {
-    if (!url) {
-      return;
-    }
 
-    try {
-      await copyTextToClipboard(url);
-      setFeedback("Tautan berhasil disalin.");
-      if (typeof onActionComplete === "function") {
-        onActionComplete("");
-      }
-      if (typeof onFeedback === "function") {
-        onFeedback("Tautan berhasil disalin.", "success");
-      }
-    } catch (error) {
-      const message = error?.message || "Gagal menyalin tautan.";
-      setFeedback("");
-      if (typeof onActionComplete === "function") {
-        onActionComplete(message);
-      }
-      if (typeof onFeedback === "function") {
-        onFeedback(message, "error");
-      }
-    }
-  }
-
-  function handleWhatsAppShare() {
-    if (!url) {
-      return;
-    }
-
-    window.open(buildWhatsAppShareUrl(url, label), "_blank", "noopener,noreferrer");
-    setFeedback("Tautan siap dibagikan lewat WhatsApp.");
-    if (typeof onActionComplete === "function") {
-      onActionComplete("");
-    }
-    if (typeof onFeedback === "function") {
-      onFeedback("Tautan siap dibagikan lewat WhatsApp.", "success");
-    }
-  }
-
-  return (
-    <div className={`link-action-stack ${compact ? "link-action-stack-compact" : ""}`}>
-      <div className="panel-actions public-link-actions">
-        <ActionButton
-          className="secondary-button"
-          disabled={disabled}
-          icon={Copy}
-          onClick={handleCopy}
-        >
-          Salin tautan
-        </ActionButton>
-        <ActionButton
-          className="secondary-button"
-          disabled={disabled}
-          icon={Share2}
-          onClick={handleWhatsAppShare}
-        >
-          Bagikan WhatsApp
-        </ActionButton>
-      </div>
-      {feedback ? <div className="micro-feedback">{feedback}</div> : null}
-    </div>
-  );
-}
-
-function SiteFooter() {
-  return (
-    <footer className="site-footer">
-      <div className="site-footer-copy">
-        <strong>School Services v2.0.4</strong>
-        <p>
-          Akses layanan sekolah dan pantau status E-Rapor dengan tampilan yang ringkas.
-        </p>
-      </div>
-      <div className="support-cluster">
-        <div className="support-cluster-copy">
-          <span className="section-eyebrow">Buy Me a Coffee</span>
-          <strong>Dukung School Services</strong>
-        </div>
-        <div className="site-footer-actions">
-        <a
-          className="secondary-button footer-link-button support-link-button"
-          href={GITHUB_PROFILE_URL}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <SupportIcon kind="github" />
-          Support GitHub
-        </a>
-        <a
-          className="secondary-button footer-link-button support-link-button"
-          href={PAYPAL_URL}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <SupportIcon kind="paypal" />
-          PayPal
-        </a>
-        <a
-          className="secondary-button footer-link-button support-link-button"
-          href={TRAKTEER_URL}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <SupportIcon kind="trakteer" />
-          Trakteer
-        </a>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
-function PasswordField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  autoComplete,
-  disabled = false,
-  visible = null,
-  onToggleVisibility = null,
-}) {
-  const [localVisible, setLocalVisible] = useState(false);
-  const inputId = useId();
-  const controlled = typeof visible === "boolean";
-  const isVisible = controlled ? visible : localVisible;
-
-  function toggleVisibility() {
-    if (typeof onToggleVisibility === "function") {
-      onToggleVisibility();
-      return;
-    }
-    setLocalVisible((current) => !current);
-  }
-
-  return (
-    <div className="password-field">
-      {label ? <label htmlFor={inputId}>{label}</label> : null}
-      <div className="password-input-shell">
-        <input
-          id={inputId}
-          type={isVisible ? "text" : "password"}
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          autoComplete={autoComplete}
-          disabled={disabled}
-        />
-        <button
-          type="button"
-          className="password-toggle"
-          aria-label={isVisible ? "Sembunyikan password" : "Lihat password"}
-          aria-pressed={isVisible}
-          onClick={toggleVisibility}
-          disabled={disabled}
-        >
-          {isVisible ? "Sembunyikan" : "Lihat"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function LoginScreen({
-  mode,
-  email,
-  password,
-  displayName,
-  role,
-  registrationMode,
-  referralCode,
-  setEmail,
-  setPassword,
-  setDisplayName,
-  setRole,
-  setRegistrationMode,
-  setReferralCode,
-  setMode,
-  onSubmit,
-  onForgotPassword,
-  error,
-  info,
-  loading,
-}) {
-  return (
-    <main className="login-shell">
-      <div className="login-card">
-        <section className="auth-visual-panel">
-          <div>
-            <Avatar3D />
-            <div className="login-eyebrow">School Services</div>
-            <h2>Akses E-Rapor lebih mudah</h2>
-            <p>
-              Buka layanan sekolah dan lihat status perangkat melalui halaman yang ringkas.
-            </p>
-          </div>
-          <div className="auth-visual-list" aria-label="Fitur akses">
-            <span>Akses mengikuti jenis akun Anda.</span>
-            <span>Status layanan ditampilkan dengan jelas.</span>
-          </div>
-        </section>
-        <section className="auth-form-panel">
-        <div className="login-eyebrow">{mode === "register" ? "Daftar Akun" : "Selamat Datang"}</div>
-        <h1>{mode === "register" ? "Ajukan akun" : "Masuk"}</h1>
-        <p>
-          Gunakan akun yang telah terdaftar untuk melanjutkan.
-        </p>
-        <form
-          className="login-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          <MaskedTextField
-            label="Email"
-            type="email"
-            mask="email"
-            value={email}
-            onChange={setEmail}
-            placeholder="Example@gmail.com"
-            autoComplete="username"
-            disabled={loading}
-            inputMode="email"
-          />
-          {mode === "register" ? (
-            <>
-              <MaskedTextField
-                label="Nama"
-                value={displayName}
-                onChange={setDisplayName}
-                placeholder="Siti Aminah"
-                disabled={loading}
-                maxLength={80}
-                mask="alias"
-              />
-              <label>
-                <span>Jenis akun</span>
-                <select value={role} onChange={(event) => setRole(event.target.value)} disabled={loading}>
-                  <option value="operator">Operator</option>
-                  <option value="user">User</option>
-                </select>
-              </label>
-              {role === "user" ? (
-                <>
-                  <label>
-                    <span>Jalur pendaftaran</span>
-                    <select
-                      value={registrationMode}
-                      onChange={(event) => setRegistrationMode(event.target.value)}
-                      disabled={loading}
-                    >
-                      <option value="referral_code">Gunakan kode lingkungan</option>
-                      <option value="direct_superadmin">Ajukan langsung</option>
-                    </select>
-                  </label>
-                  {registrationMode === "referral_code" ? (
-                    <MaskedTextField
-                      label="Kode lingkungan"
-                      value={referralCode}
-                      onChange={setReferralCode}
-                      placeholder="ABCD-123456"
-                      disabled={loading}
-                      mask="referral"
-                      inputMode="text"
-                      maxLength={13}
-                    />
-                  ) : null}
-                </>
-              ) : null}
-            </>
-          ) : null}
-          <PasswordField
-            label="Password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="********"
-            autoComplete={mode === "register" ? "new-password" : "current-password"}
-            disabled={loading}
-          />
-          {error ? <div className="error-banner">{error}</div> : null}
-          {info ? <div className="explorer-warning">{info}</div> : null}
-          <button className="primary-button login-button" disabled={loading} type="submit">
-            {loading
-              ? mode === "register"
-                ? "Mengirim..."
-                : "Masuk..."
-              : mode === "register"
-                ? "Ajukan akun"
-                : "Masuk"}
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => setMode(mode === "register" ? "login" : "register")}
-          >
-            {mode === "register" ? "Kembali ke masuk" : "Ajukan akun"}
-          </button>
-          {mode === "login" ? (
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={onForgotPassword}
-              disabled={loading || !email}
-            >
-              Lupa password
-            </button>
-          ) : null}
-        </form>
-        </section>
-      </div>
-    </main>
-  );
-}
-
-function AccountStatusScreen({ profile, onSignOut }) {
-  const label =
-    !profile
-      ? "Profil akun belum ditemukan. Silakan masuk ulang atau hubungi pengelola sistem."
-      : profile?.status === "pending"
-      ? "Akses akun Anda masih diproses. Silakan pantau kembali halaman ini setelah jadwal persetujuan berjalan."
-      : profile?.status === "rejected"
-        ? "Permintaan akun Anda belum dapat disetujui. Hubungi pengelola lingkungan atau SuperAdmin untuk tindak lanjut."
-        : "Akun Anda sedang dinonaktifkan. Hubungi pengelola sistem bila perlu aktivasi ulang.";
-
-  return (
-    <main className="login-shell">
-      <div className="login-card auth-simple-card">
-        <div className="login-eyebrow">Status Akun</div>
-        <h1>{profile?.display_name || profile?.email || "Akun"}</h1>
-        <p>{label}</p>
-        {profile?.approval_due_at ? (
-          <div className="explorer-warning">
-            Estimasi persetujuan otomatis: {formatRelativeTime(profile.approval_due_at)}
-          </div>
-        ) : null}
-        <div className="panel-actions" style={{ marginTop: 16 }}>
-          <StatusChip status={profile?.status || "unknown"} />
-          {profile?.role ? <StatusChip status={profile.role} /> : null}
-        </div>
-        <div className="panel-actions" style={{ marginTop: 20 }}>
-          <ActionButton className="secondary-button" onClick={onSignOut}>
-            Log Out
-          </ActionButton>
-        </div>
-      </div>
-    </main>
-  );
-}
 
 function ProfilePanel({ profile, session, onSignOut }) {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -2704,7 +1730,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
           <h3>Ganti Password</h3>
         </div>
         <div className="profile-password-grid">
-          <PasswordField
+          <SharedPasswordField
             label="Password saat ini"
             value={currentPassword}
             onChange={(event) => setCurrentPassword(event.target.value)}
@@ -2712,7 +1738,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
             autoComplete="current-password"
             disabled={busy}
           />
-          <PasswordField
+          <SharedPasswordField
             label="Password baru"
             value={nextPassword}
             onChange={(event) => setNextPassword(event.target.value)}
@@ -2722,7 +1748,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
             visible={showNextPasswords}
             onToggleVisibility={() => setShowNextPasswords((current) => !current)}
           />
-          <PasswordField
+          <SharedPasswordField
             label="Konfirmasi password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
@@ -2753,556 +1779,7 @@ function ProfilePanel({ profile, session, onSignOut }) {
   );
 }
 
-function GuestConsole({ deviceId }) {
-  const [state, setState] = useState({ device: null, service: null });
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [commandModal, setCommandModal] = useState({
-    open: false,
-    action: "",
-    title: "",
-    message: "",
-  });
 
-  async function loadGuest(options = {}) {
-    const silent = Boolean(options.silent);
-    try {
-      if (silent) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-      const { data, error: invokeError } = await legacyDataClient.functions.invoke("guest-access", {
-        body: { action: "status", deviceId },
-      });
-      if (invokeError) {
-        throw invokeError;
-      }
-      if (!data?.ok) {
-        throw new Error(data?.error || "Status perangkat belum dapat dimuat.");
-      }
-      setState({ device: data.device, service: data.service });
-      setError("");
-    } catch (nextError) {
-      setError(formatEdgeFunctionError(nextError));
-    } finally {
-      if (silent) {
-        setRefreshing(false);
-      } else {
-        setLoading(false);
-      }
-    }
-  }
-
-  useEffect(() => {
-    loadGuest();
-    const refreshId = window.setInterval(() => loadGuest({ silent: true }), REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(refreshId);
-  }, [deviceId]);
-
-  useEffect(() => {
-    const channel = legacyDataClient
-      .channel(`guest-console:${deviceId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "devices", filter: `device_id=eq.${deviceId}` },
-        () => loadGuest({ silent: true })
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "services", filter: `device_id=eq.${deviceId}` },
-        () => loadGuest({ silent: true })
-      )
-      .subscribe();
-
-    return () => {
-      legacyDataClient.removeChannel(channel);
-    };
-  }, [deviceId]);
-
-  async function sendCommand(action) {
-    try {
-      setBusy(true);
-      const isUpdateAction = action === "update";
-      setCommandModal({
-        open: true,
-        action,
-        title:
-          action === "start"
-            ? "Menyalakan E-Rapor"
-            : isUpdateAction
-              ? "Mengupdate Agent & Service"
-              : "Menghentikan E-Rapor",
-        message:
-          action === "start"
-            ? "Permintaan sedang diproses. Status halaman akan diperbarui otomatis."
-            : isUpdateAction
-              ? "Permintaan update sedang dikirim. Installer silent akan berjalan setelah agent menerima command."
-              : "Permintaan sedang diproses. Tunggu beberapa saat sampai status berubah.",
-      });
-      const { data, error: invokeError } = await legacyDataClient.functions.invoke("guest-access", {
-        body: { action, deviceId },
-      });
-      if (invokeError) {
-        throw invokeError;
-      }
-      if (!data?.ok) {
-        throw new Error(data?.error || "Permintaan belum dapat diproses.");
-      }
-      await loadGuest({ silent: true });
-      setCommandModal((current) => ({
-        ...current,
-        message:
-          action === "start"
-            ? "E-Rapor sedang dinyalakan. Status akan berubah setelah layanan siap."
-            : isUpdateAction
-              ? "Update diminta. Agent akan menghentikan layanan, memasang versi baru, lalu aktif kembali otomatis."
-              : "E-Rapor sedang dihentikan. Status akan diperbarui setelah selesai.",
-      }));
-      if (!isUpdateAction) {
-        window.setTimeout(() => {
-          setCommandModal((current) => ({ ...current, open: false }));
-        }, 1200);
-      }
-    } catch (nextError) {
-      setError(formatEdgeFunctionError(nextError));
-      setCommandModal((current) => ({
-        ...current,
-        open: true,
-        message: formatEdgeFunctionError(nextError),
-      }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const service = state.service;
-  const guestStatus = getGuestStatusModel(state.device, service);
-  const deviceBadge = getDeviceStatusBadgeModel(state.device?.deviceStatus || "offline");
-  const guestRuntimeStatus =
-    guestStatus.overallStatus === "ready" || guestStatus.overallStatus === "degraded"
-      ? "running"
-      : guestStatus.overallStatus;
-  const guestRuntimeBadge = getServiceStatusBadgeModel(guestRuntimeStatus);
-  const guestUpdate = getDeviceUpdateModel(state.device);
-  const canOpenService = guestStatus.ready;
-  const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
-  const serviceLabel = formatServiceDisplayName(service?.service_name || "rapor");
-  const loginUrl = buildAuthUrl({
-    mode: "login",
-    linkDeviceId: deviceId,
-    guestDeviceId: deviceId,
-  });
-  const registerUrl = buildAuthUrl({
-    mode: "register",
-    linkDeviceId: deviceId,
-    guestDeviceId: deviceId,
-  });
-
-  useEffect(() => {
-    if (guestUpdate.status === "updating") {
-      setCommandModal({
-        open: true,
-        action: "update",
-        title: "Mengupdate Agent & Service",
-        message: "Pembaruan otomatis sedang berjalan. Agent akan hidup kembali setelah installer selesai.",
-      });
-    }
-  }, [guestUpdate.status]);
-
-  const guestPriorityTone =
-    guestStatus.overallStatus === "ready"
-      ? "good"
-      : ["offline", "blocked", "failed", "error"].includes(guestStatus.overallStatus)
-        ? "warn"
-        : "files";
-  const GuestPriorityIcon =
-    guestStatus.overallStatus === "ready"
-      ? Sparkles
-      : guestStatus.overallStatus === "offline" || guestStatus.overallStatus === "blocked"
-        ? AlertTriangle
-        : Monitor;
-  const guestMetricItems = [
-    {
-      label: "Status layanan",
-      value: guestStatus.runtimeLabel,
-      helper: `${serviceLabel} pada perangkat ini`,
-      icon: Server,
-      tone: guestRuntimeBadge.status === "running" ? "good" : guestRuntimeBadge.status === "error" ? "warn" : "",
-    },
-    {
-      label: "Tautan akses",
-      value: guestStatus.publicLabel,
-      helper: "Ketersediaan URL publik E-Rapor",
-      icon: CircleArrowUp,
-      tone: guestStatus.publicStatus === "ready" ? "good" : guestStatus.publicStatus === "disabled" ? "warn" : "",
-    },
-    {
-      label: "Terakhir tersambung",
-      value: formatRelativeTime(state.device?.lastSeen),
-      helper: "Heartbeat agent terbaru",
-      icon: Activity,
-    },
-  ];
-
-  return (
-    <main className="console-shell guest-console-shell route-guest">
-      <header className="top-command-bar guest-top-command-bar" aria-label="Status dan aksi guest access">
-        <div className="workspace-switcher guest-workspace-switcher">
-          <Avatar3D size="sm" />
-          <div>
-            <strong>{state.device?.deviceName || deviceId}</strong>
-            <small>{state.device?.deviceId || deviceId}</small>
-          </div>
-        </div>
-        <div className="top-command-spacer" />
-        <ActionButton className="secondary-button" busy={refreshing} icon={RefreshCw} onClick={() => loadGuest({ silent: true })}>
-          Segarkan
-        </ActionButton>
-        <a className="secondary-button footer-link-button action-button" href={loginUrl}>
-          <span>Login</span>
-        </a>
-        <a className="primary-button footer-link-button action-button" href={registerUrl}>
-          <span>Daftar</span>
-        </a>
-      </header>
-
-      <header className="app-route-header guest-route-header">
-        <div>
-          <nav className="route-breadcrumbs" aria-label="Breadcrumb">
-            <span className="route-breadcrumb-item"><span>Guest</span></span>
-            <span className="route-breadcrumb-item"><ChevronDown size={14} strokeWidth={2.2} aria-hidden="true" /><span>{serviceLabel}</span></span>
-          </nav>
-          <h1>{state.device?.deviceName || "Guest Access"}</h1>
-          <p>{guestStatus.description}</p>
-        </div>
-      </header>
-
-      <section className={`priority-banner tone-${guestPriorityTone}`}>
-        <span className="priority-banner-icon" aria-hidden="true">
-          <GuestPriorityIcon size={22} strokeWidth={2.2} />
-        </span>
-        <div>
-          <strong>{guestStatus.headline}</strong>
-          <p>
-            {guestStatus.ready
-              ? "Perangkat tersambung, layanan aktif, dan tautan publik siap digunakan dari halaman guest."
-              : "Status perangkat, layanan, dan tautan publik dipusatkan di halaman ini agar akses tamu tetap jelas."}
-          </p>
-        </div>
-      </section>
-
-      {error ? <div className="error-banner">{error}</div> : null}
-
-      <section className="fresh-console-stage guest-console-stage">
-        {loading ? (
-          <GuestStatusSkeleton />
-        ) : (
-          <section className="fresh-section-stack guest-fresh-stack">
-            <article className="fresh-hero-card guest-summary-card">
-              <div>
-                <span className="section-eyebrow">Perangkat tamu</span>
-                <h2>{state.device?.deviceName || deviceId}</h2>
-                <LongText value={state.device?.deviceId || deviceId} label="ID perangkat" className="mono" maxLength={34} />
-                <small>Fokus utama halaman ini adalah membuka E-Rapor dengan cepat saat tautan sudah aktif.</small>
-              </div>
-              <div className="fresh-actions device-hero-actions">
-                <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
-                <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
-                <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
-              </div>
-            </article>
-
-            <section className="fresh-metric-grid guest-fresh-metric-grid">
-              {guestMetricItems.map((item) => (
-                <article key={item.label} className={`fresh-metric ${item.tone ? `tone-${item.tone}` : ""}`}>
-                  <span className="fresh-metric-icon" aria-hidden="true">
-                    <item.icon size={18} strokeWidth={2.2} />
-                  </span>
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                  {item.helper ? <small>{item.helper}</small> : null}
-                </article>
-              ))}
-              <DeviceUpdateCard
-                deviceRecord={state.device}
-                deviceStatus={state.device?.deviceStatus}
-                busy={busy && commandModal.action === "update"}
-                onUpdate={() => sendCommand("update")}
-                showAction
-              />
-            </section>
-
-            <article className="fresh-panel guest-access-panel guest-link-focus-panel">
-              <div className="guest-link-focus-copy">
-                <span className="section-eyebrow">Akses utama</span>
-                <h3>Tautan E-Rapor</h3>
-                <p>Panel ini menjadi fokus utama. Jika tautan aktif, buka E-Rapor langsung dari sini. Jika belum, gunakan kontrol layanan di bawah.</p>
-              </div>
-              <div className="guest-link-focus-box">
-                <LongText
-                  value={service?.public_url || ""}
-                  href={canOpenService ? service?.public_url : ""}
-                  label="Tautan E-Rapor"
-                  className="mono"
-                  maxLength={88}
-                  empty="Belum tersedia"
-                />
-              </div>
-              <div className="fresh-actions guest-link-focus-actions">
-                <a
-                  className={`primary-button footer-link-button ${canOpenService ? "" : "button-disabled-link"}`}
-                  href={canOpenService ? service?.public_url : undefined}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-disabled={!canOpenService}
-                  onClick={(event) => {
-                    if (!canOpenService) {
-                      event.preventDefault();
-                    }
-                  }}
-                >
-                  Buka E-Rapor
-                </a>
-                <PublicLinkActions
-                  url={service?.public_url || ""}
-                  label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
-                  compact
-                  onActionComplete={setError}
-                />
-              </div>
-            </article>
-
-            <article className={`fresh-service-card guest-service-panel tone-${statusTone(guestRuntimeStatus)}`}>
-              <div className="fresh-card-head">
-                <div>
-                  <span className="section-eyebrow">Service</span>
-                  <strong>{serviceLabel}</strong>
-                  <small className="mono">{state.device?.deviceId || deviceId}</small>
-                </div>
-                <div className="fresh-pill-group">
-                  <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
-                  <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
-                  <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
-                </div>
-              </div>
-
-              <div className="fresh-data-grid guest-detail-grid">
-                <div>
-                  <span>Kondisi layanan</span>
-                  <strong>{service?.desired_state === "running" ? "Siap dijalankan" : service?.desired_state || "-"}</strong>
-                </div>
-                <div>
-                  <span>Terakhir diperbarui</span>
-                  <strong>{formatRelativeTime(service?.last_ping)}</strong>
-                </div>
-                <div>
-                  <span>Terakhir tersambung</span>
-                  <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
-                </div>
-                <div>
-                  <span>Lokasi aplikasi</span>
-                  <strong className="mono">
-                    <LongText value={service?.resolved_path || ""} label="Lokasi aplikasi" maxLength={48} />
-                  </strong>
-                </div>
-                <div>
-                  <span>Kesiapan aplikasi</span>
-                  <strong>{service?.location_status || "unknown"}</strong>
-                </div>
-              </div>
-
-              {service?.location_details?.message ? (
-                <div className="fresh-inline-note">
-                  <LongText value={service.location_details.message} label="Detail lokasi" maxLength={72} />
-                </div>
-              ) : null}
-              {service?.last_error ? (
-                <div className="fresh-inline-error">
-                  <LongText value={service.last_error} label="Error layanan" maxLength={72} />
-                </div>
-              ) : null}
-
-              <div className="fresh-actions guest-cta-row">
-                  <ActionButton className="primary-button" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
-                    Mulai
-                  </ActionButton>
-                  <ActionButton className="secondary-button" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
-                    Hentikan
-                  </ActionButton>
-                  <ActionButton className="secondary-button" busy={busy && commandModal.action === "update"} disabled={busy} onClick={() => sendCommand("update")}>
-                    Update
-                  </ActionButton>
-              </div>
-            </article>
-          </section>
-        )}
-      </section>
-      <SiteFooter />
-      {commandModal.open ? (
-        commandModal.action === "update" ? (
-          <UpdateProgressModal
-            open
-            update={guestUpdate}
-            title={commandModal.title}
-            message={commandModal.message}
-            onClose={() => setCommandModal((current) => ({ ...current, open: false }))}
-          />
-        ) : (
-          <CommandProgressOverlay
-            open
-            title={commandModal.title}
-            message={commandModal.message}
-            percent={busy ? 42 : 78}
-          />
-        )
-      ) : null}
-    </main>
-  );
-}
-
-function PasswordResetScreen() {
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPasswords, setShowPasswords] = useState(false);
-  const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    async function bootstrapRecovery() {
-      const search = typeof window !== "undefined" ? window.location.search : "";
-      const hash = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
-      const searchParams = new URLSearchParams(search);
-      const params = new URLSearchParams(hash);
-      const code = searchParams.get("code");
-      const accessToken = params.get("access_token");
-      const refreshToken = params.get("refresh_token");
-
-      let recoveryError = null;
-
-      if (code) {
-        const { error } = await legacyDataClient.auth.exchangeCodeForSession(code);
-        recoveryError = error;
-      } else if (accessToken && refreshToken) {
-        const { error } = await legacyDataClient.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        recoveryError = error;
-      } else {
-        setError("Tautan verifikasi reset password tidak valid atau sudah kedaluwarsa.");
-        setInfo("");
-        return;
-      }
-
-      if (recoveryError) {
-        setError("Tautan verifikasi reset password tidak valid atau sudah kedaluwarsa.");
-        setInfo("");
-        return;
-      }
-
-      if (typeof window !== "undefined") {
-        window.history.replaceState({}, document.title, RESET_PASSWORD_PATH);
-      }
-      setReady(true);
-      setError("");
-      setInfo("Verifikasi email berhasil. Silakan buat password baru untuk akun Anda.");
-    }
-
-    bootstrapRecovery();
-  }, []);
-
-  async function submit() {
-    const passwordValue = String(password || "");
-    const confirmPasswordValue = String(confirmPassword || "");
-
-    if (passwordValue.length < 8) {
-      setError("Password baru minimal 8 karakter.");
-      setInfo("");
-      return;
-    }
-
-    if (passwordValue !== confirmPasswordValue) {
-      setError("Konfirmasi password tidak cocok.");
-      setInfo("");
-      return;
-    }
-
-    try {
-      setBusy(true);
-      setError("");
-      setInfo("");
-      const { error } = await legacyDataClient.auth.updateUser({ password: passwordValue });
-      if (error) {
-        throw error;
-      }
-      await legacyDataClient.auth.signOut({ scope: "global" }).catch(() =>
-        legacyDataClient.auth.signOut({ scope: "local" }).catch(() => {})
-      );
-      clearStoredAuthArtifacts();
-      setPassword("");
-      setConfirmPassword("");
-      setInfo("Password baru berhasil disimpan. Anda akan diarahkan ke halaman login.");
-      window.setTimeout(() => {
-        if (typeof window !== "undefined") {
-          window.location.href = buildAuthPath();
-        }
-      }, 1200);
-    } catch (error) {
-      setError(formatPasswordUpdateError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <main className="login-shell">
-      <div className="login-card auth-simple-card">
-        <div className="login-eyebrow">Reset Password</div>
-        <h1>Buat password baru</h1>
-        <p>
-          Masukkan password baru untuk melanjutkan akses akun Anda.
-        </p>
-        <div className="login-form">
-          <PasswordField
-            label="Password baru"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="8 karakter atau lebih"
-            autoComplete="new-password"
-            disabled={busy}
-            visible={showPasswords}
-            onToggleVisibility={() => setShowPasswords((current) => !current)}
-          />
-          <PasswordField
-            label="Konfirmasi password"
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            placeholder="8 karakter atau lebih"
-            autoComplete="new-password"
-            disabled={busy}
-            visible={showPasswords}
-            onToggleVisibility={() => setShowPasswords((current) => !current)}
-          />
-          {error ? <div className="error-banner">{error}</div> : null}
-          {info ? <div className="explorer-warning">{info}</div> : null}
-          <button
-            type="button"
-            className="primary-button"
-            disabled={busy || !password || !confirmPassword || !ready}
-            onClick={submit}
-          >
-            {busy ? "Menyimpan..." : "Simpan password baru"}
-          </button>
-        </div>
-      </div>
-    </main>
-  );
-}
 
 function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
   return (
@@ -3338,133 +1815,7 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
   );
 }
 
-function DeviceUpdateCard({
-  deviceRecord,
-  deviceStatus = "offline",
-  busy = false,
-  onUpdate = null,
-  showAction = false,
-}) {
-  const update = getDeviceUpdateModel(deviceRecord);
-  const summary = getUpdateStatusSummary(update);
-  const remoteUpdateSupported = supportsRemoteUpdate(deviceRecord);
-  const toneStatus = busy && update.status !== "updating" ? "reconnecting" : update.toneStatus;
-  const canUpdate =
-    showAction &&
-    typeof onUpdate === "function" &&
-    update.updateAvailable &&
-    update.status !== "updating" &&
-    remoteUpdateSupported &&
-    deviceStatus === "online";
-  const unsupportedUpdateMessage =
-    showAction && update.updateAvailable && !remoteUpdateSupported
-      ? `Update jarak jauh tersedia mulai agent v${REMOTE_UPDATE_MIN_VERSION}. Jalankan installer terbaru langsung di komputer ini.`
-      : "";
 
-  return (
-    <article className="metric-card device-update-card">
-      <div className="device-update-topline">
-        <span className="device-update-title-row">
-          <span className="device-update-icon" aria-hidden="true">
-            <Rocket size={18} strokeWidth={2.2} />
-          </span>
-          <span className="device-update-title">Versi & update</span>
-        </span>
-        <DeviceUpdateStatusIndicator update={update} toneStatus={toneStatus} />
-      </div>
-      <div className="device-update-summary">
-        <strong className="device-update-version">{update.localVersion}</strong>
-        <small className="device-update-note">{summary}</small>
-      </div>
-      {showAction && canUpdate ? (
-        <ActionButton
-          className="primary-button device-update-action"
-          busy={busy}
-          disabled={busy}
-          onClick={onUpdate}
-        >
-          Update Agent & Service
-        </ActionButton>
-      ) : null}
-      {update.error ? <div className="job-error">{update.error}</div> : null}
-      {unsupportedUpdateMessage ? <div className="job-error">{unsupportedUpdateMessage}</div> : null}
-    </article>
-  );
-}
-
-function UpdateProgressModal({
-  open,
-  update,
-  title = "Mengupdate Agent & Service",
-  message = "Permintaan update dikirim. Agent akan menghentikan layanan, menjalankan installer silent, lalu hidup kembali otomatis.",
-  onClose,
-}) {
-  if (!open) {
-    return null;
-  }
-
-  const model = update || {
-    status: "unchecked",
-    label: "Update diminta",
-    localVersion: "belum dilaporkan",
-    latestVersion: "belum dilaporkan",
-  };
-  const progress =
-    model.status === "current"
-      ? 100
-      : model.status === "failed"
-        ? 100
-        : model.status === "updating"
-          ? 68
-          : 34;
-  const canClose = model.status !== "updating";
-  const statusText =
-    model.status === "current"
-      ? "Update selesai. Buka ulang aplikasi atau halaman ini agar sesi dan tautan perangkat memakai data terbaru."
-      : model.status === "failed"
-        ? "Update gagal. Periksa pesan error dan log agent."
-        : model.status === "updating"
-          ? "Agent dan service sedang diupdate. Jangan gunakan layanan sampai agent aktif kembali, lalu buka ulang aplikasi atau halaman ini."
-          : message;
-
-  return (
-    <div className="guest-modal-backdrop" role="status" aria-live="polite" onMouseDown={(event) => dismissOnBackdrop(event, canClose ? onClose : undefined)}>
-      <div className="guest-modal-card update-progress-card">
-        <div className={`update-progress-orb tone-${model.status}`}>
-          <span className="update-progress-core" aria-hidden="true" />
-        </div>
-        <div>
-          <strong>{title}</strong>
-          <p>{statusText}</p>
-        </div>
-        <div className="update-version-row">
-          <span>Versi lokal: {model.localVersion}</span>
-          <span>Latest GitHub: {model.latestVersion}</span>
-        </div>
-        <div className="update-progress-track" aria-label={`Progress update ${progress}%`}>
-          <span style={{ width: `${progress}%` }} />
-        </div>
-        <div className="update-step-list">
-          <span className="update-step-active">Command diterima</span>
-          <span className={model.status === "updating" || model.status === "current" ? "update-step-active" : ""}>
-            Installer silent
-          </span>
-          <span className={model.status === "current" ? "update-step-active" : ""}>
-            Agent aktif kembali
-          </span>
-        </div>
-        {model.error ? <div className="job-error">{model.error}</div> : null}
-        {canClose && typeof onClose === "function" ? (
-          <div className="guest-modal-actions">
-            <button type="button" className="primary-button" onClick={onClose}>
-              Tutup
-            </button>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
 
 function RootGrid({ roots, onOpen }) {
   if (roots.length === 0) {
@@ -6183,11 +4534,11 @@ export default function App() {
   }
 
   if (guestDeviceId) {
-    return <GuestConsole deviceId={guestDeviceId} />;
+    return <FeatureGuestConsole deviceId={guestDeviceId} />;
   }
 
   if (resetPasswordMode) {
-    return <PasswordResetScreen />;
+    return <FeaturePasswordResetScreen />;
   }
 
   if (!session) {
@@ -6435,7 +4786,7 @@ export default function App() {
                 >
                   Hentikan
                 </ActionButton>
-                  <PublicLinkActions
+                  <GuestPublicLinkActions
                     url={service.public_url || ""}
                     label={`Tautan ${serviceLabel} untuk ${selectedDevice.deviceName}`}
                     compact
@@ -6486,7 +4837,7 @@ export default function App() {
           {renderFreshMetric("Layanan aktif", selectedDevice.runningCount, "Service yang sedang berjalan", Server, "good")}
           {renderFreshMetric("Proses berkas", selectedDevice.fileJobCount, "Job file aktif", FileText)}
           {renderFreshMetric("Perlu perhatian", selectedDevice.issueCount, "Error/offline/missing", AlertTriangle, selectedDevice.issueCount ? "warn" : "")}
-          <DeviceUpdateCard
+          <FeatureDeviceUpdateCard
             deviceRecord={selectedDevice.deviceRecord}
             deviceStatus={selectedDevice.deviceStatus}
             busy={busyAction === `${selectedDevice.deviceId}:device:update`}
@@ -6499,7 +4850,7 @@ export default function App() {
             eyebrow="Akses"
             title="Tautan E-Rapor"
             description="Tautan utama disingkat di layar dan detail lengkap tetap tersedia lewat overlay."
-            actions={<PublicLinkActions url={selectedGuestUrl} label={`Tautan akses untuk ${selectedDevice.deviceName}`} compact onActionComplete={setError} onFeedback={handleInlineFeedback} />}
+            actions={<GuestPublicLinkActions url={selectedGuestUrl} label={`Tautan akses untuk ${selectedDevice.deviceName}`} compact onActionComplete={setError} onFeedback={handleInlineFeedback} />}
           />
           <div className="fresh-link-bar">
             <LongText value={selectedGuestUrl} href={selectedGuestUrl} label="Tautan akses" className="mono" maxLength={70} />
@@ -6886,7 +5237,7 @@ export default function App() {
           <div className="fresh-form-grid">
             <MaskedTextField label="Email" type="email" mask="email" value={createEmail} onChange={setCreateEmail} placeholder="Example@gmail.com" inputMode="email" />
             <MaskedTextField label="Nama" value={createDisplayName} onChange={setCreateDisplayName} placeholder="Budi Santoso" mask="alias" maxLength={80} />
-            <PasswordField label="Password" value={createPassword} onChange={(event) => setCreatePassword(event.target.value)} placeholder="********" autoComplete="new-password" />
+            <SharedPasswordField label="Password" value={createPassword} onChange={(event) => setCreatePassword(event.target.value)} placeholder="********" autoComplete="new-password" />
             <label>
               <span>Jenis akun</span>
               {isSuperAdmin ? (
@@ -7063,7 +5414,7 @@ export default function App() {
         onConfirm={deleteStorageArtifact}
         onClose={() => setDeleteArtifactTarget(null)}
       />
-      <UpdateProgressModal
+      <FeatureUpdateProgressModal
         open={updateModal.open}
         update={updateModalModel}
         title={updateModal.title}

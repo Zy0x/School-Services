@@ -76,20 +76,20 @@ export function PublicLinkActions({
 
 export function SiteFooter() {
   return (
-    <footer className="site-footer">
-      <div className="site-footer-copy">
+    <footer className="site-footer guest-site-footer">
+      <div className="site-footer-copy guest-site-footer-copy">
         <strong>School Services v2.0.4</strong>
-        <p>Akses layanan sekolah dan pantau status E-Rapor dengan tampilan yang ringkas.</p>
+        <p>Akses cepat untuk membuka E-Rapor dan melihat status perangkat tanpa panel yang berlebihan.</p>
       </div>
-      <div className="support-cluster">
-        <div className="support-cluster-copy">
-          <span className="section-eyebrow">Buy Me a Coffee</span>
+      <div className="support-cluster guest-support-cluster">
+        <div className="support-cluster-copy guest-support-copy">
+          <span className="section-eyebrow">Support</span>
           <strong>Dukung School Services</strong>
         </div>
-        <div className="site-footer-actions">
+        <div className="site-footer-actions guest-site-footer-actions">
           <a className="secondary-button footer-link-button support-link-button" href={GITHUB_PROFILE_URL} target="_blank" rel="noreferrer">
             <SupportIcon kind="github" />
-            Support GitHub
+            GitHub
           </a>
           <a className="secondary-button footer-link-button support-link-button" href={PAYPAL_URL} target="_blank" rel="noreferrer">
             <SupportIcon kind="paypal" />

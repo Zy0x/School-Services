@@ -3117,7 +3117,8 @@ function DeviceUpdateCard({
   const remoteUpdateSupported = supportsRemoteUpdate(deviceRecord);
   const statusLabel = busy && update.status !== "updating" ? "Update diminta" : update.label;
   const toneStatus = busy && update.status !== "updating" ? "reconnecting" : update.toneStatus;
-  const compactStatus = toneStatus === "ready" && statusLabel === "Sudah terbaru";
+  const statusNoteLabel = toneStatus === "ready" && statusLabel === "Sudah terbaru" ? "Latest" : statusLabel;
+  const StatusIcon = getStatusIcon(toneStatus);
   const canUpdate =
     showAction &&
     typeof onUpdate === "function" &&
@@ -3137,17 +3138,12 @@ function DeviceUpdateCard({
           <Rocket size={18} strokeWidth={2.2} />
         </span>
         <div className="device-update-summary">
-          <div className="device-update-topline">
-            <span className="device-update-title">Versi & update</span>
-            <StatusChip
-              status={toneStatus}
-              label={compactStatus ? "" : statusLabel}
-              iconOnly={compactStatus}
-              title={statusLabel}
-              className={compactStatus ? "device-update-status-chip compact" : "device-update-status-chip"}
-            />
-          </div>
+          <span className="device-update-title">Versi & update</span>
           <strong className="device-update-version">{update.localVersion}</strong>
+          <span className={`device-update-status-note tone-${statusTone(toneStatus)}`}>
+            <StatusIcon size={13} strokeWidth={2.2} aria-hidden="true" />
+            {statusNoteLabel}
+          </span>
         </div>
       </div>
       {showAction && canUpdate ? (

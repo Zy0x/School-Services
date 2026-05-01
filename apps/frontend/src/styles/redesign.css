@@ -4003,10 +4003,6 @@ textarea {
   grid-template-rows: auto auto 1fr auto;
 }
 
-.device-update-status-chip {
-  max-width: 100%;
-}
-
 .explorer-loading-shell {
   padding: 18px;
 }
@@ -4999,14 +4995,9 @@ textarea {
 }
 
 .device-update-summary {
+  display: grid;
+  gap: 4px;
   min-width: 0;
-}
-
-.device-update-topline {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .device-update-title {
@@ -5015,23 +5006,35 @@ textarea {
 }
 
 .device-update-version {
-  margin-top: 2px;
   font-size: 20px;
   line-height: 1.02;
 }
 
-.device-update-status-chip {
-  min-height: 30px;
-  padding-inline: 10px;
+.device-update-status-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
   font-size: 11px;
-  flex-shrink: 0;
+  font-weight: 850;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
-.device-update-status-chip.compact {
-  width: 30px;
-  min-width: 30px;
-  padding-inline: 0;
-  justify-content: center;
+.device-update-status-note.tone-good {
+  color: #3f7b26;
+}
+
+.device-update-status-note.tone-warn {
+  color: #8b5a13;
+}
+
+.device-update-status-note.tone-bad {
+  color: #a12633;
+}
+
+.device-update-status-note.tone-neutral {
+  color: var(--ink-muted);
 }
 
 .device-update-action {

@@ -5199,6 +5199,11 @@ textarea {
   opacity: 1;
 }
 
+.console-shell.app-shell-page.is-command-locked .app-shell {
+  pointer-events: none;
+  user-select: none;
+}
+
 .app-route-header {
   padding-inline: 0;
   padding-block: 8px 6px;
@@ -5209,11 +5214,15 @@ textarea {
 }
 
 .metric-card.device-update-card {
-  gap: 8px;
+  gap: 4px;
+}
+
+.device-update-head {
+  align-items: center;
 }
 
 .device-update-summary {
-  gap: 6px;
+  gap: 2px;
 }
 
 .device-update-version {
@@ -5307,6 +5316,63 @@ label > textarea {
   border-radius: 999px;
   background: transparent;
   color: var(--ink-muted);
+}
+
+.command-progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: rgba(247, 243, 238, 0.5);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.command-progress-card {
+  width: min(420px, calc(100vw - 28px));
+  padding: 20px;
+  border: 1px solid rgba(67, 57, 109, 0.12);
+  border-radius: 24px;
+  background: rgba(253, 251, 246, 0.96);
+  box-shadow: var(--shadow-enterprise);
+  display: grid;
+  gap: 10px;
+}
+
+.command-progress-orb {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(96, 55, 246, 0.18), rgba(72, 166, 217, 0.16));
+  color: var(--purple);
+}
+
+.command-progress-card strong {
+  font-size: 18px;
+}
+
+.command-progress-card p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.command-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(96, 55, 246, 0.1);
+  overflow: hidden;
+}
+
+.command-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6037f6, #8fb5ff);
+  transition: width 220ms ease;
 }
 
 @media (max-width: 920px) {

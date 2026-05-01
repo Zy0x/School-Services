@@ -973,6 +973,33 @@ function ToastViewport({ items = [], onDismiss }) {
   );
 }
 
+function CommandProgressOverlay({
+  open = false,
+  title = "Menjalankan perintah",
+  message = "Sedang memproses perubahan layanan.",
+  percent = 24,
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return createPortal(
+    <div className="command-progress-overlay" role="status" aria-live="polite" aria-atomic="true">
+      <div className="command-progress-card">
+        <div className="command-progress-orb" aria-hidden="true">
+          <Loader2 size={18} className="button-spinner-icon" />
+        </div>
+        <strong>{title}</strong>
+        <p>{message}</p>
+        <div className="command-progress-track" aria-label={`Progress perintah ${percent}%`}>
+          <span style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function ActionButton({
   children,
   busy = false,
@@ -4668,6 +4695,28 @@ export default function App() {
     }
   }
 
+  function syncGlobalDeviceSelection(deviceId, options = {}) {
+    const nextDeviceId = String(deviceId || "all").trim() || "all";
+    const syncStorageFilter = options.syncStorageFilter !== false;
+    const syncActivityFilter = options.syncActivityFilter !== false;
+
+    setSelectedDeviceId(nextDeviceId);
+    if (syncStorageFilter) {
+      setArtifactDeviceFilter(nextDeviceId);
+    }
+    if (syncActivityFilter) {
+      setActivityDeviceId(nextDeviceId);
+    }
+
+    if (appRoute.section === "devices") {
+      if (nextDeviceId === "all") {
+        navigateRoute("overview", {}, { replace: true });
+      } else if (appRoute.deviceId !== nextDeviceId) {
+        navigateRoute("devices", { deviceId: nextDeviceId }, { replace: true });
+      }
+    }
+  }
+
   function setSelectedTab(section) {
     navigateRoute(section);
   }
@@ -4950,7 +4999,7 @@ export default function App() {
       return;
     }
     if (selectedDeviceId !== "all" && !services.some((row) => row.device_id === selectedDeviceId)) {
-      setSelectedDeviceId("all");
+      syncGlobalDeviceSelection("all");
     }
   }, [services, selectedDeviceId, appRoute]);
 
@@ -4974,9 +5023,15 @@ export default function App() {
 
   useEffect(() => {
     if (appRoute.section === "devices" && appRoute.deviceId && appRoute.deviceId !== selectedDeviceId) {
-      setSelectedDeviceId(appRoute.deviceId);
+      syncGlobalDeviceSelection(appRoute.deviceId);
     }
   }, [appRoute, selectedDeviceId]);
+
+  useEffect(() => {
+    const syncedDeviceId = selectedDeviceId || "all";
+    setArtifactDeviceFilter((current) => (current === syncedDeviceId ? current : syncedDeviceId));
+    setActivityDeviceId((current) => (current === syncedDeviceId ? current : syncedDeviceId));
+  }, [selectedDeviceId]);
 
   const deviceEntries = useMemo(() => {
     const grouped = new Map();
@@ -5051,6 +5106,28 @@ export default function App() {
     null;
   const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
   const selectedDeviceBadge = getDeviceStatusBadgeModel(selectedDevice?.deviceStatus || "offline");
+  const activeCommandExecution =
+    pendingCommandStates[0] ||
+    (/:(start|stop|agent_start|agent_stop|agent_restart|update)$/.test(busyAction)
+      ? {
+          action: busyAction.split(":").pop() || "command",
+          deviceId: busyAction.split(":")[0] || "",
+          serviceName: busyAction.split(":").length > 2 ? busyAction.split(":")[1] : "",
+        }
+      : null);
+  const commandExecutionActive = Boolean(activeCommandExecution);
+  const commandProgressMessage = activeCommandExecution
+    ? getCommandCopy(
+        activeCommandExecution.action,
+        activeCommandExecution.serviceName,
+        selectedDevice ? getDeviceUpdateModel(selectedDevice.deviceRecord).latestVersion : ""
+      ).pending
+    : "";
+  const commandExecutionProgress = pendingCommandStates.length
+    ? Math.min(92, 36 + pendingCommandStates.length * 18)
+    : commandExecutionActive
+      ? 24
+      : 0;
   const fileExplorerBusy =
     busyAction.startsWith("job:list_directory") ||
     busyAction.startsWith("job:discover_roots") ||
@@ -5636,7 +5713,7 @@ export default function App() {
       setError("");
       setDashboardInfo("");
       await invokeAdmin("linkGuestDevice", { deviceId });
-      setSelectedDeviceId(deviceId);
+      syncGlobalDeviceSelection(deviceId);
       clearGuestLinkRequest();
       await loadAll(true);
       setDashboardInfo("Perangkat berhasil ditautkan ke akun ini.");
@@ -6134,6 +6211,7 @@ export default function App() {
   ];
 
   function openDeviceRoute(deviceId) {
+    syncGlobalDeviceSelection(deviceId);
     navigateRoute("devices", { deviceId });
   }
 
@@ -6414,7 +6492,7 @@ export default function App() {
                   key={device.deviceId}
                   type="button"
                   className={`fleet-strip-card ${selectedDevice?.deviceId === device.deviceId ? "is-active" : ""}`}
-                  onClick={() => setSelectedDeviceId(device.deviceId)}
+                  onClick={() => syncGlobalDeviceSelection(device.deviceId)}
                 >
                   <strong>{device.deviceName}</strong>
                   <LongText value={device.deviceId} label="ID perangkat" className="mono" maxLength={24} />
@@ -6532,7 +6610,7 @@ export default function App() {
                 </label>
                 <label>
                   <span>Device</span>
-                  <select value={artifactDeviceFilter} onChange={(event) => setArtifactDeviceFilter(event.target.value)}>
+                  <select value={artifactDeviceFilter} onChange={(event) => syncGlobalDeviceSelection(event.target.value)}>
                     <option value="all">Semua device</option>
                     {artifactDeviceOptions.map((device) => (
                       <option key={device.id} value={device.id}>{device.label}</option>
@@ -6570,7 +6648,7 @@ export default function App() {
             <DeviceCombobox
               devices={deviceEntries}
               selectedDeviceId={selectedDevice?.deviceId || ""}
-              onSelect={setSelectedDeviceId}
+              onSelect={syncGlobalDeviceSelection}
               label="Pilih perangkat"
               className="page-device-combobox"
             />
@@ -6649,7 +6727,7 @@ export default function App() {
           <DeviceCombobox
             devices={deviceEntries}
             selectedDeviceId={effectiveActivityDeviceId}
-            onSelect={setActivityDeviceId}
+            onSelect={syncGlobalDeviceSelection}
             includeAll
             allLabel="Semua device"
             label="Filter device"
@@ -6778,7 +6856,7 @@ export default function App() {
   }
 
   return (
-    <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab} ${deviceScopedOffline ? "is-device-offline" : ""}`.trim()}>
+    <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab} ${deviceScopedOffline ? "is-device-offline" : ""} ${commandExecutionActive ? "is-command-locked" : ""}`.trim()}>
       <div className={`app-shell ${sidebarPinned ? "sidebar-is-pinned" : ""}`}>
         <SidebarNav
           profile={profile}
@@ -6899,6 +6977,12 @@ export default function App() {
             error: "",
           })
         }
+      />
+      <CommandProgressOverlay
+        open={commandExecutionActive}
+        title="Perintah sedang diproses"
+        message={commandProgressMessage}
+        percent={commandExecutionProgress}
       />
       <ToastViewport items={toastItems} onDismiss={dismissToast} />
 

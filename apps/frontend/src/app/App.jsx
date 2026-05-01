@@ -2803,7 +2803,7 @@ function GuestConsole({ deviceId }) {
   }, [deviceId]);
 
   useEffect(() => {
-    const channel = supabase
+    const channel = legacyDataClient
       .channel(`guest-console:${deviceId}`)
       .on(
         "postgres_changes",

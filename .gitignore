@@ -1,10 +1,11 @@
 node_modules/
 dist/
 dashboard/dist/
-web-app/dist/
-web-app/assets/
+apps/frontend/dist/
+apps/frontend/assets/
 Output/
 agent/dist/
+apps/backend/dist/
 .env
 .env.local
 *.log

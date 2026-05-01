@@ -1,0 +1,3 @@
+-- Canonical schema entry point.
+-- Existing production migrations remain in supabase/migrations.
+-- Apply them with: npm run supabase:apply

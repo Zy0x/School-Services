@@ -1,0 +1,2 @@
+-- Seed data entry point.
+-- SuperAdmin seeding is handled by scripts/supabase-orchestrator.mjs.

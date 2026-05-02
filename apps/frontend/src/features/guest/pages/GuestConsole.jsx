@@ -8,7 +8,6 @@ import { buildAuthUrl } from "../../../app/lib/routes.js";
 import {
   formatRelativeTime,
   formatServiceDisplayName,
-  getDeviceStatusBadgeModel,
   getServiceStatusBadgeModel,
   statusTone,
 } from "../../../app/lib/status.js";
@@ -196,7 +195,6 @@ export function GuestConsole({ deviceId }) {
 
   const service = state.service;
   const guestStatus = getGuestStatusModel(state.device, service);
-  const deviceBadge = getDeviceStatusBadgeModel(state.device?.deviceStatus || "offline");
   const guestRuntimeStatus =
     guestStatus.overallStatus === "ready" || guestStatus.overallStatus === "degraded"
       ? "running"
@@ -291,24 +289,10 @@ export function GuestConsole({ deviceId }) {
               <span className="section-eyebrow">Status layanan</span>
               <h1>{guestStatus.headline}</h1>
               <p>{accessHint}</p>
-            </div>
-            <div className="guest-status-hero-meta">
               <div className="guest-hero-status">
-                <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
                 <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
                 <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
               </div>
-              <div className="guest-status-hero-facts" aria-label="Ringkasan status layanan">
-                <div>
-                  <span>Perangkat</span>
-                  <strong>{state.device?.deviceName || "Perangkat tamu"}</strong>
-                </div>
-                <div>
-                  <span>Heartbeat</span>
-                  <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
-                </div>
-              </div>
-              <small className="mono">{state.device?.deviceId || deviceId}</small>
             </div>
           </article>
         </section>

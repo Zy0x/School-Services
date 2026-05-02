@@ -148,11 +148,11 @@ function loadConfig() {
   const supabaseUrl =
     process.env.SUPABASE_URL ||
     overrides.supabase?.url ||
-    "https://fgimyyicixazygairmsa.supabase.co";
+    "";
   const supabaseAnonKey =
     process.env.SUPABASE_ANON_KEY ||
     overrides.supabase?.anonKey ||
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnaW15eWljaXhhenlnYWlybXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxODg1MjIsImV4cCI6MjA5Mjc2NDUyMn0.uZ0Cm_NxxcSXKaYE21wtob6xtY445S0I0y-v5i10NRo";
+    "";
   const cloudflaredPath = resolveCloudflaredPath(overrides.cloudflaredPath);
   const loopIntervalMs = Number(
     overrides.loopIntervalMs || process.env.AGENT_LOOP_INTERVAL_MS || 5000
@@ -236,9 +236,15 @@ function loadConfig() {
     ...buildAncestorCandidates(getInstallDir(), "favicon.ico"),
   ]);
 
+  if (!supabaseUrl) {
+    throw new Error(
+      "SUPABASE_URL is missing. Set it in .env or the runtime config."
+    );
+  }
+
   if (!supabaseAnonKey) {
     throw new Error(
-      "SUPABASE_ANON_KEY is missing. Set it in .env or the environment."
+      "SUPABASE_ANON_KEY is missing. Set it in .env or the runtime config."
     );
   }
 

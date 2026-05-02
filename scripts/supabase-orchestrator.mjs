@@ -49,21 +49,40 @@ function updateEnvValues(nextValues) {
   fs.writeFileSync(envPath, `${nextLines.join("\n").replace(/\n+$/, "\n")}`, "utf8");
 }
 
+function resolveExecutable(commandName) {
+  if (process.platform === "win32" && !path.extname(commandName)) {
+    return `${commandName}.cmd`;
+  }
+
+  return commandName;
+}
+
+function getSupabaseCliPath() {
+  const localCliPath =
+    process.platform === "win32"
+      ? path.join(repoRoot, "node_modules", "supabase", "bin", "supabase.exe")
+      : path.join(repoRoot, "node_modules", ".bin", "supabase");
+
+  return fs.existsSync(localCliPath) ? localCliPath : "supabase";
+}
+
 function run(commandName, args, options = {}) {
-  const result = spawnSync(commandName, args, {
+  const executable = resolveExecutable(commandName);
+  const result = spawnSync(executable, args, {
     cwd: repoRoot,
     stdio: options.captureOutput ? "pipe" : "inherit",
-    shell: process.platform === "win32",
+    shell: false,
     env: { ...process.env, ...(options.env || {}) },
   });
 
-  if (result.status !== 0) {
+  if (result.error || result.status !== 0) {
     const stderr = result.stderr ? String(result.stderr) : "";
     const stdout = result.stdout ? String(result.stdout) : "";
+    const spawnError = result.error ? `\n${result.error.message}` : "";
     throw new Error(
       `Command failed: ${commandName} ${args.join(" ")}${
         stderr || stdout ? `\n${(stderr || stdout).trim()}` : ""
-      }`
+      }${spawnError}`
     );
   }
 
@@ -191,11 +210,12 @@ async function ensureAdminUser(env, options = {}) {
 
 function deployFunctions(env) {
   const projectRef = getProjectRef(env);
+  const supabaseCli = getSupabaseCliPath();
   try {
     for (const fn of ["admin-ops", "cleanup", "guest-access", "account-access"]) {
       run(
-        "npx",
-        ["supabase", "functions", "deploy", fn, "--project-ref", projectRef],
+        supabaseCli,
+        ["functions", "deploy", fn, "--project-ref", projectRef],
         { captureOutput: true }
       );
     }
@@ -216,7 +236,7 @@ function deployFunctions(env) {
 }
 
 function pushMigrations(env) {
-  run("npx", ["supabase", "db", "push", "--yes", "--db-url", getDbUrl(env)]);
+  run(getSupabaseCliPath(), ["db", "push", "--yes", "--db-url", getDbUrl(env)]);
 }
 
 async function verify(env) {

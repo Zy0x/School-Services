@@ -59,12 +59,12 @@ function loadPackagedRuntimeConfig() {
       envValues.SUPABASE_URL ||
       process.env.SUPABASE_URL ||
       packaged.supabase?.url ||
-      "https://fgimyyicixazygairmsa.supabase.co",
+      "",
     anonKey:
       envValues.SUPABASE_ANON_KEY ||
       process.env.SUPABASE_ANON_KEY ||
       packaged.supabase?.anonKey ||
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnaW15eWljaXhhenlnYWlybXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxODg1MjIsImV4cCI6MjA5Mjc2NDUyMn0.uZ0Cm_NxxcSXKaYE21wtob6xtY445S0I0y-v5i10NRo",
+      "",
   };
   const packagedLogPath = String(packaged.localLogPath || "").replace(/\//g, "\\").toLowerCase();
   if (!packaged.localLogPath || packagedLogPath.endsWith("\\logs\\agent.log")) {

@@ -1,11 +1,12 @@
 {
   "name": "e-rapor-agent",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "private": true,
   "main": "index.js",
   "bin": "index.js",
   "scripts": {
     "dev": "node index.js",
+    "test": "node --test test/*.test.js",
     "build": "npx pkg . --targets node18-win-x64 --output \"dist/payload/School Services Agent.exe\" && npx pkg launcher.package.json --targets node18-win-x64 --output \"dist/payload/School Services.exe\" && node write-launchers.js && node build-installer.js"
   },
   "pkg": {

@@ -92,9 +92,16 @@ class TunnelManager {
   }
 
   deleteLog(serviceName) {
-    const { logPath } = this.getTunnelPaths(serviceName);
-    if (fs.existsSync(logPath)) {
-      fs.unlinkSync(logPath);
+    const tunnel = this.tunnels.get(serviceName);
+    const paths = new Set([
+      this.getTunnelPaths(serviceName).logPath,
+      tunnel?.logPath,
+    ]);
+
+    for (const logPath of paths) {
+      if (logPath && fs.existsSync(logPath)) {
+        fs.unlinkSync(logPath);
+      }
     }
   }
 
@@ -285,7 +292,7 @@ class TunnelManager {
       return {
         category: "rate_limit",
         message:
-          "Cloudflare quick tunnel rate-limited this machine. Clear orphaned cloudflared processes, then retry after cooldown.",
+          "Cloudflare quick tunnel request was throttled. The agent will clear the stale tunnel log and retry after cooldown.",
       };
     }
 
@@ -539,6 +546,30 @@ class TunnelManager {
     if (tunnel.pid) {
       tunnel.pid = null;
       tunnel.child = null;
+    }
+
+    if (
+      tunnel.state === "waiting_retry" &&
+      tunnel.nextRetryAt &&
+      Date.now() >= tunnel.nextRetryAt
+    ) {
+      logger.info(`Retry cooldown elapsed for ${service.serviceName}; clearing stale Cloudflare tunnel state.`, {
+        serviceName: service.serviceName,
+        lastError: tunnel.lastError || null,
+        lastFailureCategory: tunnel.lastFailureCategory || null,
+      });
+      this.retryManager.reset(service.serviceName);
+      this.deleteLog(service.serviceName);
+      tunnel.publicUrl = null;
+      tunnel.lastError = null;
+      tunnel.nextRetryAt = null;
+      tunnel.retryAttempt = 0;
+      tunnel.lastFailureCategory = null;
+      tunnel.startedAt = null;
+      tunnel.startupDeadlineAt = null;
+      tunnel.state = "idle";
+      this.persistTunnelState(service.serviceName, tunnel);
+      return tunnel;
     }
 
     const issue = this.extractTunnelIssue(this.readLogContent(tunnel.logPath));
@@ -849,6 +880,8 @@ class TunnelManager {
 
   requestFreshStart(serviceName, reason = "reconnect") {
     const tunnel = this.getOrCreateTunnel(serviceName);
+    this.retryManager.reset(serviceName);
+    this.deleteLog(serviceName);
     tunnel.requiresFreshStart = true;
     tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
     if (!tunnel.hidden) {

@@ -661,6 +661,7 @@ async function main() {
       selfUpdater.launchUpdater();
       return true;
     } catch (error) {
+      updateInProgress = false;
       await publishDeviceUpdateState({
         updateAvailable: false,
         updateStatus: "failed",

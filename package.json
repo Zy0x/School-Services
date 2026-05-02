@@ -23,6 +23,8 @@
     "web-app:build": "npm run frontend:build",
     "web-app:preview": "npm run frontend:preview",
     "dev": "npm run frontend:dev",
+    "test": "npm run agent:test && npm run build",
+    "agent:test": "npm --workspace agent run test",
     "build": "npm run frontend:build && npm run backend:build",
     "supabase:apply": "node scripts/supabase-orchestrator.mjs apply",
     "supabase:verify": "node scripts/supabase-orchestrator.mjs verify",
@@ -33,5 +35,5 @@
   "devDependencies": {
     "supabase": "^2.95.3"
   },
-  "version": "2.0.5"
+  "version": "2.0.6"
 }

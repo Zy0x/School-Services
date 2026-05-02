@@ -269,10 +269,37 @@ async function requireDeviceAccess(
 
 function sanitizeCommandAction(value: unknown) {
   const action = String(value || "").trim().toLowerCase();
-  if (["start", "stop", "kill", "update", "agent_start", "agent_stop", "agent_restart"].includes(action)) {
-    return action;
+  const aliases: Record<string, string> = {
+    startservice: "start",
+    stopservice: "stop",
+    restartservice: "agent_restart",
+    start_service: "start",
+    stop_service: "stop",
+    restart_service: "agent_restart",
+  };
+  const normalized = aliases[action] || action;
+  if (["start", "stop", "kill", "update", "agent_start", "agent_stop", "agent_restart"].includes(normalized)) {
+    return normalized;
   }
-  throw new Error("Aksi command tidak dikenali.");
+  throw new Error(`Aksi command tidak dikenali: ${action || "kosong"}.`);
+}
+
+function isLegacyServiceCommandAction(value: unknown) {
+  const action = String(value || "").trim().toLowerCase();
+  return ["startservice", "stopservice", "restartservice", "start_service", "stop_service", "restart_service"].includes(action);
+}
+
+function buildLegacyServiceCommandBody(body: Record<string, unknown>) {
+  return {
+    ...body,
+    commandAction: body.commandAction || body.command || body.actionName || body.action,
+    action: "queueCommand",
+  };
+}
+
+function isQueueCommandAction(value: unknown) {
+  const action = String(value || "").trim();
+  return action === "queueCommand" || isLegacyServiceCommandAction(action);
 }
 
 function sanitizeDeviceStatus(value: unknown) {
@@ -1683,8 +1710,8 @@ Deno.serve(async (request) => {
       return json(await updateDeviceAlias(service, actor, body));
     }
 
-    if (action === "queueCommand") {
-      return json(await queueScopedCommand(service, actor, body));
+    if (isQueueCommandAction(action)) {
+      return json(await queueScopedCommand(service, actor, buildLegacyServiceCommandBody(body)));
     }
 
     if (action === "updateDeviceStatus") {

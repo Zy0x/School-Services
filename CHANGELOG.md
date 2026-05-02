@@ -4,6 +4,31 @@ Semua perubahan penting pada project ini dicatat di file ini.
 
 Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) dengan versi rilis project.
 
+## [2.0.6] - 2026-05-03
+
+### Added
+
+- Script `npm run test` di root untuk menjalankan test agent dan build workspace.
+- Script `npm run agent:test` untuk validasi unit test agent.
+- Unit test self-updater dan tunnel recovery untuk memastikan rilis baru dan retry Cloudflare ditangani benar.
+
+### Changed
+
+- Versi root, frontend, dan agent dinaikkan menjadi `2.0.6`.
+- Build frontend kini memecah bundle vendor React, Supabase, dan icon agar output rilis lebih terstruktur.
+- Supabase orchestrator kini memakai executable Supabase CLI lokal bila tersedia dan menjalankan process tanpa shell wrapper.
+- README utama diperluas menjadi dokumentasi tunggal untuk pengguna installer, developer, release, deploy, dan troubleshooting.
+- Fallback Supabase URL dan anon key project dihapus dari source agent agar repo publik tidak membawa konfigurasi project tertentu.
+
+### Fixed
+
+- Agent mengembalikan status update-in-progress ketika launcher updater gagal, sehingga proses update berikutnya tidak tertahan.
+- Retry tunnel Cloudflare kini membersihkan state/log lama setelah cooldown rate-limit selesai.
+- Pesan rate-limit Cloudflare diperjelas sebagai throttling request quick tunnel.
+- Fresh start tunnel kini mereset retry manager dan log lama sebelum reconnect.
+- Edge Function `admin-ops` menerima alias command legacy seperti `startService`, `stopService`, dan `restartService`.
+- Entry frontend diarahkan langsung ke `src/app/App.jsx` setelah wrapper route lama dihapus.
+
 ## [2.0.5] - 2026-05-02
 
 ### Changed

@@ -67,6 +67,7 @@ export function DeviceUpdateCard({
     showAction && update.updateAvailable && !remoteUpdateSupported
       ? `Update jarak jauh tersedia mulai agent v${REMOTE_UPDATE_MIN_VERSION}. Jalankan installer terbaru langsung di komputer ini.`
       : "";
+  const showCurrentAction = showAction && update.status === "current";
 
   return (
     <article className="metric-card device-update-card">
@@ -91,6 +92,11 @@ export function DeviceUpdateCard({
           onClick={onUpdate}
         >
           Update Agent & Service
+        </ActionButton>
+      ) : null}
+      {showCurrentAction ? (
+        <ActionButton className="secondary-button device-update-action device-update-action-current" disabled>
+          Sudah terupdate
         </ActionButton>
       ) : null}
       {update.error ? <div className="job-error">{update.error}</div> : null}

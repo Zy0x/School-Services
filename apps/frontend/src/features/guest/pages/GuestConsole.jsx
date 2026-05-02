@@ -287,13 +287,18 @@ export function GuestConsole({ deviceId }) {
 
         <section className="guest-hero-grid guest-hero-grid-single">
           <article className={`guest-hero-copy guest-panel guest-status-hero tone-${statusTone(guestRuntimeStatus)}`}>
-            <span className="section-eyebrow">Status layanan</span>
-            <h1>{guestStatus.headline}</h1>
-            <p>{accessHint}</p>
-            <div className="guest-hero-status">
-              <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
-              <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
-              <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
+            <div className="guest-status-hero-copy">
+              <span className="section-eyebrow">Status layanan</span>
+              <h1>{guestStatus.headline}</h1>
+              <p>{accessHint}</p>
+            </div>
+            <div className="guest-status-hero-meta">
+              <div className="guest-hero-status">
+                <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
+                <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
+                <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
+              </div>
+              <small className="mono">{state.device?.deviceId || deviceId}</small>
             </div>
           </article>
         </section>

@@ -64,6 +64,7 @@ import {
   PageSkeleton,
   PasswordField as SharedPasswordField,
   ProfileInfoField,
+  Skeleton,
   StatusChip,
   ToastViewport,
 } from "../components/ui/core.jsx";

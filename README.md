@@ -19,7 +19,7 @@ Control plane dan installer Windows untuk mengelola akses E-Rapor, Guest Mode, d
 Cara paling mudah untuk pengguna biasa adalah memakai installer rilis terbaru.
 
 1. Buka halaman [Latest Release](https://github.com/Zy0x/School-Services/releases/latest).
-2. Unduh file `School Services v2.0.6.exe` atau asset installer terbaru.
+2. Unduh asset installer terbaru, saat ini `School.Services.v2.0.6.exe` di GitHub Releases.
 3. Jalankan installer di Windows dengan akses Administrator.
 4. Buka shortcut `School Services` dari Desktop atau Start Menu.
 5. Pastikan Guest Mode menampilkan status perangkat dan tombol buka E-Rapor.
@@ -155,7 +155,7 @@ Workflow release:
 3. Jalankan `npm run agent:build` bila installer perlu dibuat ulang.
 4. Validasi installer di perangkat Windows bersih.
 5. Buat tag GitHub dengan format `vX.Y.Z`.
-6. Upload installer `School Services vX.Y.Z.exe` ke GitHub Releases.
+6. Upload installer `School Services vX.Y.Z.exe` ke GitHub Releases. GitHub dapat menampilkan nama asset dengan titik, misalnya `School.Services.vX.Y.Z.exe`; self-updater mendukung kedua pola nama.
 7. Agent self-updater akan mencari rilis lebih baru dan memilih asset installer yang sesuai.
 
 ## Deploy Frontend

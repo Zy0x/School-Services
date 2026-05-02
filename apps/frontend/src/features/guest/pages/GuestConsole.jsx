@@ -410,13 +410,13 @@ export function GuestConsole({ deviceId }) {
                   </div>
 
                   <div className="guest-cta-row">
-                    <ActionButton className="primary-button" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
+                    <ActionButton className="primary-button guest-cta-button guest-cta-start" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
                       Mulai
                     </ActionButton>
-                    <ActionButton className="secondary-button" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
+                    <ActionButton className="secondary-button guest-cta-button guest-cta-stop" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
                       Hentikan
                     </ActionButton>
-                    <ActionButton className="secondary-button" busy={busy && commandModal.action === "update"} disabled={busy} onClick={() => sendCommand("update")}>
+                    <ActionButton className="secondary-button guest-cta-button guest-cta-update" busy={busy && commandModal.action === "update"} disabled={busy} onClick={() => sendCommand("update")}>
                       Update
                     </ActionButton>
                   </div>

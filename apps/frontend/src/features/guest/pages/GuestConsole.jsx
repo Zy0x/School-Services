@@ -298,6 +298,16 @@ export function GuestConsole({ deviceId }) {
                 <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
                 <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
               </div>
+              <div className="guest-status-hero-facts" aria-label="Ringkasan status layanan">
+                <div>
+                  <span>Perangkat</span>
+                  <strong>{state.device?.deviceName || "Perangkat tamu"}</strong>
+                </div>
+                <div>
+                  <span>Heartbeat</span>
+                  <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
+                </div>
+              </div>
               <small className="mono">{state.device?.deviceId || deviceId}</small>
             </div>
           </article>

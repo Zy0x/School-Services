@@ -3,21 +3,26 @@ import {
   Activity,
   AlertTriangle,
   Bell,
+  CheckCircle2,
   CircleArrowUp,
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   Download,
+  Eye,
   FileText,
   FolderOpen,
   Gauge,
+  Info,
   LayoutDashboard,
+  Loader2,
   LogOut,
   Monitor,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
   RefreshCw,
+  Rocket,
   RotateCcw,
   Search,
   Server,
@@ -29,10 +34,20 @@ import {
   UserPlus,
   Users,
   X,
+  XCircle,
 } from "lucide-react";
 import { legacyDataClient } from "../services/legacyDataClient.js";
+import { supabase } from "../services/providers/supabase/supabaseClient.js";
 import Avatar3D from "../components/Avatar3D.jsx";
-import { REFRESH_INTERVAL_MS, RESET_PASSWORD_PATH, AUTH_PATH, GUEST_BRAND_ICON } from "./lib/constants.js";
+import {
+  AUTH_PATH,
+  DASHBOARD_SECTIONS,
+  GUEST_BRAND_ICON,
+  HEARTBEAT_STALE_MS,
+  HEARTBEAT_UNSTABLE_MS,
+  REFRESH_INTERVAL_MS,
+  RESET_PASSWORD_PATH,
+} from "./lib/constants.js";
 import {
   buildAuthPath,
   buildAuthUrl,

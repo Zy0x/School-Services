@@ -60,8 +60,41 @@ export function getCommandProgressTarget(action) {
   return "running";
 }
 
-export function buildWhatsAppShareUrl(url, label = "Tautan akses") {
-  const text = `${label}\n${url}`;
+export const NGROK_VISIT_SITE_NOTICE =
+  'Catatan Ngrok: jika muncul halaman "You are about to visit", tekan tombol Visit Site sekali untuk membuka E-Rapor.';
+
+export const NGROK_WHATSAPP_NOTICE =
+  'Catatan: link Ngrok gratis bisa menampilkan halaman konfirmasi. Jika muncul halaman "You are about to visit", tekan Visit Site untuk masuk ke E-Rapor.';
+
+export function isNgrokFreeTunnelUrl(url) {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    return hostname === "ngrok-free.app" || hostname.endsWith(".ngrok-free.app");
+  } catch {
+    return false;
+  }
+}
+
+export function shouldShowNgrokVisitSiteNotice(url, tunnelProvider) {
+  return String(tunnelProvider || "").trim().toLowerCase() === "ngrok" && isNgrokFreeTunnelUrl(url);
+}
+
+export function buildWhatsAppShareText(url, label = "Tautan akses", options = {}) {
+  const lines = [label, url];
+  const warningUrl = options.ngrokWarningUrl || url;
+  if (shouldShowNgrokVisitSiteNotice(warningUrl, options.tunnelProvider)) {
+    lines.push("", NGROK_WHATSAPP_NOTICE);
+  }
+  return lines.join("\n");
+}
+
+export function buildWhatsAppShareUrl(url, label = "Tautan akses", options = {}) {
+  const text = buildWhatsAppShareText(url, label, options);
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }
 

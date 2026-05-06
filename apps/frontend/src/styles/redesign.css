@@ -2748,6 +2748,13 @@ label > span,
   border: 1px solid rgba(72, 166, 217, 0.2);
 }
 
+.ngrok-visit-site-note {
+  color: #24566d;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .fresh-inline-error {
   background: rgba(217, 63, 76, 0.1);
   border: 1px solid rgba(217, 63, 76, 0.22);

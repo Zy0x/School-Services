@@ -44,6 +44,8 @@ export function PublicLinkActions({
   url,
   label = "Tautan akses",
   compact = false,
+  tunnelProvider = "",
+  ngrokWarningUrl = "",
   onActionComplete = null,
   onFeedback = null,
 }) {
@@ -73,7 +75,14 @@ export function PublicLinkActions({
       return;
     }
 
-    window.open(buildWhatsAppShareUrl(url, label), "_blank", "noopener,noreferrer");
+    window.open(
+      buildWhatsAppShareUrl(url, label, {
+        tunnelProvider,
+        ngrokWarningUrl: ngrokWarningUrl || url,
+      }),
+      "_blank",
+      "noopener,noreferrer"
+    );
     setFeedback(onFeedback ? "" : "Tautan siap dibagikan lewat WhatsApp.");
     onActionComplete?.("");
     onFeedback?.("Tautan siap dibagikan lewat WhatsApp.", "success");

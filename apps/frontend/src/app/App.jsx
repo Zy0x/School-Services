@@ -66,6 +66,10 @@ import {
   parseAppRoute,
 } from "./lib/routes.js";
 import {
+  NGROK_VISIT_SITE_NOTICE,
+  shouldShowNgrokVisitSiteNotice,
+} from "./lib/guest.js";
+import {
   clearStoredAuthArtifacts,
   formatEdgeFunctionError,
   formatPasswordUpdateError,
@@ -4878,6 +4882,10 @@ export default function App() {
           const runtimeBadge = getServiceStatusBadgeModel(service.serviceStatus);
           const publicBadge = getPublicLinkBadgeModel(service);
           const tunnelProviderBadge = getTunnelProviderBadgeModel(service.tunnel_provider);
+          const showNgrokVisitSiteNotice = shouldShowNgrokVisitSiteNotice(
+            service.public_url,
+            service.tunnel_provider
+          );
           const runningNow = service.serviceStatus === "running" && service.desired_state !== "stopped";
           return (
             <article
@@ -4929,10 +4937,17 @@ export default function App() {
                     url={service.public_url || ""}
                     label={`Tautan ${serviceLabel} untuk ${selectedDevice.deviceName}`}
                     compact
+                    tunnelProvider={service.tunnel_provider}
+                    ngrokWarningUrl={service.public_url || ""}
                     onActionComplete={setError}
                     onFeedback={handleInlineFeedback}
                   />
               </div>
+              {showNgrokVisitSiteNotice ? (
+                <div className="fresh-inline-note ngrok-visit-site-note">
+                  {NGROK_VISIT_SITE_NOTICE}
+                </div>
+              ) : null}
               <details className="compact-detail-disclosure service-detail-disclosure">
                 <summary>
                   <span>Detail layanan</span>
@@ -5139,6 +5154,11 @@ export default function App() {
       selectedDevice.services[0] ||
       null;
     const accessTunnelBadge = getTunnelProviderBadgeModel(accessService?.tunnel_provider || tunnelPreferredProvider);
+    const accessNgrokWarningUrl = accessService?.public_url || "";
+    const showAccessNgrokVisitSiteNotice = shouldShowNgrokVisitSiteNotice(
+      accessNgrokWarningUrl,
+      accessService?.tunnel_provider || tunnelPreferredProvider
+    );
     const tunnelBusy = busyAction === `${selectedDevice.deviceId}:device:configure_tunnel`;
     const canManageTunnel = isSuperAdmin || isOperator;
     const showNgrokTokenForm = tunnelProviderDraft === "ngrok" || ngrokTokenEditing;
@@ -5177,12 +5197,27 @@ export default function App() {
             eyebrow={options.compact ? "Detail perangkat" : "Akses"}
             title={options.compact ? selectedDevice.deviceName : "Tautan E-Rapor"}
             description={options.compact ? "Akses utama dan detail teknis perangkat disimpan ringkas." : "Tautan utama disingkat di layar dan detail lengkap tetap tersedia lewat overlay."}
-            actions={<GuestPublicLinkActions url={selectedGuestUrl} label={`Tautan akses untuk ${selectedDevice.deviceName}`} compact onActionComplete={setError} onFeedback={handleInlineFeedback} />}
+            actions={
+              <GuestPublicLinkActions
+                url={selectedGuestUrl}
+                label={`Tautan akses untuk ${selectedDevice.deviceName}`}
+                compact
+                tunnelProvider={accessService?.tunnel_provider || tunnelPreferredProvider}
+                ngrokWarningUrl={accessNgrokWarningUrl}
+                onActionComplete={setError}
+                onFeedback={handleInlineFeedback}
+              />
+            }
           />
           <div className="fresh-link-bar">
             <LongText value={selectedGuestUrl} href={selectedGuestUrl} label="Tautan akses" className="mono" maxLength={70} />
             <StatusChip status={accessTunnelBadge.status} label={accessTunnelBadge.label} />
           </div>
+          {showAccessNgrokVisitSiteNotice ? (
+            <div className="fresh-inline-note ngrok-visit-site-note">
+              {NGROK_VISIT_SITE_NOTICE}
+            </div>
+          ) : null}
         </article>
         <details className="fresh-panel compact-detail-disclosure tunnel-settings-panel">
           <summary>

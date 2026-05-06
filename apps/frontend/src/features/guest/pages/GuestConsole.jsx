@@ -11,7 +11,11 @@ import {
   getServiceStatusBadgeModel,
   statusTone,
 } from "../../../app/lib/status.js";
-import { getGuestStatusModel } from "../../../app/lib/guest.js";
+import {
+  NGROK_VISIT_SITE_NOTICE,
+  getGuestStatusModel,
+  shouldShowNgrokVisitSiteNotice,
+} from "../../../app/lib/guest.js";
 import {
   getDeviceUpdateModel,
   getUpdateStatusSummary,
@@ -259,6 +263,8 @@ export function GuestConsole({ deviceId }) {
     guestStatus.overallStatus === "blocked";
   const serviceLabel = formatServiceDisplayName(service?.service_name || "rapor");
   const tunnelProviderBadge = getTunnelProviderBadgeModel(service?.tunnel_provider);
+  const showNgrokVisitSiteNotice =
+    canOpenService && shouldShowNgrokVisitSiteNotice(service?.public_url, service?.tunnel_provider);
   const loginUrl = buildAuthUrl({
     mode: "login",
     linkDeviceId: deviceId,
@@ -376,10 +382,17 @@ export function GuestConsole({ deviceId }) {
                     url={service?.public_url || ""}
                     label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
                     compact
+                    tunnelProvider={service?.tunnel_provider}
+                    ngrokWarningUrl={service?.public_url || ""}
                     onActionComplete={setError}
                     onFeedback={handleGuestFeedback}
                   />
                 </div>
+                {showNgrokVisitSiteNotice ? (
+                  <div className="fresh-inline-note ngrok-visit-site-note">
+                    {NGROK_VISIT_SITE_NOTICE}
+                  </div>
+                ) : null}
               </div>
 
               <div className="guest-service-facts" aria-label="Ringkasan perangkat dan layanan">

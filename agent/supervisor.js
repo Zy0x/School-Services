@@ -21,6 +21,8 @@ const SelfUpdater = require("./selfUpdater");
 const SUPERVISOR_POLL_MS = 2000;
 const PROCESS_TIMEOUT_MS = 60000;
 const HEARTBEAT_TIMEOUT_MS = 120000;
+const SERVICE_RESTORE_TIMEOUT_MS = 180000;
+const SERVICE_RESTORE_POLL_MS = 3000;
 const UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
 const COMMAND_STALE_MS = 5 * 60 * 1000;
 const SUPERVISOR_ACTIONS = new Set(["agent_start", "agent_stop", "agent_restart", "update"]);
@@ -246,6 +248,124 @@ function hasVersionChanged(before, after) {
   );
 }
 
+function normalizeServiceLabel(row) {
+  return String(row?.service_name || row?.serviceName || "service");
+}
+
+function isSkippableServiceRestore(row) {
+  const status = String(row?.status || "").toLowerCase();
+  const desiredState = String(row?.desired_state || row?.desiredState || "").toLowerCase();
+  const locationStatus = String(row?.location_status || row?.locationStatus || "").toLowerCase();
+  const lastError = String(row?.last_error || row?.lastError || row?.tunnel_last_error || row?.tunnelLastError || "").toLowerCase();
+
+  if (desiredState === "stopped" || status === "stopped" || status === "blocked") {
+    return true;
+  }
+  if (["missing", "partial"].includes(locationStatus)) {
+    return true;
+  }
+  return /not installed|no matching|requires administrator|requires elevation|missing|config|konfigurasi|lokasi|path/.test(lastError);
+}
+
+function isServiceLinkReady(row) {
+  const status = String(row?.status || "").toLowerCase();
+  const desiredState = String(row?.desired_state || row?.desiredState || "").toLowerCase();
+  const publicUrl = String(row?.public_url || row?.publicUrl || "").trim();
+  const tunnelState = String(row?.tunnel_state || row?.tunnelState || "").toLowerCase();
+
+  if (desiredState !== "running") {
+    return false;
+  }
+  if (status !== "running" || !publicUrl) {
+    return false;
+  }
+  return !tunnelState || tunnelState === "running";
+}
+
+function isFreshServiceRow(row, afterMs) {
+  if (!afterMs) {
+    return true;
+  }
+  return normalizeTime(row?.last_ping || row?.lastPing || row?.updated_at || row?.updatedAt) >= afterMs;
+}
+
+function summarizeServiceRestore(rows, afterMs = 0) {
+  const ready = [];
+  const pending = [];
+  const skipped = [];
+
+  for (const row of rows || []) {
+    const label = normalizeServiceLabel(row);
+    const desiredState = String(row?.desired_state || row?.desiredState || "").toLowerCase();
+    const status = String(row?.status || "").toLowerCase();
+    const fresh = isFreshServiceRow(row, afterMs);
+
+    if ((desiredState === "stopped" || status === "blocked" || (status === "stopped" && desiredState !== "running")) && !fresh) {
+      skipped.push(label);
+    } else if (!fresh) {
+      pending.push(label);
+    } else if (isServiceLinkReady(row)) {
+      ready.push(label);
+    } else if (isSkippableServiceRestore(row)) {
+      skipped.push(label);
+    } else {
+      pending.push(label);
+    }
+  }
+
+  return { ready, pending, skipped };
+}
+
+async function waitForServicesRestored(supabaseApi, deviceId, progress, startPercent = 78, afterMs = 0) {
+  const deadline = Date.now() + SERVICE_RESTORE_TIMEOUT_MS;
+  let lastRows = [];
+  let lastSummary = { ready: [], pending: [], skipped: [] };
+
+  while (Date.now() < deadline) {
+    lastRows = await supabaseApi.fetchServiceStates(deviceId);
+    lastSummary = summarizeServiceRestore(lastRows, afterMs);
+    const total = lastRows.length;
+
+    if (total === 0) {
+      await progress.step(
+        "restoring_services",
+        startPercent,
+        "Menunggu agent melaporkan status layanan E-Rapor/Dapodik.",
+        { serviceCount: 0 }
+      );
+      await sleep(SERVICE_RESTORE_POLL_MS);
+      continue;
+    }
+
+    const resolvedCount = lastSummary.ready.length + lastSummary.skipped.length;
+    const percent = Math.min(98, startPercent + Math.round((resolvedCount / Math.max(total, 1)) * (98 - startPercent)));
+
+    if (lastSummary.pending.length === 0) {
+      const readyText = lastSummary.ready.length ? `Link siap: ${lastSummary.ready.join(", ")}.` : "";
+      const skippedText = lastSummary.skipped.length ? `Dilewati karena tidak aktif/konfigurasi bermasalah: ${lastSummary.skipped.join(", ")}.` : "";
+      await progress.step(
+        "services_ready",
+        98,
+        [readyText, skippedText].filter(Boolean).join(" ") || "Status layanan stabil.",
+        lastSummary
+      );
+      return lastSummary;
+    }
+
+    await progress.step(
+      "restoring_services",
+      percent,
+      `Menunggu link publik siap untuk: ${lastSummary.pending.join(", ")}.`,
+      lastSummary
+    );
+    await sleep(SERVICE_RESTORE_POLL_MS);
+  }
+
+  throw new Error(
+    `Timeout menunggu link layanan siap. Belum stabil: ${lastSummary.pending.join(", ") || "unknown"}.`
+  );
+}
+
 async function runUpdateScript() {
   const updateScriptPath = path.join(getInstallDir(), "update-and-run.ps1");
   if (!fs.existsSync(updateScriptPath)) {
@@ -304,7 +424,13 @@ async function processSupervisorCommand(command, supabaseApi, device) {
       }
       await progress.step("waiting_heartbeat", 62, "Menunggu heartbeat agent baru masuk ke dashboard.");
       await waitForHeartbeat(supabaseApi, device.deviceId, startedMs);
-      await progress.done("School Services Agent sudah hidup dan heartbeat baru diterima.");
+      await progress.step("restoring_services", 76, "Heartbeat diterima. Menunggu service dan tunnel publik stabil.");
+      const restoreSummary = await waitForServicesRestored(supabaseApi, device.deviceId, progress, 76, startedMs);
+      await progress.done(
+        restoreSummary.ready.length
+          ? `Agent hidup dan link layanan siap: ${restoreSummary.ready.join(", ")}.`
+          : "Agent hidup. Tidak ada layanan aktif yang membutuhkan link publik."
+      );
       return;
     }
 
@@ -322,7 +448,13 @@ async function processSupervisorCommand(command, supabaseApi, device) {
       }
       await progress.step("waiting_heartbeat", 70, "Menunggu heartbeat baru setelah restart.");
       await waitForHeartbeat(supabaseApi, device.deviceId, startedMs);
-      await progress.done("Restart agent selesai dan heartbeat baru diterima.");
+      await progress.step("restoring_services", 78, "Heartbeat baru diterima. Menunggu service dan tunnel publik stabil.");
+      const restoreSummary = await waitForServicesRestored(supabaseApi, device.deviceId, progress, 78, startedMs);
+      await progress.done(
+        restoreSummary.ready.length
+          ? `Restart agent selesai. Link layanan siap: ${restoreSummary.ready.join(", ")}.`
+          : "Restart agent selesai. Tidak ada layanan aktif yang membutuhkan link publik."
+      );
       return;
     }
 
@@ -370,8 +502,13 @@ async function processSupervisorCommand(command, supabaseApi, device) {
                 updateError: null,
                 updateAssetName: check.matchingAssetName || null,
               });
-              await progress.step("restoring_services", 94, "Agent baru aktif. Menunggu loop layanan memulihkan status service.");
-              await progress.done("Update agent selesai dan versi baru sudah tervalidasi.");
+              await progress.step("restoring_services", 90, "Agent baru aktif. Menunggu service dan tunnel publik stabil.");
+              const restoreSummary = await waitForServicesRestored(supabaseApi, device.deviceId, progress, 90, startedMs);
+              await progress.done(
+                restoreSummary.ready.length
+                  ? `Update agent selesai. Link layanan siap: ${restoreSummary.ready.join(", ")}.`
+                  : "Update agent selesai. Tidak ada layanan aktif yang membutuhkan link publik."
+              );
               return;
             }
           }

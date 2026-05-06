@@ -845,6 +845,7 @@ class TunnelManager {
         redirect: "manual",
         signal: controller.signal,
         headers: {
+          "ngrok-skip-browser-warning": "1",
           "user-agent": "school-services-agent",
         },
       });

@@ -5157,7 +5157,7 @@ export default function App() {
     const accessTunnelBadge = getTunnelProviderBadgeModel(accessService?.tunnel_provider || tunnelPreferredProvider);
     const tunnelBusy = busyAction === `${selectedDevice.deviceId}:device:configure_tunnel`;
     const canManageTunnel = isSuperAdmin || isOperator;
-    const tokenLocked = tunnelProviderDraft !== "ngrok" && !ngrokTokenEditing;
+    const showNgrokTokenForm = tunnelProviderDraft === "ngrok" || ngrokTokenEditing;
     const providerOptions = [
       {
         value: "cloudflare",
@@ -5244,40 +5244,60 @@ export default function App() {
               );
             })}
           </div>
-          <div className="tunnel-token-row">
-            <SharedPasswordField
-              label="Auth token ngrok"
-              value={ngrokTokenDraft}
-              onChange={(event) => setNgrokTokenDraft(event.target.value)}
-              placeholder={
-                tokenLocked
-                  ? "Token cadangan terkunci saat Cloudflared aktif"
-                    : ngrokAccountConfigured
-                      ? "Isi hanya jika ingin mengganti token"
-                    : "Masukkan auth token ngrok"
-              }
-              autoComplete="off"
-              disabled={tunnelBusy || !canManageTunnel || tokenLocked}
-            />
-            {tunnelProviderDraft !== "ngrok" ? (
+          {showNgrokTokenForm ? (
+            <div className="tunnel-token-row">
+              <SharedPasswordField
+                label={tunnelProviderDraft === "ngrok" ? "Auth token Ngrok" : "Auth token fallback Ngrok"}
+                value={ngrokTokenDraft}
+                onChange={(event) => setNgrokTokenDraft(event.target.value)}
+                placeholder={
+                  ngrokAccountConfigured
+                    ? "Isi hanya jika ingin mengganti token"
+                    : "Tempel token atau perintah ngrok config add-authtoken"
+                }
+                autoComplete="off"
+                disabled={tunnelBusy || !canManageTunnel}
+              />
+              {tunnelProviderDraft !== "ngrok" ? (
+                <ActionButton
+                  className="secondary-button tunnel-token-edit-button"
+                  icon={KeyRound}
+                  disabled={tunnelBusy || !canManageTunnel}
+                  onClick={() => setNgrokTokenEditing(false)}
+                >
+                  Tutup token
+                </ActionButton>
+              ) : null}
+              <ActionButton
+                className="primary-button"
+                busy={tunnelBusy}
+                disabled={busyAction !== "" || !selectedDevice || !canManageTunnel}
+                onClick={saveTunnelSettings}
+              >
+                Simpan provider
+              </ActionButton>
+            </div>
+          ) : (
+            <div className="tunnel-token-note-row">
+              <p>Cloudflared tidak memakai auth token. Token hanya diperlukan untuk fallback Ngrok.</p>
               <ActionButton
                 className="secondary-button tunnel-token-edit-button"
                 icon={KeyRound}
                 disabled={tunnelBusy || !canManageTunnel}
-                onClick={() => setNgrokTokenEditing((current) => !current)}
+                onClick={() => setNgrokTokenEditing(true)}
               >
-                {ngrokTokenEditing ? "Kunci token" : "Edit token cadangan"}
+                Atur fallback Ngrok
               </ActionButton>
-            ) : null}
-            <ActionButton
-              className="primary-button"
-              busy={tunnelBusy}
-              disabled={busyAction !== "" || !selectedDevice || !canManageTunnel}
-              onClick={saveTunnelSettings}
-            >
-              Simpan provider
-            </ActionButton>
-          </div>
+              <ActionButton
+                className="primary-button"
+                busy={tunnelBusy}
+                disabled={busyAction !== "" || !selectedDevice || !canManageTunnel}
+                onClick={saveTunnelSettings}
+              >
+                Simpan provider
+              </ActionButton>
+            </div>
+          )}
         </details>
         <article className="fresh-panel">
           <SectionHeader eyebrow="Services" title="Kontrol layanan" description="Tombol pada tiap kartu hanya memengaruhi layanan tersebut, bukan seluruh perangkat." />

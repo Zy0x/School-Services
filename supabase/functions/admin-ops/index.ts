@@ -301,7 +301,11 @@ function buildTunnelProviderOrder(preferredProvider: string, hasNgrokAuthtoken =
 }
 
 function sanitizeNgrokAuthtoken(value: unknown) {
-  const token = String(value || "").trim();
+  const rawToken = String(value || "").trim();
+  const commandMatch = rawToken.match(/(?:^|\s)(?:config\s+add-authtoken|authtoken)\s+(.+)$/i);
+  const token = (commandMatch ? commandMatch[1] : rawToken)
+    .trim()
+    .replace(/^['"]+|['"]+$/g, "");
   if (!token) {
     return "";
   }

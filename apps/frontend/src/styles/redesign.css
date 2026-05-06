@@ -5586,6 +5586,26 @@ textarea {
   line-height: 1.2;
 }
 
+.tunnel-token-note-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(32, 58, 86, 0.12);
+  border-radius: var(--radius-control);
+  background: rgba(248, 250, 255, 0.86);
+}
+
+.tunnel-token-note-row p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .tunnel-token-edit-button {
   min-width: 156px;
   justify-content: center;
@@ -5863,11 +5883,13 @@ label > textarea {
   .agent-command-actions,
   .selected-device-agent-actions,
   .tunnel-provider-grid,
-  .tunnel-token-row {
+  .tunnel-token-row,
+  .tunnel-token-note-row {
     grid-template-columns: 1fr;
   }
 
-  .tunnel-token-row .action-button {
+  .tunnel-token-row .action-button,
+  .tunnel-token-note-row .action-button {
     width: 100%;
     justify-content: center;
   }

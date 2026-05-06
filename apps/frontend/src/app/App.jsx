@@ -67,6 +67,7 @@ import {
 } from "./lib/routes.js";
 import {
   buildNgrokVisitSiteNotice,
+  shouldAutoShowCommandProgress,
   shouldShowNgrokVisitSiteNotice,
 } from "./lib/guest.js";
 import {
@@ -3640,11 +3641,14 @@ export default function App() {
     }
     return commandRows.filter((command) => command.deviceId === selectedDevice.deviceId);
   }, [commandRows, selectedDevice?.deviceId]);
+  const autoVisibleCommandExecution = visibleCommandRows.find((command) =>
+    shouldAutoShowCommandProgress(command, selectedDevice?.deviceStatus)
+  );
   const activeCommandExecution =
     (activeCommandId
       ? commandRows.find((command) => String(command.id) === String(activeCommandId))
       : null) ||
-    visibleCommandRows.find((command) => ["pending", "running"].includes(command.status)) ||
+    autoVisibleCommandExecution ||
     (/:(start|stop|agent_start|agent_stop|agent_restart|update|configure_tunnel)$/.test(busyAction)
       ? {
           action: busyAction.split(":").pop() || "command",

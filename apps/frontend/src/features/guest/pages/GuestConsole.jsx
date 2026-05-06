@@ -14,6 +14,7 @@ import {
 import {
   buildNgrokVisitSiteNotice,
   getGuestStatusModel,
+  shouldAutoShowCommandProgress,
   shouldShowNgrokVisitSiteNotice,
 } from "../../../app/lib/guest.js";
 import {
@@ -287,7 +288,7 @@ export function GuestConsole({ deviceId }) {
     (commandModal.commandId
       ? guestCommands.find((command) => String(command.id) === String(commandModal.commandId))
       : null) ||
-    guestCommands.find((command) => ["pending", "running"].includes(command.status));
+    guestCommands.find((command) => shouldAutoShowCommandProgress(command, state.device?.deviceStatus));
   const activeCommandStatus = activeCommand?.status || commandModal.status || (commandModal.open ? "pending" : "");
   const activeCommandPhase = String(activeCommand?.phase || "").toLowerCase();
   const activeCommandAction = activeCommand?.action || commandModal.action;

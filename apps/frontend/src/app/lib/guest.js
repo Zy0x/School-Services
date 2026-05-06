@@ -61,6 +61,7 @@ export function getCommandProgressTarget(action) {
 }
 
 const DEFAULT_ACCESS_SERVER_NAME = "E-Rapor";
+const COMMAND_PROGRESS_AUTO_SHOW_MS = 15 * 60 * 1000;
 
 function normalizeShareText(value, fallback = "") {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
@@ -113,6 +114,29 @@ export function shouldShowNgrokVisitSiteNotice(url, tunnelProvider) {
     String(tunnelProvider || "").trim().toLowerCase() === "ngrok" &&
     (isNgrokFreeTunnelUrl(url) || isNgrokFreeProxyUrl(url))
   );
+}
+
+export function isCommandInProgress(command) {
+  return ["pending", "running"].includes(String(command?.status || "").toLowerCase());
+}
+
+export function isRecentCommandProgress(command, nowMs = Date.now()) {
+  const timestamp = new Date(command?.updated_at || command?.updatedAt || command?.created_at || command?.createdAt || 0).getTime();
+  return Number.isFinite(timestamp) && timestamp > 0 && nowMs - timestamp <= COMMAND_PROGRESS_AUTO_SHOW_MS;
+}
+
+export function shouldAutoShowCommandProgress(command, deviceStatus = "") {
+  if (!isCommandInProgress(command) || !isRecentCommandProgress(command)) {
+    return false;
+  }
+
+  const commandStatus = String(command?.status || "").toLowerCase();
+  if (commandStatus === "running") {
+    return true;
+  }
+
+  const normalizedDeviceStatus = String(deviceStatus || "").toLowerCase();
+  return !["offline", "blocked", "pending_setup"].includes(normalizedDeviceStatus);
 }
 
 export function buildWhatsAppShareText(url, label = "Tautan akses", options = {}) {

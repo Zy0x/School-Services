@@ -3663,9 +3663,10 @@ export default function App() {
         }
       : null);
   const commandExecutionActive = Boolean(activeCommandExecution);
-  const activeCommandStatus = activeCommandExecution?.status || "running";
+  const activeCommandStatus = activeCommandExecution?.status || "";
   const activeCommandPhase = String(activeCommandExecution?.phase || "").toLowerCase();
-  const commandExecutionInFlight = ["pending", "running"].includes(activeCommandStatus);
+  const commandExecutionInFlight =
+    Boolean(activeCommandExecution) && ["pending", "running"].includes(activeCommandStatus);
   const commandProgressMessage = activeCommandExecution
     ? activeCommandExecution.message ||
       getCommandCopy(

@@ -85,10 +85,7 @@ import {
   StatusChip,
   ToastViewport,
 } from "../components/ui/core.jsx";
-import {
-  DeviceUpdateCard as FeatureDeviceUpdateCard,
-  UpdateProgressModal as FeatureUpdateProgressModal,
-} from "../features/dashboard/components/updates.jsx";
+import { UpdateProgressModal as FeatureUpdateProgressModal } from "../features/dashboard/components/updates.jsx";
 import {
   AccountStatusScreen,
   LoginScreen,
@@ -4808,7 +4805,7 @@ export default function App() {
                   <StatusChip status={tunnelProviderBadge.status} label={tunnelProviderBadge.label} />
                 </div>
               </div>
-              <div className="fresh-data-grid">
+              <div className="fresh-data-grid compact-service-grid">
                 <div>
                   <span>{getPublicUrlLabel(service)}</span>
                   <strong>
@@ -4819,31 +4816,7 @@ export default function App() {
                     )}
                   </strong>
                 </div>
-                <div>
-                  <span>Lokasi aplikasi</span>
-                  <strong>
-                    <LongText value={service.resolved_path || ""} label="Lokasi aplikasi" className="mono" maxLength={42} />
-                  </strong>
-                </div>
-                <div>
-                  <span>Update status</span>
-                  <strong>{formatRelativeTime(service.last_ping, now)}</strong>
-                </div>
-                <div>
-                  <span>Provider tunnel</span>
-                  <strong>{tunnelProviderBadge.name}</strong>
-                </div>
               </div>
-              {service.location_details?.message ? (
-                <div className="fresh-inline-note">
-                  <LongText value={service.location_details.message} label="Detail lokasi" maxLength={76} />
-                </div>
-              ) : null}
-              {service.last_error ? (
-                <div className="fresh-inline-error">
-                  <LongText value={service.last_error} label="Error layanan" maxLength={76} />
-                </div>
-              ) : null}
               <div className="fresh-actions">
                 <ActionButton
                   className="primary-button"
@@ -4869,10 +4842,164 @@ export default function App() {
                     onFeedback={handleInlineFeedback}
                   />
               </div>
+              <details className="compact-detail-disclosure service-detail-disclosure">
+                <summary>
+                  <span>Detail layanan</span>
+                  <strong>Path, tunnel, ping, dan error</strong>
+                </summary>
+                <div className="compact-detail-grid">
+                  <div>
+                    <span>Lokasi aplikasi</span>
+                    <strong>
+                      <LongText value={service.resolved_path || ""} label="Lokasi aplikasi" className="mono" maxLength={52} />
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Update status</span>
+                    <strong>{formatRelativeTime(service.last_ping, now)}</strong>
+                  </div>
+                  <div>
+                    <span>Provider tunnel</span>
+                    <strong>{tunnelProviderBadge.name}</strong>
+                  </div>
+                  <div>
+                    <span>Status target</span>
+                    <strong>{service.desired_state || "-"}</strong>
+                  </div>
+                </div>
+                {service.location_details?.message ? (
+                  <div className="fresh-inline-note">
+                    <LongText value={service.location_details.message} label="Detail lokasi" maxLength={76} />
+                  </div>
+                ) : null}
+                {service.last_error ? (
+                  <div className="fresh-inline-error">
+                    <LongText value={service.last_error} label="Error layanan" maxLength={76} />
+                  </div>
+                ) : null}
+              </details>
             </article>
           );
         })}
       </div>
+    );
+  }
+
+  function renderSelectedDeviceOperations() {
+    if (!selectedDevice) {
+      return <EmptyState title="Pilih perangkat" description="Pilih perangkat untuk membuka kontrol SuperAdmin." />;
+    }
+
+    const update = getDeviceUpdateModel(selectedDevice.deviceRecord);
+    const remoteUpdateSupported = supportsRemoteUpdate(selectedDevice.deviceRecord);
+    const canControlAgent = isSuperAdmin || isOperator;
+    const canUpdate =
+      canControlAgent &&
+      update.updateAvailable &&
+      update.status !== "updating" &&
+      remoteUpdateSupported &&
+      selectedDevice.deviceStatus === "online";
+    const updateBusy = busyAction === `${selectedDevice.deviceId}:device:update`;
+    const updateLabel =
+      update.status === "updating"
+        ? "Mengupdate"
+        : canUpdate
+          ? "Update Agent"
+          : update.status === "current"
+            ? "Agent terbaru"
+            : update.updateAvailable && selectedDevice.deviceStatus !== "online"
+              ? "Device offline"
+              : update.updateAvailable && !remoteUpdateSupported
+                ? "Update manual"
+                : "Belum ada update";
+    const issueText =
+      selectedDevice.deviceStatus === "offline"
+        ? "Perangkat offline. Command akan masuk antrean, tetapi eksekusi menunggu agent tersambung."
+        : selectedDevice.issueCount > 0
+          ? `${selectedDevice.issueCount} layanan perlu perhatian.`
+          : update.updateAvailable
+            ? `Update tersedia: ${update.localVersion} ke ${update.latestVersion}.`
+            : "Perangkat siap dikontrol.";
+
+    return (
+      <article className={`fresh-panel selected-device-operations tone-${statusTone(selectedDevice.deviceStatus)}`}>
+        <div className="selected-device-operations-head">
+          <div>
+            <span className="section-eyebrow">{canControlAgent ? "Kontrol SuperAdmin" : "Perangkat terpilih"}</span>
+            <strong>{selectedDevice.deviceName}</strong>
+            <LongText value={selectedDevice.deviceId} label="ID perangkat" className="mono" maxLength={34} />
+            {selectedDevice.deviceAlias ? <small>Nama asli: {selectedDevice.rawDeviceName}</small> : null}
+          </div>
+          <div className="selected-device-status">
+            <StatusChip status={selectedDeviceBadge.status} label={selectedDeviceBadge.label} />
+            <StatusChip status={update.toneStatus} label={update.label} />
+            <ActionButton className="secondary-button selected-device-alias-button" onClick={() => openAliasModal(selectedDevice)}>
+              Edit alias
+            </ActionButton>
+          </div>
+        </div>
+        <div className="selected-device-operation-strip" aria-label="Ringkasan operasional perangkat">
+          <div>
+            <span>Heartbeat</span>
+            <strong>{formatRelativeTime(selectedDevice.deviceRecord?.last_seen, now)}</strong>
+          </div>
+          <div>
+            <span>Agent</span>
+            <strong>{update.localVersion}</strong>
+          </div>
+          <div>
+            <span>Layanan aktif</span>
+            <strong>{selectedDevice.runningCount}/{selectedDevice.services.length}</strong>
+          </div>
+          <div>
+            <span>Perlu perhatian</span>
+            <strong>{selectedDevice.issueCount}</strong>
+          </div>
+        </div>
+        {canControlAgent ? (
+          <div className="fresh-actions selected-device-agent-actions">
+            <ActionButton
+              className="primary-button"
+              icon={Play}
+              busy={busyAction === `${selectedDevice.deviceId}:device:agent_start`}
+              disabled={busyAction !== ""}
+              onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_start")}
+            >
+              Start Agent
+            </ActionButton>
+            <ActionButton
+              className="secondary-button"
+              icon={Square}
+              busy={busyAction === `${selectedDevice.deviceId}:device:agent_stop`}
+              disabled={busyAction !== ""}
+              onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_stop")}
+            >
+              Stop Agent
+            </ActionButton>
+            <ActionButton
+              className="secondary-button"
+              icon={RotateCcw}
+              busy={busyAction === `${selectedDevice.deviceId}:device:agent_restart`}
+              disabled={busyAction !== ""}
+              onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_restart")}
+            >
+              Restart Agent
+            </ActionButton>
+            <ActionButton
+              className="secondary-button"
+              icon={Rocket}
+              busy={updateBusy}
+              disabled={busyAction !== "" || !canUpdate}
+              onClick={() => queueCommand(selectedDevice.deviceId, null, "update")}
+            >
+              {updateLabel}
+            </ActionButton>
+          </div>
+        ) : null}
+        <p className={`selected-device-operation-note ${selectedDevice.deviceStatus === "offline" || selectedDevice.issueCount ? "tone-warn" : ""}`}>
+          {issueText}
+        </p>
+      </article>
     );
   }
 
@@ -4917,38 +5044,14 @@ export default function App() {
               className="page-device-combobox"
             />
             <DeviceWarningPanel device={selectedDevice} />
+            {renderSelectedDeviceOperations()}
           </>
         ) : null}
-        <article className="fresh-hero-card">
-          <div>
-            <span className="section-eyebrow">Perangkat terpilih</span>
-            <h2>{selectedDevice.deviceName}</h2>
-            <LongText value={selectedDevice.deviceId} label="ID perangkat" className="mono" maxLength={34} />
-            {selectedDevice.deviceAlias ? <small>Nama asli: {selectedDevice.rawDeviceName}</small> : null}
-          </div>
-          <div className="fresh-actions device-hero-actions">
-            <StatusChip status={selectedDeviceBadge.status} label={selectedDeviceBadge.label} />
-            <ActionButton className="secondary-button" onClick={() => openAliasModal(selectedDevice)}>Edit alias</ActionButton>
-          </div>
-        </article>
-        <section className="fresh-metric-grid">
-          {renderFreshMetric("Terakhir tersambung", formatRelativeTime(selectedDevice.deviceRecord?.last_seen, now), "Heartbeat agent terbaru", Activity)}
-          {renderFreshMetric("Layanan aktif", selectedDevice.runningCount, "Service yang sedang berjalan", Server, "good")}
-          {renderFreshMetric("Proses berkas", selectedDevice.fileJobCount, "Job file aktif", FileText)}
-          {renderFreshMetric("Perlu perhatian", selectedDevice.issueCount, "Error/offline/missing", AlertTriangle, selectedDevice.issueCount ? "warn" : "")}
-          <FeatureDeviceUpdateCard
-            deviceRecord={selectedDevice.deviceRecord}
-            deviceStatus={selectedDevice.deviceStatus}
-            busy={busyAction === `${selectedDevice.deviceId}:device:update`}
-            onUpdate={() => queueCommand(selectedDevice.deviceId, null, "update")}
-            showAction
-          />
-        </section>
-        <article className="fresh-panel">
+        <article className="fresh-panel compact-device-access-panel">
           <SectionHeader
-            eyebrow="Akses"
-            title="Tautan E-Rapor"
-            description="Tautan utama disingkat di layar dan detail lengkap tetap tersedia lewat overlay."
+            eyebrow={options.compact ? "Detail perangkat" : "Akses"}
+            title={options.compact ? selectedDevice.deviceName : "Tautan E-Rapor"}
+            description={options.compact ? "Akses utama dan detail teknis perangkat disimpan ringkas." : "Tautan utama disingkat di layar dan detail lengkap tetap tersedia lewat overlay."}
             actions={<GuestPublicLinkActions url={selectedGuestUrl} label={`Tautan akses untuk ${selectedDevice.deviceName}`} compact onActionComplete={setError} onFeedback={handleInlineFeedback} />}
           />
           <div className="fresh-link-bar">
@@ -4956,12 +5059,11 @@ export default function App() {
             <StatusChip status={accessTunnelBadge.status} label={accessTunnelBadge.label} />
           </div>
         </article>
-        <article className="fresh-panel tunnel-settings-panel">
-          <SectionHeader
-            eyebrow="Tunnel"
-            title="Provider link publik"
-            description="Saat device pulih dari hibernate, agent akan membuang tunnel lama, membuat tunnel baru, lalu melaporkan link terbaru."
-          />
+        <details className="fresh-panel compact-detail-disclosure tunnel-settings-panel">
+          <summary>
+            <span>Detail tunnel</span>
+            <strong>Provider link publik dan token Ngrok</strong>
+          </summary>
           <div className="tunnel-settings-status">
             <StatusChip status="ready" label={`Default: ${tunnelPreferredProvider === "ngrok" ? "Ngrok" : "Cloudflared"}`} />
             <StatusChip status={ngrokConfigured ? "ready" : "idle"} label={ngrokConfigured ? "Token ngrok tersimpan" : "Token ngrok belum ada"} />
@@ -5010,45 +5112,7 @@ export default function App() {
               Simpan provider
             </ActionButton>
           </div>
-        </article>
-        {(isSuperAdmin || isOperator) ? (
-          <article className="fresh-panel">
-            <SectionHeader
-              eyebrow="Agent"
-              title="Kontrol agent"
-              description="Kontrol ini memengaruhi agent perangkat secara penuh. Stop agent akan menghentikan layanan yang dikelola, tetapi heartbeat online perangkat tetap dijaga."
-            />
-            <div className="fresh-actions agent-command-actions">
-              <ActionButton
-                className="primary-button"
-                icon={Play}
-                busy={busyAction === `${selectedDevice.deviceId}:device:agent_start`}
-                disabled={busyAction !== ""}
-                onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_start")}
-              >
-                Start Agent
-              </ActionButton>
-              <ActionButton
-                className="secondary-button"
-                icon={Square}
-                busy={busyAction === `${selectedDevice.deviceId}:device:agent_stop`}
-                disabled={busyAction !== ""}
-                onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_stop")}
-              >
-                Stop Agent
-              </ActionButton>
-              <ActionButton
-                className="secondary-button"
-                icon={RotateCcw}
-                busy={busyAction === `${selectedDevice.deviceId}:device:agent_restart`}
-                disabled={busyAction !== ""}
-                onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_restart")}
-              >
-                Restart Agent
-              </ActionButton>
-            </div>
-          </article>
-        ) : null}
+        </details>
         <article className="fresh-panel">
           <SectionHeader eyebrow="Services" title="Kontrol layanan" description="Tombol pada tiap kartu hanya memengaruhi layanan tersebut, bukan seluruh perangkat." />
           {renderFreshServiceList()}
@@ -5109,10 +5173,13 @@ export default function App() {
             />
           ) : null}
         </article>
-        <article className="fresh-panel">
-          <SectionHeader eyebrow="Detail cepat" title={selectedDevice?.deviceName || "Belum ada perangkat"} description="Ringkasan perangkat terpilih." />
-          {renderFreshDeviceDetail({ compact: true })}
-        </article>
+        {renderSelectedDeviceOperations()}
+        {selectedDevice ? (
+          <section className="compact-device-detail-panel">
+            <SectionHeader eyebrow="Detail cepat" title={selectedDevice.deviceName} description="Akses, tunnel, dan layanan diringkas agar halaman tetap padat." />
+            {renderFreshDeviceDetail({ compact: true })}
+          </section>
+        ) : null}
       </section>
     );
   }

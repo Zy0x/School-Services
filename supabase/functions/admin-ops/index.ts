@@ -278,10 +278,33 @@ function sanitizeCommandAction(value: unknown) {
     restart_service: "agent_restart",
   };
   const normalized = aliases[action] || action;
-  if (["start", "stop", "kill", "update", "agent_start", "agent_stop", "agent_restart"].includes(normalized)) {
+  if (["start", "stop", "kill", "update", "agent_start", "agent_stop", "agent_restart", "configure_tunnel"].includes(normalized)) {
     return normalized;
   }
   throw new Error(`Aksi command tidak dikenali: ${action || "kosong"}.`);
+}
+
+function sanitizeTunnelProvider(value: unknown, fallback = "cloudflare") {
+  const provider = String(value || fallback).trim().toLowerCase();
+  if (provider === "cloudflare" || provider === "ngrok") {
+    return provider;
+  }
+  throw new Error("Provider tunnel tidak dikenali.");
+}
+
+function buildTunnelProviderOrder(preferredProvider: string) {
+  return preferredProvider === "ngrok" ? ["ngrok", "cloudflare"] : ["cloudflare", "ngrok"];
+}
+
+function sanitizeNgrokAuthtoken(value: unknown) {
+  const token = String(value || "").trim();
+  if (!token) {
+    return "";
+  }
+  if (token.length > 512 || !/^[A-Za-z0-9_\-.]+$/.test(token)) {
+    throw new Error("Format auth token ngrok tidak valid.");
+  }
+  return token;
 }
 
 function isLegacyServiceCommandAction(value: unknown) {
@@ -510,12 +533,12 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
   ] = await Promise.all([
     buildQuery("services")
       .select(
-        "device_id, service_name, port, status, desired_state, last_error, public_url, last_ping, location_status, resolved_path, location_details"
+        "device_id, service_name, port, status, desired_state, last_error, public_url, last_ping, location_status, resolved_path, location_details, tunnel_state, last_public_url, tunnel_last_error, tunnel_provider"
       )
       .order("device_id", { ascending: true })
       .order("service_name", { ascending: true }),
     buildQuery("devices")
-      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name")
+      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name, tunnel_preferred_provider, tunnel_provider_order, tunnel_ngrok_configured, tunnel_settings_updated_at")
       .order("device_name", { ascending: true }),
     buildQuery("agent_logs")
       .select("*")
@@ -1040,8 +1063,9 @@ async function queueScopedCommand(
 ) {
   const deviceId = String(body.deviceId || "").trim();
   const action = sanitizeCommandAction(body.commandAction || body.command || body.actionName);
-  const deviceWideAction = ["kill", "update", "agent_start", "agent_stop", "agent_restart"].includes(action);
+  const deviceWideAction = ["kill", "update", "agent_start", "agent_stop", "agent_restart", "configure_tunnel"].includes(action);
   const serviceName = deviceWideAction ? null : String(body.serviceName || "").trim();
+  let payload: Record<string, unknown> | null = null;
   await requireDeviceAccess(service, actor, deviceId);
 
   if (!deviceWideAction && !serviceName) {
@@ -1066,6 +1090,36 @@ async function queueScopedCommand(
       );
     }
   }
+  if (action === "configure_tunnel") {
+    const preferredProvider = sanitizeTunnelProvider(body.provider);
+    const ngrokAuthtoken = sanitizeNgrokAuthtoken(body.ngrokAuthtoken);
+    const providerOrder = buildTunnelProviderOrder(preferredProvider);
+    payload = {
+      tunnel: {
+        preferredProvider,
+        providerOrder,
+        ngrokAuthtoken: ngrokAuthtoken || undefined,
+      },
+    };
+
+    const devicePatch: Record<string, unknown> = {
+      tunnel_preferred_provider: preferredProvider,
+      tunnel_provider_order: providerOrder,
+      tunnel_settings_updated_at: new Date().toISOString(),
+    };
+    if (ngrokAuthtoken) {
+      devicePatch.tunnel_ngrok_configured = true;
+    }
+
+    const { error: updateError } = await service
+      .from("devices")
+      .update(devicePatch)
+      .eq("device_id", deviceId);
+
+    if (updateError) {
+      throw updateError;
+    }
+  }
 
   const { data, error } = await service
     .from("commands")
@@ -1073,6 +1127,7 @@ async function queueScopedCommand(
       device_id: deviceId,
       service_name: serviceName,
       action,
+      payload,
       status: "pending",
     })
     .select("*")

@@ -87,6 +87,9 @@ Agent membutuhkan:
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-supabase-anon-key
 CLOUDFLARED_PATH=C:\path\to\cloudflared.exe
+NGROK_PATH=C:\path\to\ngrok.exe
+NGROK_AUTHTOKEN=your-ngrok-authtoken
+TUNNEL_PROVIDERS=cloudflare,ngrok
 ```
 
 Script admin Supabase membutuhkan `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_PASSWORD`, `ADMIN_EMAIL`, dan opsional `SUPABASE_ACCESS_TOKEN` untuk deploy Edge Functions.
@@ -193,7 +196,8 @@ Frontend akan tersedia di port `8080`, backend di port `8081`.
 - Pastikan agent berjalan dan perangkat sudah terdaftar.
 - Pastikan koneksi internet aktif.
 - Tunggu retry tunnel beberapa saat, lalu refresh halaman Guest.
-- Jika status Cloudflare throttled/rate-limited, biarkan cooldown selesai; agent akan membersihkan log tunnel lama dan mencoba ulang.
+- Jika status Cloudflare throttled/rate-limited, agent akan membersihkan log tunnel lama dan mencoba ulang. Bila `ngrok.exe` tersedia melalui `NGROK_PATH`, PATH, atau runtime config, agent akan memakai ngrok sebagai fallback otomatis.
+- Jika laptop hibernate/sleep, link tunnel publik tidak dapat digunakan karena origin lokal ikut mati. Setelah perangkat aktif kembali, agent akan mendeteksi jeda resume, membuat tunnel baru, dan mempublish URL terbaru ke Guest Mode. Untuk akses yang harus tetap hidup selama laptop mati, gunakan host yang selalu menyala seperti server/VM atau matikan hibernate pada perangkat host.
 
 ### Preview Web App gagal
 

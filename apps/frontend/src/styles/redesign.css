@@ -3938,6 +3938,8 @@ textarea {
   min-height: 52px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .collapsible-sidebar .app-nav-list {
@@ -5259,6 +5261,88 @@ textarea {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.tunnel-settings-panel {
+  gap: 14px;
+}
+
+.tunnel-settings-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tunnel-settings-status small {
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.tunnel-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tunnel-provider-option {
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 13px;
+  border: 1px solid rgba(32, 58, 86, 0.14);
+  border-radius: var(--radius-control);
+  background: #ffffff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tunnel-provider-option:hover {
+  border-color: rgba(72, 166, 217, 0.5);
+  background: #f7fbfd;
+}
+
+.tunnel-provider-option.is-active {
+  border-color: var(--purple);
+  background: #eef6fb;
+}
+
+.tunnel-provider-option:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.tunnel-provider-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: #e2f3fb;
+  color: var(--purple);
+}
+
+.tunnel-provider-option strong,
+.tunnel-provider-option small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tunnel-provider-option small {
+  margin-top: 4px;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.tunnel-token-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
 .masked-field input,
 label > input,
 label > select,
@@ -5395,7 +5479,9 @@ label > textarea {
 }
 
 @media (max-width: 920px) {
-  .agent-command-actions {
+  .agent-command-actions,
+  .tunnel-provider-grid,
+  .tunnel-token-row {
     grid-template-columns: 1fr;
   }
 

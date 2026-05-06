@@ -60,6 +60,7 @@ async function executeCommands({
         Object.prototype.hasOwnProperty.call(overrides, "lastError")
           ? overrides.lastError
           : snapshot.lastError,
+      tunnelProvider: tunnelManager.getStatusSnapshot(serviceName)?.provider || null,
       ...locationPayload,
     });
   }
@@ -148,6 +149,16 @@ async function executeCommands({
           serviceName: null,
           action: command.action,
         });
+      } else if (command.action === "configure_tunnel") {
+        const settings = await tunnelManager.configureSettings(command.payload || {});
+        logger.info("Command configure_tunnel completed.", {
+          serviceName: null,
+          action: command.action,
+          preferredProvider: settings.preferredProvider,
+          providerOrder: settings.providerOrder,
+          ngrokAvailable: settings.ngrokAvailable,
+          ngrokConfigured: settings.ngrokConfigured,
+        });
       } else if (command.action === "kill") {
         await tunnelManager.stopAll();
         for (const service of serviceManager.list()) {
@@ -167,6 +178,7 @@ async function executeCommands({
             publicUrl: null,
             desiredState: snapshot.desiredState,
             lastError: "Agent stopped by remote command.",
+            tunnelProvider: tunnelManager.getStatusSnapshot(service.serviceName)?.provider || null,
             ...locationPayload,
           });
         }
@@ -219,6 +231,7 @@ async function executeCommands({
               publicUrl: null,
               desiredState: snapshot.desiredState,
               lastError: "Agent update is running.",
+              tunnelProvider: tunnelManager.getStatusSnapshot(service.serviceName)?.provider || null,
               ...locationPayload,
             });
           }
@@ -277,6 +290,7 @@ async function executeCommands({
             publicUrl: tunnelManager.getPublicUrl(command.service_name),
             desiredState: snapshot.desiredState,
             lastError: snapshot.lastError || error.message,
+            tunnelProvider: tunnelManager.getStatusSnapshot(command.service_name)?.provider || null,
             ...locationPayload,
           });
         } catch (statusError) {

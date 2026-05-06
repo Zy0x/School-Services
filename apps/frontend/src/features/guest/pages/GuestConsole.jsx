@@ -24,6 +24,17 @@ import {
 import { DeviceUpdateCard, UpdateProgressModal } from "../../dashboard/components/updates.jsx";
 import { PublicLinkActions, SiteFooter } from "../components/GuestActions.jsx";
 
+function getTunnelProviderBadgeModel(value) {
+  const provider = String(value || "").trim().toLowerCase();
+  if (provider === "ngrok") {
+    return { status: "ready", label: "Tunnel: Ngrok", name: "Ngrok" };
+  }
+  if (provider === "cloudflare" || provider === "cloudflared") {
+    return { status: "ready", label: "Tunnel: Cloudflared", name: "Cloudflared" };
+  }
+  return { status: "idle", label: "Tunnel: menunggu", name: "Menunggu" };
+}
+
 export function GuestConsole({ deviceId }) {
   const [state, setState] = useState({ device: null, service: null });
   const [loading, setLoading] = useState(true);
@@ -208,6 +219,7 @@ export function GuestConsole({ deviceId }) {
     guestStatus.overallStatus === "offline" ||
     guestStatus.overallStatus === "blocked";
   const serviceLabel = formatServiceDisplayName(service?.service_name || "rapor");
+  const tunnelProviderBadge = getTunnelProviderBadgeModel(service?.tunnel_provider);
   const loginUrl = buildAuthUrl({
     mode: "login",
     linkDeviceId: deviceId,
@@ -241,9 +253,16 @@ export function GuestConsole({ deviceId }) {
     {
       label: "Tautan akses",
       value: guestStatus.publicLabel,
-      helper: "Ketersediaan URL publik E-Rapor",
+      helper: tunnelProviderBadge.label,
       icon: CircleArrowUp,
       tone: guestStatus.publicStatus === "ready" ? "good" : guestStatus.publicStatus === "disabled" ? "warn" : "",
+    },
+    {
+      label: "Tunnel publik",
+      value: tunnelProviderBadge.name,
+      helper: "Provider link akses saat ini",
+      icon: CircleArrowUp,
+      tone: tunnelProviderBadge.status === "ready" ? "good" : "warn",
     },
     {
       label: "Terakhir tersambung",
@@ -292,6 +311,7 @@ export function GuestConsole({ deviceId }) {
               <div className="guest-hero-status">
                 <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
                 <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
+                <StatusChip status={tunnelProviderBadge.status} label={tunnelProviderBadge.label} />
               </div>
             </div>
           </article>
@@ -351,6 +371,7 @@ export function GuestConsole({ deviceId }) {
                       onCopySuccess={() => handleGuestFeedback("Tautan publik berhasil disalin.", "success", "Tautan disalin")}
                       onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin tautan publik.", "error", "Salin gagal")}
                     />
+                    <StatusChip status={tunnelProviderBadge.status} label={tunnelProviderBadge.label} />
                   </div>
                   <div className="guest-link-focus-actions guest-link-hero-actions">
                     <ActionButton
@@ -406,6 +427,10 @@ export function GuestConsole({ deviceId }) {
                     <div>
                       <span>Kesiapan aplikasi</span>
                       <strong>{service?.location_status || "unknown"}</strong>
+                    </div>
+                    <div>
+                      <span>Provider tunnel</span>
+                      <strong>{tunnelProviderBadge.name}</strong>
                     </div>
                   </div>
 

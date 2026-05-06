@@ -8,12 +8,14 @@ import {
   ChevronDown,
   ChevronsLeft,
   ChevronsRight,
+  Cloud,
   Download,
   Eye,
   FileText,
   FolderOpen,
   Gauge,
   Info,
+  KeyRound,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -484,6 +486,17 @@ function getPublicUrlLabel(service) {
     return "Tautan disiapkan";
   }
   return "Tautan akses";
+}
+
+function getTunnelProviderBadgeModel(value) {
+  const provider = String(value || "").trim().toLowerCase();
+  if (provider === "ngrok") {
+    return { status: "ready", label: "Tunnel: Ngrok", name: "Ngrok" };
+  }
+  if (provider === "cloudflare" || provider === "cloudflared") {
+    return { status: "ready", label: "Tunnel: Cloudflared", name: "Cloudflared" };
+  }
+  return { status: "idle", label: "Tunnel: menunggu", name: "Menunggu" };
 }
 
 function formatVersionLabel(version, releaseTag) {
@@ -1460,6 +1473,12 @@ function getCommandCopy(action, serviceName, versionLabel = "") {
     return {
       pending: `Update agent${versionLabel ? ` ke ${versionLabel}` : ""} sedang dipersiapkan.`,
       success: "Update agent selesai.",
+    };
+  }
+  if (action === "configure_tunnel") {
+    return {
+      pending: "Preferensi tunnel dikirim. Agent akan membuat tunnel baru dan memperbarui link akses.",
+      success: "Preferensi tunnel aktif dan link akses diperbarui.",
     };
   }
   return {
@@ -2949,6 +2968,8 @@ export default function App() {
   const [filesView, setFilesView] = useState("storage");
   const [deleteArtifactTarget, setDeleteArtifactTarget] = useState(null);
   const [pendingCommandStates, setPendingCommandStates] = useState([]);
+  const [tunnelProviderDraft, setTunnelProviderDraft] = useState("cloudflare");
+  const [ngrokTokenDraft, setNgrokTokenDraft] = useState("");
   const [updateModal, setUpdateModal] = useState({
     open: false,
     deviceId: "",
@@ -3564,7 +3585,7 @@ export default function App() {
   const selectedDeviceBadge = getDeviceStatusBadgeModel(selectedDevice?.deviceStatus || "offline");
   const activeCommandExecution =
     pendingCommandStates[0] ||
-    (/:(start|stop|agent_start|agent_stop|agent_restart|update)$/.test(busyAction)
+    (/:(start|stop|agent_start|agent_stop|agent_restart|update|configure_tunnel)$/.test(busyAction)
       ? {
           action: busyAction.split(":").pop() || "command",
           deviceId: busyAction.split(":")[0] || "",
@@ -3599,6 +3620,12 @@ export default function App() {
           ? deviceEntries.find((entry) => entry.deviceId === activityDeviceId)?.deviceName || activityDeviceId
           : "",
   });
+
+  useEffect(() => {
+    const preferredProvider = selectedDevice?.deviceRecord?.tunnel_preferred_provider || "cloudflare";
+    setTunnelProviderDraft(preferredProvider === "ngrok" ? "ngrok" : "cloudflare");
+    setNgrokTokenDraft("");
+  }, [selectedDevice?.deviceId, selectedDevice?.deviceRecord?.tunnel_preferred_provider]);
 
   useEffect(() => {
     if (!autoUpdatingDevice) {
@@ -4018,7 +4045,7 @@ export default function App() {
     }
   }
 
-  async function queueCommand(deviceId, serviceName, action) {
+  async function queueCommand(deviceId, serviceName, action, payload = {}) {
     setBusyAction(`${deviceId}:${serviceName || "device"}:${action}`);
     setError("");
     const updateVersion = selectedDevice && selectedDevice.deviceId === deviceId
@@ -4039,6 +4066,7 @@ export default function App() {
         deviceId,
         serviceName,
         commandAction: action,
+        ...payload,
       });
       if (["start", "stop", "agent_start", "agent_stop", "agent_restart"].includes(action)) {
         setPendingCommandStates((current) => [
@@ -4082,6 +4110,31 @@ export default function App() {
     } finally {
       setBusyAction("");
     }
+  }
+
+  async function saveTunnelSettings() {
+    if (!selectedDevice) {
+      return;
+    }
+
+    const provider = tunnelProviderDraft === "ngrok" ? "ngrok" : "cloudflare";
+    const ngrokAuthtoken = ngrokTokenDraft.trim();
+    if (
+      provider === "ngrok" &&
+      !ngrokAuthtoken &&
+      !selectedDevice.deviceRecord?.tunnel_ngrok_configured
+    ) {
+      const message = "Auth token ngrok wajib diisi saat ngrok belum pernah dikonfigurasi untuk device ini.";
+      setError(message);
+      pushToast("Token ngrok diperlukan", message, "error");
+      return;
+    }
+
+    await queueCommand(selectedDevice.deviceId, null, "configure_tunnel", {
+      provider,
+      ngrokAuthtoken,
+    });
+    setNgrokTokenDraft("");
   }
 
   async function updateDeviceStatus(deviceId, status) {
@@ -4736,6 +4789,7 @@ export default function App() {
           const serviceLabel = formatServiceDisplayName(service.service_name);
           const runtimeBadge = getServiceStatusBadgeModel(service.serviceStatus);
           const publicBadge = getPublicLinkBadgeModel(service);
+          const tunnelProviderBadge = getTunnelProviderBadgeModel(service.tunnel_provider);
           const runningNow = service.serviceStatus === "running" && service.desired_state !== "stopped";
           return (
             <article
@@ -4751,6 +4805,7 @@ export default function App() {
                 <div className="fresh-pill-group">
                   <StatusChip status={runtimeBadge.status} label={runtimeBadge.label} />
                   <StatusChip status={publicBadge.status} label={publicBadge.label} />
+                  <StatusChip status={tunnelProviderBadge.status} label={tunnelProviderBadge.label} />
                 </div>
               </div>
               <div className="fresh-data-grid">
@@ -4773,6 +4828,10 @@ export default function App() {
                 <div>
                   <span>Update status</span>
                   <strong>{formatRelativeTime(service.last_ping, now)}</strong>
+                </div>
+                <div>
+                  <span>Provider tunnel</span>
+                  <strong>{tunnelProviderBadge.name}</strong>
                 </div>
               </div>
               {service.location_details?.message ? (
@@ -4822,6 +4881,30 @@ export default function App() {
       return <EmptyState title="Belum ada perangkat aktif" description="Dashboard akan terisi setelah perangkat tersedia." />;
     }
 
+    const tunnelPreferredProvider = selectedDevice.deviceRecord?.tunnel_preferred_provider || "cloudflare";
+    const ngrokConfigured = Boolean(selectedDevice.deviceRecord?.tunnel_ngrok_configured);
+    const tunnelUpdatedAt = selectedDevice.deviceRecord?.tunnel_settings_updated_at;
+    const accessService =
+      selectedDevice.services.find((service) => service.service_name === "rapor") ||
+      selectedDevice.services[0] ||
+      null;
+    const accessTunnelBadge = getTunnelProviderBadgeModel(accessService?.tunnel_provider || tunnelPreferredProvider);
+    const tunnelBusy = busyAction === `${selectedDevice.deviceId}:device:configure_tunnel`;
+    const providerOptions = [
+      {
+        value: "cloudflare",
+        label: "Cloudflared",
+        description: "Default ringan untuk link publik cepat.",
+        icon: Cloud,
+      },
+      {
+        value: "ngrok",
+        label: "Ngrok",
+        description: "Opsi fallback saat Cloudflared gagal atau tidak stabil.",
+        icon: KeyRound,
+      },
+    ];
+
     return (
       <section className="fresh-section-stack">
         {selectedTab === "devices" && !options.compact ? (
@@ -4870,6 +4953,62 @@ export default function App() {
           />
           <div className="fresh-link-bar">
             <LongText value={selectedGuestUrl} href={selectedGuestUrl} label="Tautan akses" className="mono" maxLength={70} />
+            <StatusChip status={accessTunnelBadge.status} label={accessTunnelBadge.label} />
+          </div>
+        </article>
+        <article className="fresh-panel tunnel-settings-panel">
+          <SectionHeader
+            eyebrow="Tunnel"
+            title="Provider link publik"
+            description="Saat device pulih dari hibernate, agent akan membuang tunnel lama, membuat tunnel baru, lalu melaporkan link terbaru."
+          />
+          <div className="tunnel-settings-status">
+            <StatusChip status="ready" label={`Default: ${tunnelPreferredProvider === "ngrok" ? "Ngrok" : "Cloudflared"}`} />
+            <StatusChip status={ngrokConfigured ? "ready" : "idle"} label={ngrokConfigured ? "Token ngrok tersimpan" : "Token ngrok belum ada"} />
+            {tunnelUpdatedAt ? <small>Diubah {formatRelativeTime(tunnelUpdatedAt, now)}</small> : null}
+          </div>
+          <div className="tunnel-provider-grid" role="radiogroup" aria-label="Provider tunnel">
+            {providerOptions.map((option) => {
+              const OptionIcon = option.icon;
+              const active = tunnelProviderDraft === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={`tunnel-provider-option ${active ? "is-active" : ""}`}
+                  onClick={() => setTunnelProviderDraft(option.value)}
+                  disabled={tunnelBusy}
+                >
+                  <span className="tunnel-provider-icon">
+                    <OptionIcon size={18} strokeWidth={2.2} aria-hidden="true" />
+                  </span>
+                  <span>
+                    <strong>{option.label}</strong>
+                    <small>{option.description}</small>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="tunnel-token-row">
+            <SharedPasswordField
+              label="Auth token ngrok"
+              value={ngrokTokenDraft}
+              onChange={(event) => setNgrokTokenDraft(event.target.value)}
+              placeholder={ngrokConfigured ? "Isi hanya jika ingin mengganti token" : "Masukkan auth token ngrok"}
+              autoComplete="off"
+              disabled={tunnelBusy}
+            />
+            <ActionButton
+              className="primary-button"
+              busy={tunnelBusy}
+              disabled={busyAction !== "" || !selectedDevice}
+              onClick={saveTunnelSettings}
+            >
+              Simpan provider
+            </ActionButton>
           </div>
         </article>
         {(isSuperAdmin || isOperator) ? (

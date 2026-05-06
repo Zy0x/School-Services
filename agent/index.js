@@ -340,7 +340,11 @@ async function main() {
 
   const tunnelManager = new TunnelManager({
     cloudflaredPath: config.cloudflaredPath,
+    ngrokPath: config.tunnel.ngrokPath,
+    ngrokAuthtoken: config.tunnel.ngrokAuthtoken,
+    ngrokUrl: config.tunnel.ngrokUrl,
     mode: config.tunnel.mode,
+    providerOrder: config.tunnel.providerOrder,
     startSpacingMs: config.tunnel.startSpacingMs,
     startupTimeoutMs: config.tunnel.startupTimeoutMs,
     retryDelaysMs: config.tunnel.retryDelaysMs,
@@ -395,12 +399,20 @@ async function main() {
             publicUrl,
             desiredState: serviceManager.getDesiredState(service.serviceName),
             lastError: null,
+            tunnelProvider: tunnelManager.getStatusSnapshot(service.serviceName)?.provider || null,
             ...locationPayload,
           }),
         null
       );
     },
   });
+
+  function buildDevicePayload() {
+    return {
+      ...device,
+      tunnelSettings: tunnelManager.getSettingsSnapshot(),
+    };
+  }
 
   let shuttingDown = false;
 
@@ -447,6 +459,7 @@ async function main() {
             publicUrl: null,
             desiredState: serviceManager.getDesiredState(service.serviceName),
             lastError: stopLocalServices ? null : "Agent stopped.",
+            tunnelProvider: tunnelManager.getStatusSnapshot(service.serviceName)?.provider || null,
           });
         }
       } catch (error) {
@@ -472,7 +485,7 @@ async function main() {
   logger.info(`Registering device ${device.deviceId} (${device.deviceName})`);
   const registrationResult = await trySupabase(
     "register-device",
-    () => supabaseApi.registerDevice(device),
+    () => supabaseApi.registerDevice(buildDevicePayload()),
     false
   );
   remoteState.registered = registrationResult !== false;
@@ -561,6 +574,7 @@ async function main() {
           publicUrl: tunnelManager.getPublicUrl(serviceName),
           desiredState: snapshot.desiredState,
           lastError: tunnelSnapshot.lastError || snapshot.lastError,
+          tunnelProvider: tunnelSnapshot.provider || null,
           ...locationPayload,
         }),
       null
@@ -687,7 +701,7 @@ async function main() {
     if (!remoteState.registered) {
       const registered = await trySupabase(
         "register-device-retry",
-        () => supabaseApi.registerDevice(device),
+        () => supabaseApi.registerDevice(buildDevicePayload()),
         false
       );
       remoteState.registered = registered !== false;
@@ -696,7 +710,7 @@ async function main() {
     const heartbeatOk = await trySupabase(
       "heartbeat-device",
       async () => {
-        await supabaseApi.heartbeatDevice(device);
+        await supabaseApi.heartbeatDevice(buildDevicePayload());
         return true;
       },
       false
@@ -797,6 +811,7 @@ async function main() {
                 desiredState: snapshot.desiredState,
                 lastError,
                 tunnelState: "blocked",
+                tunnelProvider: null,
                 lastPublicUrl: null,
                 tunnelLastError: lastError,
                 ...locationPayload,
@@ -853,6 +868,7 @@ async function main() {
               desiredState: snapshot.desiredState,
               lastError,
               tunnelState: refreshedTunnelSnapshot?.state || null,
+              tunnelProvider: refreshedTunnelSnapshot?.provider || null,
               lastPublicUrl:
                 tunnelManager.getLastKnownPublicUrl(service.serviceName) || publicUrl || null,
               tunnelLastError: refreshedTunnelSnapshot?.lastError || null,
@@ -874,6 +890,7 @@ async function main() {
               publicUrl: tunnelManager.getPublicUrl(service.serviceName),
               desiredState: serviceManager.getDesiredState(service.serviceName),
               lastError: error.message,
+              tunnelProvider: tunnelManager.getStatusSnapshot(service.serviceName)?.provider || null,
               ...locationPayload,
             }),
           null

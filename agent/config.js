@@ -78,6 +78,27 @@ function resolveCloudflaredPath(overridePath) {
   return existing || "cloudflared";
 }
 
+function resolveExecutableFromPath(fileName) {
+  const pathValue = process.env.PATH || "";
+  const candidates = pathValue
+    .split(path.delimiter)
+    .filter(Boolean)
+    .map((entry) => path.join(entry, fileName));
+  return resolveFirstExistingPath(candidates);
+}
+
+function resolveNgrokPath(overridePath) {
+  const baseDir = getInstallDir();
+  const fileCandidates = [
+    overridePath,
+    process.env.NGROK_PATH,
+    ...buildAncestorCandidates(process.cwd(), "ngrok.exe"),
+    ...buildAncestorCandidates(baseDir, "ngrok.exe"),
+    resolveExecutableFromPath("ngrok.exe"),
+  ];
+  return resolveFirstExistingPath(fileCandidates);
+}
+
 function resolveConfigRelativePaths(filePaths, runtimeConfigPath) {
   if (!Array.isArray(filePaths)) {
     return [];
@@ -154,6 +175,7 @@ function loadConfig() {
     overrides.supabase?.anonKey ||
     "";
   const cloudflaredPath = resolveCloudflaredPath(overrides.cloudflaredPath);
+  const ngrokPath = resolveNgrokPath(overrides.ngrokPath || overrides.tunnel?.ngrokPath);
   const loopIntervalMs = Number(
     overrides.loopIntervalMs || process.env.AGENT_LOOP_INTERVAL_MS || 5000
   );
@@ -191,6 +213,16 @@ function loadConfig() {
         .map((value) => Number(value))
         .filter(Number.isFinite)
     : [10000, 30000, 60000, 120000, 300000];
+  const tunnelProviderOrder = Array.isArray(overrides.tunnel?.providers)
+    ? overrides.tunnel.providers
+    : String(
+        overrides.tunnel?.providers ||
+          process.env.TUNNEL_PROVIDERS ||
+          "cloudflare,ngrok"
+      )
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
   const raporPort = Number(mergedServices.rapor?.port || 8535);
   const oneDriveRoot =
     process.env.OneDrive ||
@@ -263,6 +295,7 @@ function loadConfig() {
   return {
     runtimeConfigPath,
     cloudflaredPath,
+    ngrokPath,
     loopIntervalMs,
     localLogPath,
     localLogMaxBytes,
@@ -278,6 +311,18 @@ function loadConfig() {
       globalCooldownMs: tunnelGlobalCooldownMs,
       startupTimeoutMs: tunnelStartupTimeoutMs,
       retryDelaysMs: tunnelRetryDelaysMs,
+      providerOrder: tunnelProviderOrder,
+      ngrokPath,
+      ngrokAuthtoken:
+        overrides.tunnel?.ngrokAuthtoken ||
+        overrides.ngrokAuthtoken ||
+        process.env.NGROK_AUTHTOKEN ||
+        null,
+      ngrokUrl:
+        overrides.tunnel?.ngrokUrl ||
+        overrides.ngrokUrl ||
+        process.env.NGROK_URL ||
+        null,
     },
     supabase: {
       url: supabaseUrl,

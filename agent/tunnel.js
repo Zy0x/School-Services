@@ -7,16 +7,38 @@ const { getStateDir } = require("./paths");
 const RetryManager = require("./retryManager");
 
 const TRY_CLOUDFLARE_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi;
+const NGROK_PATTERN = /https:\/\/[a-z0-9.-]+\.ngrok(?:-free)?\.(?:app|dev|io)/gi;
 const RATE_LIMIT_PATTERN = /rate[- ]limited|429|error code:\s*1015|too many requests/i;
 const NOT_READY_PATTERN = /not ready|failed to unmarshal quick tunnel/i;
 const PUBLIC_URL_PROBE_TIMEOUT_MS = 5000;
+const PROVIDERS = {
+  cloudflare: {
+    key: "cloudflare",
+    label: "Cloudflare",
+    logSuffix: "cloudflared",
+    urlPattern: TRY_CLOUDFLARE_PATTERN,
+  },
+  ngrok: {
+    key: "ngrok",
+    label: "ngrok",
+    logSuffix: "ngrok",
+    urlPattern: NGROK_PATTERN,
+  },
+};
 
 class TunnelManager {
   constructor(options) {
     this.cloudflaredPath = options.cloudflaredPath;
+    this.ngrokPath = options.ngrokPath || null;
+    this.ngrokAuthtoken = options.ngrokAuthtoken || null;
+    this.ngrokUrl = options.ngrokUrl || null;
     this.onUrl = options.onUrl;
     this.mode = "quick";
     this.stateDir = options.stateDir || path.join(getStateDir(), "tunnels");
+    this.settingsPath =
+      options.settingsPath || path.join(getStateDir(), "tunnel-settings.json");
+    this.providerOrder = this.normalizeProviderOrder(options.providerOrder);
+    this.loadPersistedSettings();
     this.startSpacingMs = Number(options.startSpacingMs || 5000);
     this.startupTimeoutMs = Number(options.startupTimeoutMs || 30000);
     this.retryManager =
@@ -28,6 +50,135 @@ class TunnelManager {
     this.tunnels = new Map();
     this.nextStartAllowedAt = 0;
     this.lastLoggedGlobalCooldownUntil = null;
+  }
+
+  loadPersistedSettings() {
+    if (!this.settingsPath || !fs.existsSync(this.settingsPath)) {
+      return;
+    }
+
+    try {
+      const settings = JSON.parse(fs.readFileSync(this.settingsPath, "utf8"));
+      if (settings.ngrokAuthtoken) {
+        this.ngrokAuthtoken = String(settings.ngrokAuthtoken);
+      }
+      if (Array.isArray(settings.providerOrder)) {
+        this.providerOrder = this.normalizeProviderOrder(settings.providerOrder);
+      }
+      if (settings.preferredProvider) {
+        this.setProviderOrder(String(settings.preferredProvider), {
+          persist: false,
+        });
+      }
+    } catch (error) {
+      logger.warn(`Failed to load tunnel settings: ${error.message}`, {
+        serviceName: null,
+        settingsPath: this.settingsPath,
+      });
+    }
+  }
+
+  persistSettings() {
+    if (!this.settingsPath) {
+      return;
+    }
+
+    fs.mkdirSync(path.dirname(this.settingsPath), { recursive: true });
+    fs.writeFileSync(
+      this.settingsPath,
+      `${JSON.stringify(
+        {
+          preferredProvider: this.providerOrder[0] || "cloudflare",
+          providerOrder: this.providerOrder,
+          ngrokAuthtoken: this.ngrokAuthtoken || null,
+          ngrokConfigured: Boolean(this.ngrokAuthtoken),
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+  }
+
+  setProviderOrder(preferredProvider, options = {}) {
+    const preferred = String(preferredProvider || "cloudflare").trim().toLowerCase();
+    const fallback = preferred === "ngrok" ? "cloudflare" : "ngrok";
+    this.providerOrder = this.normalizeProviderOrder([preferred, fallback]);
+    if (options.persist !== false) {
+      this.persistSettings();
+    }
+  }
+
+  getSettingsSnapshot() {
+    return {
+      preferredProvider: this.providerOrder[0] || "cloudflare",
+      providerOrder: this.providerOrder,
+      ngrokConfigured: Boolean(this.ngrokAuthtoken),
+      ngrokAvailable: Boolean(this.ngrokPath),
+      updatedAt: fs.existsSync(this.settingsPath)
+        ? fs.statSync(this.settingsPath).mtime.toISOString()
+        : null,
+    };
+  }
+
+  async configureSettings(settings = {}) {
+    const tunnelSettings = settings.tunnel || settings;
+    const preferredProvider = String(
+      tunnelSettings.preferredProvider || tunnelSettings.provider || this.providerOrder[0]
+    ).trim().toLowerCase();
+
+    if (tunnelSettings.ngrokAuthtoken) {
+      this.ngrokAuthtoken = String(tunnelSettings.ngrokAuthtoken).trim();
+    }
+    this.setProviderOrder(preferredProvider);
+
+    for (const serviceName of this.listTrackedServiceNames()) {
+      const tunnel = this.getOrCreateTunnel(serviceName);
+      tunnel.provider = this.providerOrder[0] || tunnel.provider || "cloudflare";
+      tunnel.providerFailures = [];
+      tunnel.requiresFreshStart = true;
+      tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
+      tunnel.publicUrl = null;
+      tunnel.lastError = "Preferensi tunnel diperbarui. Menunggu tunnel baru tersambung.";
+      tunnel.lastFailureCategory = "settings_update";
+      tunnel.nextRetryAt = null;
+      tunnel.retryAttempt = 0;
+      tunnel.startedAt = null;
+      tunnel.startupDeadlineAt = null;
+      tunnel.state = "reconnecting";
+      await this.killTunnelProcess(serviceName, tunnel);
+      this.deleteLog(serviceName);
+      this.persistTunnelState(serviceName, tunnel);
+    }
+
+    return this.getSettingsSnapshot();
+  }
+
+  normalizeProviderOrder(providerOrder) {
+    const requested = Array.isArray(providerOrder)
+      ? providerOrder
+      : String(providerOrder || "cloudflare,ngrok").split(",");
+    const normalized = [];
+
+    for (const item of requested) {
+      const provider = String(item || "").trim().toLowerCase();
+      if (!PROVIDERS[provider] || normalized.includes(provider)) {
+        continue;
+      }
+
+      if (provider === "ngrok" && !this.ngrokPath) {
+        continue;
+      }
+
+      if (provider === "cloudflare" && !this.cloudflaredPath) {
+        continue;
+      }
+
+      normalized.push(provider);
+    }
+
+    return normalized.length > 0 ? normalized : ["cloudflare"];
   }
 
   getSystem32Path() {
@@ -55,14 +206,23 @@ class TunnelManager {
     };
   }
 
+  getProviderLogPath(serviceName, providerKey) {
+    const provider = PROVIDERS[providerKey] || PROVIDERS.cloudflare;
+    this.ensureStateDir();
+    return path.join(this.stateDir, `${serviceName}.${provider.logSuffix}.log`);
+  }
+
   getFallbackTunnelDir() {
     const fallbackDir = path.join(os.tmpdir(), "school-services", "tunnels");
     fs.mkdirSync(fallbackDir, { recursive: true });
     return fallbackDir;
   }
 
-  getWritableTunnelPaths(serviceName) {
-    const primaryPaths = this.getTunnelPaths(serviceName);
+  getWritableTunnelPaths(serviceName, providerKey = "cloudflare") {
+    const primaryPaths = {
+      logPath: this.getProviderLogPath(serviceName, providerKey),
+      metaPath: this.getTunnelPaths(serviceName).metaPath,
+    };
 
     try {
       fs.writeFileSync(primaryPaths.logPath, "", "utf8");
@@ -74,7 +234,10 @@ class TunnelManager {
 
       const fallbackDir = this.getFallbackTunnelDir();
       const fallbackPaths = {
-        logPath: path.join(fallbackDir, `${serviceName}.cloudflared.log`),
+        logPath: path.join(
+          fallbackDir,
+          `${serviceName}.${PROVIDERS[providerKey]?.logSuffix || "tunnel"}.log`
+        ),
         metaPath: primaryPaths.metaPath,
       };
       logger.warn(
@@ -95,6 +258,7 @@ class TunnelManager {
     const tunnel = this.tunnels.get(serviceName);
     const paths = new Set([
       this.getTunnelPaths(serviceName).logPath,
+      this.getProviderLogPath(serviceName, "ngrok"),
       tunnel?.logPath,
     ]);
 
@@ -139,7 +303,13 @@ class TunnelManager {
     return {
       child: null,
       pid: payload.pid || null,
-      logPath: payload.logPath || this.getTunnelPaths(serviceName).logPath,
+      provider: payload.provider || this.providerOrder[0] || "cloudflare",
+      providerFailures: Array.isArray(payload.providerFailures)
+        ? payload.providerFailures
+        : [],
+      logPath:
+        payload.logPath ||
+        this.getProviderLogPath(serviceName, payload.provider || this.providerOrder[0]),
       publicUrl: payload.publicUrl || null,
       lastKnownPublicUrl: payload.lastKnownPublicUrl || payload.publicUrl || null,
       hiddenAt: payload.hiddenAt || null,
@@ -162,6 +332,8 @@ class TunnelManager {
   persistTunnelState(serviceName, tunnel) {
     this.writeMeta(serviceName, {
       pid: tunnel.pid,
+      provider: tunnel.provider,
+      providerFailures: tunnel.providerFailures || [],
       logPath: tunnel.logPath,
       publicUrl: tunnel.publicUrl,
       lastKnownPublicUrl: tunnel.lastKnownPublicUrl,
@@ -246,14 +418,16 @@ class TunnelManager {
     }
   }
 
-  readPublicUrlFromLog(logPath) {
+  readPublicUrlFromLog(logPath, providerKey = "cloudflare") {
     if (!logPath || !fs.existsSync(logPath)) {
       return null;
     }
 
     try {
       const content = fs.readFileSync(logPath, "utf8");
-      const matches = content.match(TRY_CLOUDFLARE_PATTERN);
+      const provider = PROVIDERS[providerKey] || PROVIDERS.cloudflare;
+      provider.urlPattern.lastIndex = 0;
+      const matches = content.match(provider.urlPattern);
       if (!matches || matches.length === 0) {
         return null;
       }
@@ -339,6 +513,91 @@ class TunnelManager {
     tunnel.startupDeadlineAt = null;
   }
 
+  getProviderLabel(providerKey) {
+    return (PROVIDERS[providerKey] || PROVIDERS.cloudflare).label;
+  }
+
+  getNextProvider(currentProvider) {
+    const currentIndex = this.providerOrder.indexOf(currentProvider);
+    const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+    return this.providerOrder.slice(startIndex).find((provider) => {
+      if (provider === "ngrok") {
+        return Boolean(this.ngrokPath);
+      }
+      if (provider === "cloudflare") {
+        return Boolean(this.cloudflaredPath);
+      }
+      return false;
+    });
+  }
+
+  shouldFallbackProvider(tunnel, issue) {
+    if (!issue || tunnel.provider !== "cloudflare") {
+      return false;
+    }
+
+    return issue.category === "rate_limit" && Boolean(this.getNextProvider(tunnel.provider));
+  }
+
+  async killTunnelProcess(serviceName, tunnel) {
+    if (!tunnel.pid) {
+      return;
+    }
+
+    try {
+      await this.runCapture(this.getCmdPath(), ["/c", `taskkill /PID ${tunnel.pid} /T /F`]);
+    } catch (error) {
+      if (!this.isProcessNotFoundError(error)) {
+        logger.warn(`Failed to stop ${this.getProviderLabel(tunnel.provider)} tunnel for ${serviceName}: ${error.message}`, {
+          serviceName,
+          pid: tunnel.pid,
+          provider: tunnel.provider,
+        });
+      }
+    }
+  }
+
+  async switchToNextProvider(serviceName, tunnel, issue) {
+    const nextProvider = this.getNextProvider(tunnel.provider);
+    if (!nextProvider) {
+      return false;
+    }
+
+    const previousProvider = tunnel.provider;
+    await this.killTunnelProcess(serviceName, tunnel);
+    this.deleteLog(serviceName);
+    this.retryManager.reset(serviceName);
+    tunnel.providerFailures = [
+      ...(tunnel.providerFailures || []),
+      {
+        provider: previousProvider,
+        category: issue.category,
+        message: issue.message,
+        failedAt: new Date().toISOString(),
+      },
+    ].slice(-5);
+    tunnel.provider = nextProvider;
+    tunnel.pid = null;
+    tunnel.child = null;
+    tunnel.publicUrl = null;
+    tunnel.logPath = this.getProviderLogPath(serviceName, nextProvider);
+    tunnel.lastError = `${this.getProviderLabel(previousProvider)} tunnel failed; switching to ${this.getProviderLabel(nextProvider)}.`;
+    tunnel.nextRetryAt = null;
+    tunnel.retryAttempt = 0;
+    tunnel.lastFailureCategory = issue.category;
+    tunnel.startedAt = null;
+    tunnel.startupDeadlineAt = null;
+    tunnel.state = "idle";
+    this.persistTunnelState(serviceName, tunnel);
+    logger.warn(`Switching ${serviceName} tunnel from ${this.getProviderLabel(previousProvider)} to ${this.getProviderLabel(nextProvider)}.`, {
+      serviceName,
+      provider: nextProvider,
+      previousProvider,
+      reason: issue.message,
+    });
+    return true;
+  }
+
   applyRetryState(serviceName, tunnel, issue) {
     const retry = this.retryManager.scheduleRetry(serviceName, {
       category: issue.category,
@@ -358,8 +617,9 @@ class TunnelManager {
     tunnel.state = "waiting_retry";
     this.persistTunnelState(serviceName, tunnel);
 
-    logger.warn(`Cloudflare tunnel for ${serviceName} is not ready: ${retry.reason}`, {
+    logger.warn(`${this.getProviderLabel(tunnel.provider)} tunnel for ${serviceName} is not ready: ${retry.reason}`, {
       serviceName,
+      provider: tunnel.provider,
       retryDelayMs: retry.delayMs,
       retryAttempt: retry.attempt,
       nextRetryAt: new Date(retry.nextRetryAt).toISOString(),
@@ -382,14 +642,14 @@ class TunnelManager {
 
   describeFreshStartReason(reason) {
     if (reason === "network-reconnect" || reason === "reconnect") {
-      return "Jaringan berubah. Menunggu tunnel Cloudflare tersambung kembali.";
+      return "Jaringan berubah. Menunggu tunnel publik tersambung kembali.";
     }
 
     if (reason === "resume-recovery") {
-      return "Koneksi perangkat dipulihkan. Menunggu tunnel Cloudflare tersambung kembali.";
+      return "Koneksi perangkat dipulihkan. Menunggu tunnel publik tersambung kembali.";
     }
 
-    return "Tunnel Cloudflare sedang disegarkan kembali.";
+    return "Tunnel publik sedang disegarkan kembali.";
   }
 
   async probePublicUrl(publicUrl) {
@@ -420,7 +680,7 @@ class TunnelManager {
           ok: false,
           category: "network_switch",
           message:
-            "Jaringan sedang berpindah atau tunnel Cloudflare lama sudah tidak berlaku. Menunggu tunnel baru tersambung.",
+            "Jaringan sedang berpindah atau tunnel publik lama sudah tidak berlaku. Menunggu tunnel baru tersambung.",
           restartRecommended: true,
         };
       }
@@ -445,7 +705,7 @@ class TunnelManager {
         ok: false,
         category: "network_switch",
         message:
-          "Koneksi publik belum stabil. Menunggu jaringan dan tunnel Cloudflare tersambung kembali.",
+          "Koneksi publik belum stabil. Menunggu jaringan dan tunnel publik tersambung kembali.",
         restartRecommended: true,
         details: error instanceof Error ? error.message : String(error),
       };
@@ -485,7 +745,7 @@ class TunnelManager {
       return null;
     }
 
-    const publicUrl = this.readPublicUrlFromLog(tunnel.logPath);
+    const publicUrl = this.readPublicUrlFromLog(tunnel.logPath, tunnel.provider);
     if (publicUrl) {
       const probe = await this.probePublicUrl(publicUrl);
       if (!probe.ok) {
@@ -516,6 +776,11 @@ class TunnelManager {
         return null;
       }
 
+      if (this.shouldFallbackProvider(tunnel, issue)) {
+        await this.switchToNextProvider(service.serviceName, tunnel, issue);
+        return null;
+      }
+
       this.applyRetryState(service.serviceName, tunnel, issue);
       return null;
     }
@@ -524,7 +789,7 @@ class TunnelManager {
       if (tunnel.startupDeadlineAt && Date.now() >= tunnel.startupDeadlineAt) {
         this.applyRetryState(service.serviceName, tunnel, {
           category: "transient",
-          message: "Cloudflare tunnel startup timed out before a public URL was detected.",
+          message: `${this.getProviderLabel(tunnel.provider)} tunnel startup timed out before a public URL was detected.`,
         });
         return null;
       }
@@ -553,8 +818,9 @@ class TunnelManager {
       tunnel.nextRetryAt &&
       Date.now() >= tunnel.nextRetryAt
     ) {
-      logger.info(`Retry cooldown elapsed for ${service.serviceName}; clearing stale Cloudflare tunnel state.`, {
+      logger.info(`Retry cooldown elapsed for ${service.serviceName}; clearing stale tunnel state.`, {
         serviceName: service.serviceName,
+        provider: tunnel.provider,
         lastError: tunnel.lastError || null,
         lastFailureCategory: tunnel.lastFailureCategory || null,
       });
@@ -572,9 +838,33 @@ class TunnelManager {
       return tunnel;
     }
 
+    if (
+      tunnel.state === "starting" &&
+      !tunnel.pid &&
+      !tunnel.startedAt &&
+      tunnel.nextRetryAt &&
+      Date.now() >= tunnel.nextRetryAt
+    ) {
+      logger.info(`Queued tunnel start expired for ${service.serviceName}; clearing stale start state.`, {
+        serviceName: service.serviceName,
+        provider: tunnel.provider,
+        queuedUntil: new Date(tunnel.nextRetryAt).toISOString(),
+      });
+      tunnel.nextRetryAt = null;
+      tunnel.lastError = null;
+      tunnel.state = "idle";
+      this.persistTunnelState(service.serviceName, tunnel);
+      return tunnel;
+    }
+
     const issue = this.extractTunnelIssue(this.readLogContent(tunnel.logPath));
     if (issue) {
       if (this.shouldKeepExistingRetry(tunnel, issue)) {
+        return tunnel;
+      }
+
+      if (this.shouldFallbackProvider(tunnel, issue)) {
+        await this.switchToNextProvider(service.serviceName, tunnel, issue);
         return tunnel;
       }
 
@@ -591,7 +881,7 @@ class TunnelManager {
     ) {
       this.applyRetryState(service.serviceName, tunnel, {
         category: "transient",
-        message: "Cloudflare tunnel process exited before publishing a public URL.",
+        message: `${this.getProviderLabel(tunnel.provider)} tunnel process exited before publishing a public URL.`,
       });
       return tunnel;
     }
@@ -631,6 +921,7 @@ class TunnelManager {
     if (!tunnel) {
       return {
         state: "idle",
+        provider: this.providerOrder[0] || "cloudflare",
         publicUrl: null,
         lastKnownPublicUrl: null,
         lastError: null,
@@ -641,6 +932,7 @@ class TunnelManager {
 
     return {
       state: tunnel.state,
+      provider: tunnel.provider,
       publicUrl: this.getPublicUrl(serviceName),
       lastKnownPublicUrl: this.getLastKnownPublicUrl(serviceName),
       hiddenAt: tunnel.hiddenAt,
@@ -669,8 +961,7 @@ class TunnelManager {
       if (
         tunnel.state === "starting" &&
         !tunnel.pid &&
-        !tunnel.startedAt &&
-        !tunnel.nextRetryAt
+        !tunnel.startedAt
       ) {
         continue;
       }
@@ -703,19 +994,58 @@ class TunnelManager {
     ];
   }
 
+  buildNgrokArgs(service) {
+    const args = [
+      "http",
+      `http://${service.host}:${service.port}`,
+      "--log=stdout",
+      "--log-format=logfmt",
+      "--host-header=localhost",
+    ];
+
+    if (this.ngrokUrl) {
+      args.push("--url", this.ngrokUrl);
+    }
+
+    if (this.ngrokAuthtoken) {
+      args.push("--authtoken", this.ngrokAuthtoken);
+    }
+
+    return args;
+  }
+
+  buildProviderArgs(service, providerKey) {
+    if (providerKey === "ngrok") {
+      return this.buildNgrokArgs(service);
+    }
+
+    return this.buildCloudflaredArgs(service);
+  }
+
+  getProviderCommand(providerKey) {
+    if (providerKey === "ngrok") {
+      return this.ngrokPath;
+    }
+
+    return this.cloudflaredPath;
+  }
+
   async startTunnelProcess(service, tunnel) {
-    logger.info(`Starting Cloudflare tunnel for ${service.serviceName}`, {
+    const provider = tunnel.provider || this.providerOrder[0] || "cloudflare";
+    logger.info(`Starting ${this.getProviderLabel(provider)} tunnel for ${service.serviceName}`, {
       serviceName: service.serviceName,
+      provider,
       mode: this.mode,
     });
 
-    const args = this.buildCloudflaredArgs(service);
-    const { logPath } = this.getWritableTunnelPaths(service.serviceName);
+    const command = this.getProviderCommand(provider);
+    const args = this.buildProviderArgs(service, provider);
+    const { logPath } = this.getWritableTunnelPaths(service.serviceName, provider);
     const stdoutFd = fs.openSync(logPath, "a");
 
     try {
       const child = await new Promise((resolve, reject) => {
-        const spawned = spawn(this.cloudflaredPath, args, {
+        const spawned = spawn(command, args, {
           detached: true,
           stdio: ["ignore", stdoutFd, stdoutFd],
           windowsHide: true,
@@ -728,6 +1058,7 @@ class TunnelManager {
       child.unref();
       tunnel.child = null;
       tunnel.pid = child.pid;
+      tunnel.provider = provider;
       tunnel.logPath = logPath;
       tunnel.hidden = false;
       tunnel.hiddenAt = null;
@@ -758,9 +1089,10 @@ class TunnelManager {
       (await this.isPidAlive(tunnel.pid))
     ) {
       logger.info(
-        `Restarting Cloudflare tunnel for ${service.serviceName} after connectivity change`,
+        `Restarting ${this.getProviderLabel(tunnel.provider)} tunnel for ${service.serviceName} after connectivity change`,
         {
           serviceName: service.serviceName,
+          provider: tunnel.provider,
           publicUrl: tunnel.lastKnownPublicUrl || null,
           lastError: tunnel.lastError || null,
         }
@@ -775,8 +1107,9 @@ class TunnelManager {
         tunnel.requiresFreshStart || hiddenDurationMs > 15000;
 
       if (shouldForceFreshStart) {
-        logger.info(`Restarting Cloudflare tunnel for ${service.serviceName} instead of reusing stale tunnel`, {
+        logger.info(`Restarting ${this.getProviderLabel(tunnel.provider)} tunnel for ${service.serviceName} instead of reusing stale tunnel`, {
           serviceName: service.serviceName,
+          provider: tunnel.provider,
           publicUrl: tunnel.lastKnownPublicUrl || tunnel.publicUrl || null,
           hiddenDurationMs,
           requiresFreshStart: tunnel.requiresFreshStart,
@@ -786,8 +1119,9 @@ class TunnelManager {
       }
 
       if (tunnel.publicUrl) {
-        logger.info(`Reusing existing Cloudflare tunnel for ${service.serviceName}`, {
+        logger.info(`Reusing existing ${this.getProviderLabel(tunnel.provider)} tunnel for ${service.serviceName}`, {
           serviceName: service.serviceName,
+          provider: tunnel.provider,
           publicUrl: tunnel.publicUrl,
         });
       }
@@ -820,8 +1154,9 @@ class TunnelManager {
     if (startBlocker) {
       const queueToken = `${startBlocker.serviceName}:${startBlocker.state}:${startBlocker.nextRetryAt || "none"}`;
       if (tunnel.lastQueueLogAt !== queueToken) {
-        logger.info(`Queued Cloudflare tunnel start for ${service.serviceName}`, {
+        logger.info(`Queued tunnel start for ${service.serviceName}`, {
           serviceName: service.serviceName,
+          provider: tunnel.provider,
           waitingForService: startBlocker.serviceName,
           waitingForState: startBlocker.state,
           waitingUntil: startBlocker.nextRetryAt
@@ -840,8 +1175,9 @@ class TunnelManager {
 
     if (Date.now() < this.nextStartAllowedAt) {
       if (tunnel.lastQueueLogAt !== this.nextStartAllowedAt) {
-        logger.info(`Queued Cloudflare tunnel start for ${service.serviceName}`, {
+        logger.info(`Queued tunnel start for ${service.serviceName}`, {
           serviceName: service.serviceName,
+          provider: tunnel.provider,
           queuedUntil: new Date(this.nextStartAllowedAt).toISOString(),
         });
         tunnel.lastQueueLogAt = this.nextStartAllowedAt;
@@ -864,8 +1200,9 @@ class TunnelManager {
     }
 
     if (!tunnel.hidden) {
-      logger.info(`Suspending Cloudflare tunnel for ${serviceName}`, {
+      logger.info(`Suspending ${this.getProviderLabel(tunnel.provider)} tunnel for ${serviceName}`, {
         serviceName,
+        provider: tunnel.provider,
         publicUrl: tunnel.publicUrl,
       });
     }
@@ -894,8 +1231,9 @@ class TunnelManager {
       tunnel.startupDeadlineAt = null;
     }
     this.persistTunnelState(serviceName, tunnel);
-    logger.info(`Marked Cloudflare tunnel for fresh restart on next ensure`, {
+    logger.info(`Marked tunnel for fresh restart on next ensure`, {
       serviceName,
+      provider: tunnel.provider,
       reason,
       publicUrl: tunnel.lastKnownPublicUrl || tunnel.publicUrl || null,
     });
@@ -916,18 +1254,7 @@ class TunnelManager {
     const tunnel = this.getOrCreateTunnel(serviceName);
 
     tunnel.stopping = true;
-    if (tunnel.pid) {
-      try {
-        await this.runCapture(this.getCmdPath(), ["/c", `taskkill /PID ${tunnel.pid} /T /F`]);
-      } catch (error) {
-        if (!this.isProcessNotFoundError(error)) {
-          logger.warn(`Failed to stop Cloudflare tunnel for ${serviceName}: ${error.message}`, {
-            serviceName,
-            pid: tunnel.pid,
-          });
-        }
-      }
-    }
+    await this.killTunnelProcess(serviceName, tunnel);
 
     this.retryManager.reset(serviceName);
     this.tunnels.delete(serviceName);

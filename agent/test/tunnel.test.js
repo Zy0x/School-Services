@@ -53,3 +53,49 @@ test("extractTunnelIssue reports throttled quick tunnel requests without blaming
   assert.match(issue.message, /request was throttled/i);
   assert.doesNotMatch(issue.message, /machine/i);
 });
+
+test("queued starting tunnels without a process do not block each other", () => {
+  const { manager } = createManager();
+  const rapor = manager.getOrCreateTunnel("rapor");
+  const dapodik = manager.getOrCreateTunnel("dapodik");
+
+  Object.assign(rapor, {
+    state: "starting",
+    pid: null,
+    startedAt: null,
+    nextRetryAt: Date.now() + 30000,
+  });
+  Object.assign(dapodik, {
+    state: "starting",
+    pid: null,
+    startedAt: null,
+    nextRetryAt: Date.now() + 30000,
+  });
+
+  assert.equal(manager.getStartBlocker("rapor"), null);
+  assert.equal(manager.getStartBlocker("dapodik"), null);
+});
+
+test("Cloudflare rate limit switches to ngrok when fallback is configured", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "erapor-tunnel-"));
+  const manager = new TunnelManager({
+    cloudflaredPath: "cloudflared",
+    ngrokPath: "ngrok",
+    stateDir,
+    retryDelaysMs: [1],
+    globalCooldownMs: 1,
+  });
+  const service = {
+    serviceName: "rapor",
+    host: "127.0.0.1",
+    port: 8535,
+  };
+  const tunnel = manager.getOrCreateTunnel("rapor");
+  fs.writeFileSync(tunnel.logPath, 'status_code="429 Too Many Requests"\n', "utf8");
+
+  await manager.recoverTunnel(service);
+
+  assert.equal(tunnel.provider, "ngrok");
+  assert.equal(tunnel.state, "idle");
+  assert.match(tunnel.lastError, /switching to ngrok/i);
+});

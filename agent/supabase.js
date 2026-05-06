@@ -30,6 +30,19 @@ function createSupabaseApi(config) {
       payload.release_tag = device.releaseTag || null;
       payload.build_commit = device.buildCommit || null;
       payload.built_at = device.builtAt || null;
+      if (device.tunnelSettings) {
+        payload.tunnel_preferred_provider =
+          device.tunnelSettings.preferredProvider || "cloudflare";
+        payload.tunnel_provider_order = device.tunnelSettings.providerOrder || [
+          "cloudflare",
+          "ngrok",
+        ];
+        payload.tunnel_ngrok_configured = Boolean(
+          device.tunnelSettings.ngrokConfigured
+        );
+        payload.tunnel_settings_updated_at =
+          device.tunnelSettings.updatedAt || now;
+      }
     }
 
     return payload;
@@ -54,6 +67,7 @@ function createSupabaseApi(config) {
       payload.tunnel_state = service.tunnelState || null;
       payload.last_public_url = service.lastPublicUrl || service.publicUrl || null;
       payload.tunnel_last_error = service.tunnelLastError || null;
+      payload.tunnel_provider = service.tunnelProvider || null;
     }
 
     return payload;
@@ -232,7 +246,7 @@ function createSupabaseApi(config) {
   async function fetchPendingCommands(deviceId) {
     const { data, error } = await client
       .from("commands")
-      .select("id, device_id, service_name, action, status, created_at")
+      .select("id, device_id, service_name, action, status, payload, created_at")
       .eq("device_id", deviceId)
       .eq("status", "pending")
       .order("created_at", { ascending: true });
@@ -380,7 +394,7 @@ function createSupabaseApi(config) {
   async function markCommandDone(commandId) {
     const { error } = await client
       .from("commands")
-      .update({ status: "done" })
+      .update({ status: "done", payload: null })
       .eq("id", commandId);
 
     if (error) {

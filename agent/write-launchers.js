@@ -19,6 +19,8 @@ const runtimeConfigOutputPath = path.join(payloadDir, "agent.runtime.json");
 const buildInfoPath = path.join(payloadDir, "agent-build.json");
 const faviconSourcePath = path.join(repoRoot, "favicon.ico");
 const faviconOutputPath = path.join(payloadDir, "favicon.ico");
+const ngrokSourcePath = path.join(repoRoot, "ngrok.exe");
+const ngrokOutputPath = path.join(payloadDir, "ngrok.exe");
 
 function ensureDirectory(directoryPath) {
   fs.mkdirSync(directoryPath, { recursive: true });
@@ -262,10 +264,16 @@ function createFirewallRuleFunctions() {
     "  $agentExePath = Join-Path $installDir $agentExeName",
     "  $launcherExePath = Join-Path $installDir $launcherExeName",
     "  $bundledCloudflaredPath = Join-Path $installDir 'cloudflared.exe'",
+    "  $bundledNgrokPath = Join-Path $installDir 'ngrok.exe'",
     "  $runtimeCloudflaredPath = Join-Path $runtimeDir 'cloudflared.exe'",
+    "  $runtimeNgrokPath = Join-Path $runtimeDir 'ngrok.exe'",
     "  if (Test-Path $bundledCloudflaredPath) {",
     "    New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null",
     "    Copy-Item -LiteralPath $bundledCloudflaredPath -Destination $runtimeCloudflaredPath -Force",
+    "  }",
+    "  if (Test-Path $bundledNgrokPath) {",
+    "    New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null",
+    "    Copy-Item -LiteralPath $bundledNgrokPath -Destination $runtimeNgrokPath -Force",
     "  }",
     "  Remove-FirewallRuleGroup ($appName + ' ')",
     "  Ensure-FirewallRule ($appName + ' Agent Inbound') $agentExePath 'Inbound'",
@@ -273,6 +281,8 @@ function createFirewallRuleFunctions() {
     "  Ensure-FirewallRule ($appName + ' Launcher Outbound') $launcherExePath 'Outbound'",
     "  Ensure-FirewallRule ($appName + ' Cloudflared Inbound') $runtimeCloudflaredPath 'Inbound'",
     "  Ensure-FirewallRule ($appName + ' Cloudflared Outbound') $runtimeCloudflaredPath 'Outbound'",
+    "  Ensure-FirewallRule ($appName + ' ngrok Inbound') $runtimeNgrokPath 'Inbound'",
+    "  Ensure-FirewallRule ($appName + ' ngrok Outbound') $runtimeNgrokPath 'Outbound'",
     "}",
   ];
 }
@@ -333,6 +343,7 @@ function createPowerShellScripts() {
     'taskkill /F /IM $agentExeName /T *> $null',
     'taskkill /F /IM $legacyAgentExeName /T *> $null',
     'taskkill /F /IM cloudflared.exe /T *> $null',
+    'taskkill /F /IM ngrok.exe /T *> $null',
     'Get-CimInstance Win32_Process -Filter "Name = \'powershell.exe\'" -ErrorAction SilentlyContinue |',
     '  Where-Object {',
     '    $commandLine = [string]$_.CommandLine',
@@ -729,6 +740,10 @@ function main() {
 
   if (fs.existsSync(faviconSourcePath)) {
     fs.copyFileSync(faviconSourcePath, faviconOutputPath);
+  }
+
+  if (fs.existsSync(ngrokSourcePath)) {
+    fs.copyFileSync(ngrokSourcePath, ngrokOutputPath);
   }
 
   console.log(`Wrote installer payload files to ${payloadDir}`);

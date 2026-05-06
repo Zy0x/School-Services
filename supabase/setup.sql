@@ -14,7 +14,11 @@ create table if not exists public.devices (
   update_checked_at timestamptz,
   update_started_at timestamptz,
   update_error text,
-  update_asset_name text
+  update_asset_name text,
+  tunnel_preferred_provider text not null default 'cloudflare',
+  tunnel_provider_order text[] not null default array['cloudflare', 'ngrok'],
+  tunnel_ngrok_configured boolean not null default false,
+  tunnel_settings_updated_at timestamptz
 );
 
 create table if not exists public.services (
@@ -29,6 +33,10 @@ create table if not exists public.services (
   location_details jsonb,
   last_error text,
   public_url text,
+  tunnel_provider text,
+  tunnel_state text,
+  last_public_url text,
+  tunnel_last_error text,
   last_ping timestamptz not null default timezone('utc', now()),
   unique (device_id, service_name)
 );
@@ -37,7 +45,8 @@ create table if not exists public.commands (
   id bigint generated always as identity primary key,
   device_id text not null references public.devices(device_id) on delete cascade,
   service_name text,
-  action text not null check (action in ('start', 'stop', 'kill', 'update')),
+  action text not null check (action in ('start', 'stop', 'kill', 'update', 'agent_start', 'agent_stop', 'agent_restart', 'configure_tunnel')),
+  payload jsonb,
   status text not null default 'pending' check (status in ('pending', 'done')),
   created_at timestamptz not null default timezone('utc', now())
 );
@@ -86,8 +95,9 @@ create policy "open_update_services" on public.services
   for update using (true) with check (true);
 
 drop policy if exists "open_select_commands" on public.commands;
-create policy "open_select_commands" on public.commands
-  for select using (true);
+drop policy if exists "commands_no_client_select" on public.commands;
+create policy "commands_no_client_select" on public.commands
+  for select using (false);
 
 drop policy if exists "open_insert_commands" on public.commands;
 create policy "open_insert_commands" on public.commands

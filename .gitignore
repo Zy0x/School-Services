@@ -10,6 +10,7 @@ apps/backend/dist/
 .env.local
 *.log
 agent.runtime.json
+ngrok.exe
 Automation E-Rapor.bat
 .codex/
 agent/.state/

@@ -1,5 +1,6 @@
 {
   "cloudflaredPath": "${CLOUDFLARED_PATH}",
+  "ngrokPath": "${NGROK_PATH}",
   "loopIntervalMs": 5000,
   "localLogPath": ".\\logs\\school-services.log",
   "localLogMaxBytes": 5242880,
@@ -8,6 +9,9 @@
   },
   "tunnel": {
     "mode": "quick",
+    "providers": ["cloudflare", "ngrok"],
+    "ngrokAuthtoken": "${NGROK_AUTHTOKEN}",
+    "ngrokUrl": "${NGROK_URL}",
     "startSpacingMs": 5000,
     "globalCooldownMs": 60000,
     "startupTimeoutMs": 30000,

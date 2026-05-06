@@ -11,6 +11,7 @@ Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 - Script `npm run test` di root untuk menjalankan test agent dan build workspace.
 - Script `npm run agent:test` untuk validasi unit test agent.
 - Unit test self-updater dan tunnel recovery untuk memastikan rilis baru dan retry Cloudflare ditangani benar.
+- Fallback tunnel `ngrok` opsional ketika Cloudflare quick tunnel terkena rate-limit dan `ngrok.exe` tersedia.
 
 ### Changed
 
@@ -26,6 +27,7 @@ Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 - Retry tunnel Cloudflare kini membersihkan state/log lama setelah cooldown rate-limit selesai.
 - Pesan rate-limit Cloudflare diperjelas sebagai throttling request quick tunnel.
 - Fresh start tunnel kini mereset retry manager dan log lama sebelum reconnect.
+- State tunnel `starting` tanpa proses aktif tidak lagi bisa membuat antar-service saling menunggu selamanya.
 - Edge Function `admin-ops` menerima alias command legacy seperti `startService`, `stopService`, dan `restartService`.
 - Entry frontend diarahkan langsung ke `src/app/App.jsx` setelah wrapper route lama dihapus.
 

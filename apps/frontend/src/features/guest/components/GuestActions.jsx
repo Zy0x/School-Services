@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, Share2 } from "lucide-react";
+import { Copy } from "lucide-react";
 import githubIcon from "../../../assets/icons/github.png";
 import paypalIcon from "../../../assets/icons/paypal.png";
 import trakteerIcon from "../../../assets/icons/trakteer.png";
@@ -10,6 +10,26 @@ import { ActionButton } from "../../../components/ui/core.jsx";
 const PAYPAL_URL = "https://paypal.me/theamagenta";
 const TRAKTEER_URL = "https://trakteer.id/zy0x";
 const GITHUB_PROFILE_URL = "https://github.com/Zy0x";
+
+function WhatsAppIcon({ size = 16, ...props }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M12.02 3.35a8.42 8.42 0 0 0-7.18 12.83l-.96 3.5 3.62-.94a8.41 8.41 0 1 0 4.52-15.39Z"
+        fill="currentColor"
+        opacity="0.18"
+      />
+      <path
+        d="M12.02 2.75a9.02 9.02 0 0 0-7.82 13.5l-1.08 3.95a.72.72 0 0 0 .88.88l4.08-1.06a9.02 9.02 0 1 0 3.94-17.27Zm0 1.52a7.5 7.5 0 1 1-3.58 14.1.75.75 0 0 0-.55-.06l-2.96.77.78-2.85a.75.75 0 0 0-.09-.6 7.5 7.5 0 0 1 6.4-11.36Z"
+        fill="currentColor"
+      />
+      <path
+        d="M8.9 7.86c.18-.37.37-.38.54-.38h.46c.15 0 .36.05.55.44.2.43.67 1.49.73 1.6.05.1.09.23.01.37-.07.15-.11.23-.23.36l-.34.38c-.1.12-.22.25-.1.46.12.2.55.9 1.19 1.45.82.73 1.5.96 1.73 1.07.22.1.35.09.48-.06.14-.16.55-.65.7-.87.15-.23.3-.18.5-.11.2.07 1.32.62 1.55.73.22.12.37.17.42.27.05.1.05.6-.13 1.16-.18.55-1.05 1.05-1.45 1.09-.37.04-.84.06-1.36-.08-.31-.08-.71-.23-1.23-.45-2.16-.93-3.58-3.1-3.69-3.24-.1-.14-.88-1.17-.88-2.24 0-1.07.56-1.6.76-1.82Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
 
 export function SupportIcon({ kind }) {
   const icons = {
@@ -65,7 +85,7 @@ export function PublicLinkActions({
         <ActionButton className="secondary-button" disabled={disabled} icon={Copy} onClick={handleCopy}>
           Salin tautan
         </ActionButton>
-        <ActionButton className="secondary-button" disabled={disabled} icon={Share2} onClick={handleWhatsAppShare}>
+        <ActionButton className="secondary-button whatsapp-share-button" disabled={disabled} icon={WhatsAppIcon} onClick={handleWhatsAppShare}>
           Bagikan WhatsApp
         </ActionButton>
       </div>

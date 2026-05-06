@@ -5375,14 +5375,50 @@ label > textarea {
   width: min(340px, calc(100vw - 28px));
 }
 
+@keyframes toast-card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes command-card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes command-progress-sheen {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(240%);
+  }
+}
+
 .toast-card {
   position: relative;
-  padding: 14px 42px 14px 14px;
+  padding: 15px 44px 15px 15px;
   border-radius: 16px;
-  border: 1px solid rgba(67, 57, 109, 0.12);
-  background: rgba(253, 251, 246, 0.96);
-  box-shadow: var(--shadow-enterprise);
+  border: 1px solid rgba(40, 50, 84, 0.18);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 48px rgba(23, 30, 58, 0.2);
   backdrop-filter: blur(18px) saturate(1.18);
+  animation: toast-card-enter 260ms cubic-bezier(0.2, 0.9, 0.28, 1.18);
 }
 
 .toast-card strong {
@@ -5398,13 +5434,19 @@ label > textarea {
 }
 
 .toast-card.tone-success {
-  border-color: rgba(122, 167, 28, 0.28);
-  background: rgba(243, 255, 220, 0.96);
+  border-color: rgba(45, 157, 88, 0.34);
+  background:
+    linear-gradient(135deg, rgba(226, 255, 235, 0.98), rgba(255, 255, 255, 0.99)),
+    rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 48px rgba(34, 121, 70, 0.2);
 }
 
 .toast-card.tone-error {
-  border-color: rgba(217, 63, 76, 0.22);
-  background: rgba(255, 242, 243, 0.97);
+  border-color: rgba(217, 63, 76, 0.36);
+  background:
+    linear-gradient(135deg, rgba(255, 229, 232, 0.99), rgba(255, 255, 255, 0.99)),
+    rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 48px rgba(176, 45, 58, 0.22);
 }
 
 .toast-dismiss {
@@ -5427,19 +5469,24 @@ label > textarea {
   z-index: 70;
   display: grid;
   place-items: center;
-  background: rgba(247, 243, 238, 0.5);
-  backdrop-filter: blur(14px) saturate(1.08);
+  background:
+    radial-gradient(circle at 50% 42%, rgba(96, 55, 246, 0.22), transparent 32%),
+    rgba(18, 23, 45, 0.42);
+  backdrop-filter: blur(16px) saturate(1.18);
 }
 
 .command-progress-card {
   width: min(420px, calc(100vw - 28px));
-  padding: 20px;
-  border: 1px solid rgba(67, 57, 109, 0.12);
+  padding: 22px;
+  border: 1px solid rgba(96, 55, 246, 0.2);
   border-radius: 24px;
-  background: rgba(253, 251, 246, 0.96);
-  box-shadow: var(--shadow-enterprise);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 249, 255, 0.99)),
+    rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 80px rgba(18, 23, 45, 0.34);
   display: grid;
   gap: 10px;
+  animation: command-card-enter 260ms cubic-bezier(0.2, 0.9, 0.28, 1.12);
 }
 
 .command-progress-orb {
@@ -5474,8 +5521,19 @@ label > textarea {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #6037f6, #8fb5ff);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, #6037f6, #26b66f, #8fb5ff);
   transition: width 220ms ease;
+}
+
+.command-progress-track span::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.56), transparent);
+  animation: command-progress-sheen 1.25s ease-in-out infinite;
 }
 
 @media (max-width: 920px) {

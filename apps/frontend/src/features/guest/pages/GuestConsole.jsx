@@ -214,6 +214,12 @@ export function GuestConsole({ deviceId }) {
   const guestUpdate = getDeviceUpdateModel(state.device);
   const canOpenService = guestStatus.ready;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
+  const isServicePendingActive =
+    ["starting", "reconnecting", "waiting_retry"].includes(String(service?.status || "").toLowerCase()) ||
+    service?.desired_state === "running";
+  const isServiceActiveOrStarting = isRunning || isServicePendingActive;
+  const startDisabled = busy || isServiceActiveOrStarting;
+  const stopDisabled = busy || !isServiceActiveOrStarting;
   const isDeviceOffline =
     state.device?.deviceStatus === "offline" ||
     guestStatus.overallStatus === "offline" ||
@@ -334,7 +340,7 @@ export function GuestConsole({ deviceId }) {
                 <div className="guest-link-focus-actions guest-link-hero-actions">
                   <ActionButton
                     className="primary-button guest-open-button"
-                    disabled={busy}
+                    disabled={busy || !canOpenService}
                     onClick={handleOpenService}
                   >
                     Buka E-Rapor
@@ -431,10 +437,10 @@ export function GuestConsole({ deviceId }) {
                   </div>
                 </div>
                 <div className="guest-cta-row guest-control-actions">
-                  <ActionButton className="primary-button guest-cta-button guest-cta-start" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
+                  <ActionButton className="primary-button guest-cta-button guest-cta-start" busy={busy && commandModal.action === "start"} disabled={startDisabled} onClick={() => sendCommand("start")}>
                     Mulai
                   </ActionButton>
-                  <ActionButton className="secondary-button guest-cta-button guest-cta-stop" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
+                  <ActionButton className="secondary-button guest-cta-button guest-cta-stop" busy={busy && commandModal.action === "stop"} disabled={stopDisabled} onClick={() => sendCommand("stop")}>
                     Hentikan
                   </ActionButton>
                 </div>

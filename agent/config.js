@@ -174,6 +174,12 @@ function loadConfig() {
     process.env.SUPABASE_ANON_KEY ||
     overrides.supabase?.anonKey ||
     "";
+  const supabaseServiceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    overrides.supabase?.serviceKey ||
+    overrides.supabase?.secretKey ||
+    "";
   const cloudflaredPath = resolveCloudflaredPath(overrides.cloudflaredPath);
   const ngrokPath = resolveNgrokPath(overrides.ngrokPath || overrides.tunnel?.ngrokPath);
   const loopIntervalMs = Number(
@@ -327,6 +333,7 @@ function loadConfig() {
     supabase: {
       url: supabaseUrl,
       anonKey: supabaseAnonKey,
+      serviceKey: supabaseServiceKey,
     },
     fileAccess: {
       workspaceRoot: resolveConfigRelativePath(

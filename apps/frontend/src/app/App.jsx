@@ -3317,13 +3317,9 @@ export default function App() {
 
     handleVisibilityChange();
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", handleVisibilityChange);
-    window.addEventListener("blur", handleVisibilityChange);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", handleVisibilityChange);
-      window.removeEventListener("blur", handleVisibilityChange);
     };
   }, []);
 
@@ -3468,18 +3464,6 @@ export default function App() {
       window.clearInterval(refreshId);
     };
   }, [session, profile?.role, guestDeviceId, selectedTab, filesView]);
-
-  useEffect(() => {
-    if (!session || !profile || guestDeviceId || !pageVisible) {
-      return;
-    }
-
-    loadAll({
-      background: true,
-      includeArtifacts: selectedTab === "files" && filesView === "storage",
-    });
-    setNow(Date.now());
-  }, [pageVisible, session, profile?.role, guestDeviceId, selectedTab, filesView]);
 
   useEffect(() => {
     if (appRoute.section === "devices" && appRoute.deviceId) {

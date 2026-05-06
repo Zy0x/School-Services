@@ -90,6 +90,7 @@
   },
   "supabase": {
     "url": "${SUPABASE_URL}",
-    "anonKey": "${SUPABASE_ANON_KEY}"
+    "anonKey": "${SUPABASE_ANON_KEY}",
+    "serviceKey": "${SUPABASE_SERVICE_ROLE_KEY}"
   }
 }

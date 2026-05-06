@@ -322,6 +322,31 @@ function isMissingRelationError(error: unknown) {
   return code === "42P01" || (/device_tunnel_secrets/i.test(message) && /does not exist|schema cache/i.test(message));
 }
 
+function formatUnknownError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object") {
+    const details = error as Record<string, unknown>;
+    const message = String(details.message || details.error_description || details.details || "").trim();
+    const code = String(details.code || details.status || "").trim();
+    if (message && code) {
+      return `${message} (${code})`;
+    }
+    if (message) {
+      return message;
+    }
+    try {
+      return JSON.stringify(details);
+    } catch (_jsonError) {
+      return String(error);
+    }
+  }
+
+  return String(error);
+}
+
 async function getStoredNgrokAuthtoken(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   deviceId: string,
@@ -2320,7 +2345,7 @@ Deno.serve(async (request) => {
     return json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: formatUnknownError(error),
       },
       { status: 400 }
     );

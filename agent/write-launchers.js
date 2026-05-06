@@ -67,6 +67,14 @@ function loadPackagedRuntimeConfig() {
       process.env.SUPABASE_ANON_KEY ||
       packaged.supabase?.anonKey ||
       "",
+    serviceKey:
+      envValues.SUPABASE_SERVICE_ROLE_KEY ||
+      envValues.SUPABASE_SECRET_KEY ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_SECRET_KEY ||
+      packaged.supabase?.serviceKey ||
+      packaged.supabase?.secretKey ||
+      "",
   };
   const packagedLogPath = String(packaged.localLogPath || "").replace(/\//g, "\\").toLowerCase();
   if (!packaged.localLogPath || packagedLogPath.endsWith("\\logs\\agent.log")) {

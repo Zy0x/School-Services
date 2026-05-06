@@ -1,7 +1,7 @@
 const { createClient } = require("@supabase/supabase-js");
 
 function createSupabaseApi(config) {
-  const client = createClient(config.url, config.anonKey, {
+  const client = createClient(config.url, config.serviceKey || config.anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   let logWriteChain = Promise.resolve();

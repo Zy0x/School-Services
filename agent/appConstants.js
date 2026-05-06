@@ -2,6 +2,7 @@ const APP_NAME = "School Services";
 const APP_PUBLISHER = "School Services";
 const AGENT_EXE_NAME = "School Services Agent.exe";
 const LAUNCHER_EXE_NAME = "School Services.exe";
+const SUPERVISOR_EXE_NAME = "School Services Supervisor.exe";
 const STARTUP_TASK_NAME = "School Services Agent Startup";
 const STARTUP_TASK_DESCRIPTION =
   "Starts School Services agent automatically at system startup with highest privileges.";
@@ -14,6 +15,7 @@ module.exports = {
   APP_PUBLISHER,
   LAUNCHER_EXE_NAME,
   LEGACY_GUEST_SHORTCUT_NAME,
+  SUPERVISOR_EXE_NAME,
   STARTUP_TASK_DESCRIPTION,
   STARTUP_TASK_NAME,
   VERSIONED_INSTALLER_PREFIX,

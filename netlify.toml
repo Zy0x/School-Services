@@ -1,6 +1,12 @@
 [build]
   command = "npm run frontend:build"
   publish = "apps/frontend/dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/ngrok-proxy/*"
+  to = "/.netlify/functions/ngrok-proxy/:splat"
+  status = 200
 
 [[redirects]]
   from = "/*"

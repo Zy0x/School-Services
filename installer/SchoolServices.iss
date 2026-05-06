@@ -106,6 +106,7 @@ begin
   Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM "School Services Agent.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM "School Services.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM cloudflared.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM ngrok.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/Delete /TN "School Services Agent Startup" /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 

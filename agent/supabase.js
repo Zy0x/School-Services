@@ -159,7 +159,7 @@ function createSupabaseApi(config) {
   async function fetchDevice(deviceId) {
     const { data, error } = await client
       .from("devices")
-      .select("device_id, device_name, status, last_seen")
+      .select("*")
       .eq("device_id", deviceId)
       .single();
 
@@ -233,9 +233,25 @@ function createSupabaseApi(config) {
   async function fetchPendingCommands(deviceId) {
     const { data, error } = await client
       .from("commands")
-      .select("id, device_id, service_name, action, status, payload, created_at")
+      .select("*")
       .eq("device_id", deviceId)
       .eq("status", "pending")
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  async function fetchSupervisorCommands(deviceId) {
+    const { data, error } = await client
+      .from("commands")
+      .select("*")
+      .eq("device_id", deviceId)
+      .in("status", ["pending", "running"])
+      .in("action", ["agent_start", "agent_stop", "agent_restart", "update"])
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -381,12 +397,69 @@ function createSupabaseApi(config) {
   async function markCommandDone(commandId) {
     const { error } = await client
       .from("commands")
-      .update({ status: "done", payload: null })
+      .update({
+        status: "done",
+        payload: null,
+        progress_percent: 100,
+        phase: "done",
+        error: null,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", commandId);
 
     if (error) {
       throw error;
     }
+  }
+
+  async function updateCommandProgress(commandId, patch) {
+    const payload = {
+      updated_at: new Date().toISOString(),
+    };
+    if (Object.prototype.hasOwnProperty.call(patch, "status")) {
+      payload.status = patch.status;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "phase")) {
+      payload.phase = patch.phase;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "message")) {
+      payload.message = patch.message;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "error")) {
+      payload.error = patch.error;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "progressPercent")) {
+      payload.progress_percent = patch.progressPercent;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "startedAt")) {
+      payload.started_at = patch.startedAt;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "completedAt")) {
+      payload.completed_at = patch.completedAt;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "claimedBy")) {
+      payload.claimed_by = patch.claimedBy;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "claimedPid")) {
+      payload.claimed_pid = patch.claimedPid;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "payload")) {
+      payload.payload = patch.payload;
+    }
+
+    const { data, error } = await client
+      .from("commands")
+      .update(payload)
+      .eq("id", commandId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
   }
 
   async function insertAgentLog(entry) {
@@ -395,6 +468,7 @@ function createSupabaseApi(config) {
         const payload = {
           device_id: entry.deviceId,
           service_name: entry.serviceName || null,
+          command_id: entry.commandId || null,
           level: entry.level,
           message: entry.message,
           details: entry.details || null,
@@ -420,11 +494,13 @@ function createSupabaseApi(config) {
     fetchDevice,
     fetchNextFileJob,
     fetchServiceStates,
+    fetchSupervisorCommands,
     fetchPendingCommands,
     heartbeatDevice,
     insertAgentLog,
     insertFileAuditLog,
     markCommandDone,
+    updateCommandProgress,
     replaceFileRoots,
     registerDevice,
     updateDeviceUpdateState,

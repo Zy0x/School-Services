@@ -23,17 +23,16 @@ const FILE_BUCKETS = [
 const LOG_LIMIT = 120;
 const JOB_LIMIT = 80;
 const TRANSFER_HISTORY_LIMIT = 120;
-const DASHBOARD_PUBLIC_URL =
-  (Deno.env.get("DASHBOARD_PUBLIC_URL") || "https://school-services.netlify.app").replace(/\/+$/, "");
+const DASHBOARD_PUBLIC_URL = (
+  Deno.env.get("DASHBOARD_PUBLIC_URL") || "https://school-services.netlify.app"
+).replace(/\/+$/, "");
 
 function sanitizeSelection(selection: unknown) {
   if (!Array.isArray(selection)) {
     return [];
   }
 
-  return selection
-    .map((item) => String(item || "").trim())
-    .filter(Boolean);
+  return selection.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 function safeFileNameFromKey(objectKey: string) {
@@ -42,17 +41,24 @@ function safeFileNameFromKey(objectKey: string) {
 }
 
 function normalizeStorageKey(value: unknown) {
-  return String(value || "").trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return String(value || "")
+    .trim()
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
 }
 
-function isStorageFolderEntry(entry: Record<string, unknown> | null | undefined) {
-  return Boolean(entry) && !entry?.id && !entry?.updated_at && !entry?.created_at;
+function isStorageFolderEntry(
+  entry: Record<string, unknown> | null | undefined,
+) {
+  return (
+    Boolean(entry) && !entry?.id && !entry?.updated_at && !entry?.created_at
+  );
 }
 
 async function storageObjectExists(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   bucket: string,
-  objectKey: string
+  objectKey: string,
 ) {
   const cleanKey = normalizeStorageKey(objectKey);
   if (!bucket || !cleanKey) {
@@ -70,13 +76,15 @@ async function storageObjectExists(
     throw error;
   }
 
-  return (data || []).some((entry) => String(entry.name || "").trim() === fileName);
+  return (data || []).some(
+    (entry) => String(entry.name || "").trim() === fileName,
+  );
 }
 
 async function collectStorageKeysByPrefix(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   bucket: string,
-  prefix: string
+  prefix: string,
 ) {
   const normalizedPrefix = normalizeStorageKey(prefix);
   if (!bucket || !normalizedPrefix) {
@@ -88,10 +96,12 @@ async function collectStorageKeysByPrefix(
 
   while (folders.length) {
     const currentPrefix = folders.pop() || "";
-    const { data, error } = await service.storage.from(bucket).list(currentPrefix, {
-      limit: 1000,
-      sortBy: { column: "name", order: "asc" },
-    });
+    const { data, error } = await service.storage
+      .from(bucket)
+      .list(currentPrefix, {
+        limit: 1000,
+        sortBy: { column: "name", order: "asc" },
+      });
 
     if (error) {
       throw error;
@@ -133,8 +143,9 @@ function normalizeArtifactJob(job: Record<string, unknown>, deviceName = "") {
     fileName,
     deviceId: job.device_id || null,
     deviceName:
-      String(job.artifact_device_name || deviceName || job.device_id || "").trim() ||
-      "Device tidak diketahui",
+      String(
+        job.artifact_device_name || deviceName || job.device_id || "",
+      ).trim() || "Device tidak diketahui",
     sourcePath: job.source_path || job.artifact_source_label || null,
     destinationPath: job.destination_path || null,
     jobType: job.job_type || null,
@@ -152,7 +163,9 @@ function normalizeArtifactJob(job: Record<string, unknown>, deviceName = "") {
 }
 
 function sanitizeRole(value: unknown) {
-  const role = String(value || "").trim().toLowerCase();
+  const role = String(value || "")
+    .trim()
+    .toLowerCase();
   if (role === "operator" || role === "user") {
     return role;
   }
@@ -160,7 +173,9 @@ function sanitizeRole(value: unknown) {
 }
 
 function sanitizeStatus(value: unknown) {
-  const status = String(value || "").trim().toLowerCase();
+  const status = String(value || "")
+    .trim()
+    .toLowerCase();
   if (["pending", "approved", "rejected", "disabled"].includes(status)) {
     return status;
   }
@@ -179,7 +194,10 @@ function buildGuestPath(deviceId: string) {
   return `/guest/${encodeURIComponent(String(deviceId || "").trim())}`;
 }
 
-function buildOperatorEnvironmentName(displayName: string | null, email: string) {
+function buildOperatorEnvironmentName(
+  displayName: string | null,
+  email: string,
+) {
   const seed = displayName || email.split("@")[0] || "Operator";
   return `${seed} Workspace`;
 }
@@ -189,11 +207,15 @@ function isApprovedProfile(profile: Record<string, unknown> | null) {
 }
 
 function isSuperAdminProfile(profile: Record<string, unknown> | null) {
-  return Boolean(profile && profile.role === "super_admin" && isApprovedProfile(profile));
+  return Boolean(
+    profile && profile.role === "super_admin" && isApprovedProfile(profile),
+  );
 }
 
 function isOperatorProfile(profile: Record<string, unknown> | null) {
-  return Boolean(profile && profile.role === "operator" && isApprovedProfile(profile));
+  return Boolean(
+    profile && profile.role === "operator" && isApprovedProfile(profile),
+  );
 }
 
 async function requireApprovedActor(request: Request) {
@@ -204,7 +226,9 @@ async function requireApprovedActor(request: Request) {
   return actor;
 }
 
-async function generateReferralCode(service: Awaited<ReturnType<typeof getRequestActor>>["service"]) {
+async function generateReferralCode(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+) {
   const referral = await service.rpc("generate_referral_code");
   if (referral.error) {
     throw referral.error;
@@ -212,13 +236,18 @@ async function generateReferralCode(service: Awaited<ReturnType<typeof getReques
   return String(referral.data || "").trim();
 }
 
-async function getAccessibleDeviceIds(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
+async function getAccessibleDeviceIds(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+) {
   if (isSuperAdminProfile(actor.profile)) {
     return null;
   }
 
   if (isOperatorProfile(actor.profile)) {
-    const environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+    const environmentId = String(
+      actor.environment?.id || actor.profile?.primary_environment_id || "",
+    ).trim();
     if (!environmentId) {
       return [];
     }
@@ -233,7 +262,13 @@ async function getAccessibleDeviceIds(service: Awaited<ReturnType<typeof getRequ
       throw error;
     }
 
-    return [...new Set((data || []).map((row) => String(row.device_id || "").trim()).filter(Boolean))];
+    return [
+      ...new Set(
+        (data || [])
+          .map((row) => String(row.device_id || "").trim())
+          .filter(Boolean),
+      ),
+    ];
   }
 
   const { data, error } = await service
@@ -246,10 +281,20 @@ async function getAccessibleDeviceIds(service: Awaited<ReturnType<typeof getRequ
     throw error;
   }
 
-  return [...new Set((data || []).map((row) => String(row.device_id || "").trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      (data || [])
+        .map((row) => String(row.device_id || "").trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
-async function canAccessDevice(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>, deviceId: string) {
+async function canAccessDevice(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  deviceId: string,
+) {
   const accessible = await getAccessibleDeviceIds(service, actor);
   return accessible === null || accessible.includes(deviceId);
 }
@@ -257,7 +302,7 @@ async function canAccessDevice(service: Awaited<ReturnType<typeof getRequestActo
 async function requireDeviceAccess(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  deviceId: string
+  deviceId: string,
 ) {
   if (!deviceId) {
     throw new Error("deviceId wajib diisi.");
@@ -268,7 +313,9 @@ async function requireDeviceAccess(
 }
 
 function sanitizeCommandAction(value: unknown) {
-  const action = String(value || "").trim().toLowerCase();
+  const action = String(value || "")
+    .trim()
+    .toLowerCase();
   const aliases: Record<string, string> = {
     startservice: "start",
     stopservice: "stop",
@@ -278,21 +325,37 @@ function sanitizeCommandAction(value: unknown) {
     restart_service: "agent_restart",
   };
   const normalized = aliases[action] || action;
-  if (["start", "stop", "kill", "update", "agent_start", "agent_stop", "agent_restart", "configure_tunnel"].includes(normalized)) {
+  if (
+    [
+      "start",
+      "stop",
+      "kill",
+      "update",
+      "agent_start",
+      "agent_stop",
+      "agent_restart",
+      "configure_tunnel",
+    ].includes(normalized)
+  ) {
     return normalized;
   }
   throw new Error(`Aksi command tidak dikenali: ${action || "kosong"}.`);
 }
 
 function sanitizeTunnelProvider(value: unknown, fallback = "cloudflare") {
-  const provider = String(value || fallback).trim().toLowerCase();
+  const provider = String(value || fallback)
+    .trim()
+    .toLowerCase();
   if (provider.includes("ngrok")) {
     return "ngrok";
   }
   return "cloudflare";
 }
 
-function buildTunnelProviderOrder(preferredProvider: string, hasNgrokAuthtoken = false) {
+function buildTunnelProviderOrder(
+  preferredProvider: string,
+  hasNgrokAuthtoken = false,
+) {
   if (preferredProvider === "ngrok") {
     return ["ngrok", "cloudflare"];
   }
@@ -302,7 +365,9 @@ function buildTunnelProviderOrder(preferredProvider: string, hasNgrokAuthtoken =
 
 function sanitizeNgrokAuthtoken(value: unknown) {
   const rawToken = String(value || "").trim();
-  const commandMatch = rawToken.match(/(?:^|\s)(?:config\s+add-authtoken|authtoken)\s+(.+)$/i);
+  const commandMatch = rawToken.match(
+    /(?:^|\s)(?:config\s+add-authtoken|authtoken)\s+(.+)$/i,
+  );
   const token = (commandMatch ? commandMatch[1] : rawToken)
     .trim()
     .replace(/^['"]+|['"]+$/g, "");
@@ -316,10 +381,17 @@ function sanitizeNgrokAuthtoken(value: unknown) {
 }
 
 function isMissingRelationError(error: unknown) {
-  const details = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const details =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
   const code = String(details.code || "").trim();
   const message = String(details.message || details.details || "").trim();
-  return code === "42P01" || (/device_tunnel_secrets/i.test(message) && /does not exist|schema cache/i.test(message));
+  return (
+    code === "42P01" ||
+    (/device_tunnel_secrets/i.test(message) &&
+      /does not exist|schema cache/i.test(message))
+  );
 }
 
 function formatUnknownError(error: unknown) {
@@ -329,7 +401,9 @@ function formatUnknownError(error: unknown) {
 
   if (error && typeof error === "object") {
     const details = error as Record<string, unknown>;
-    const message = String(details.message || details.error_description || details.details || "").trim();
+    const message = String(
+      details.message || details.error_description || details.details || "",
+    ).trim();
     const code = String(details.code || details.status || "").trim();
     if (message && code) {
       return `${message} (${code})`;
@@ -350,7 +424,7 @@ function formatUnknownError(error: unknown) {
 async function getStoredNgrokAuthtoken(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   deviceId: string,
-  userId: string
+  userId: string,
 ) {
   const { data, error } = await service
     .from("device_tunnel_secrets")
@@ -374,7 +448,7 @@ async function saveStoredNgrokAuthtoken(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   deviceId: string,
   userId: string,
-  token: string
+  token: string,
 ) {
   if (!token) {
     return;
@@ -388,7 +462,7 @@ async function saveStoredNgrokAuthtoken(
       secret_value: token,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "device_id,user_id,provider" }
+    { onConflict: "device_id,user_id,provider" },
   );
 
   if (error) {
@@ -399,9 +473,15 @@ async function saveStoredNgrokAuthtoken(
 async function getActorNgrokTokenDeviceIds(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  deviceIds: string[]
+  deviceIds: string[],
 ) {
-  const cleanDeviceIds = [...new Set(deviceIds.map((deviceId) => String(deviceId || "").trim()).filter(Boolean))];
+  const cleanDeviceIds = [
+    ...new Set(
+      deviceIds
+        .map((deviceId) => String(deviceId || "").trim())
+        .filter(Boolean),
+    ),
+  ];
   if (!cleanDeviceIds.length) {
     return new Set<string>();
   }
@@ -420,18 +500,32 @@ async function getActorNgrokTokenDeviceIds(
     throw error;
   }
 
-  return new Set((data || []).map((row) => String(row.device_id || "").trim()).filter(Boolean));
+  return new Set(
+    (data || [])
+      .map((row) => String(row.device_id || "").trim())
+      .filter(Boolean),
+  );
 }
 
 function isLegacyServiceCommandAction(value: unknown) {
-  const action = String(value || "").trim().toLowerCase();
-  return ["startservice", "stopservice", "restartservice", "start_service", "stop_service", "restart_service"].includes(action);
+  const action = String(value || "")
+    .trim()
+    .toLowerCase();
+  return [
+    "startservice",
+    "stopservice",
+    "restartservice",
+    "start_service",
+    "stop_service",
+    "restart_service",
+  ].includes(action);
 }
 
 function buildLegacyServiceCommandBody(body: Record<string, unknown>) {
   return {
     ...body,
-    commandAction: body.commandAction || body.command || body.actionName || body.action,
+    commandAction:
+      body.commandAction || body.command || body.actionName || body.action,
     action: "queueCommand",
   };
 }
@@ -442,7 +536,9 @@ function isQueueCommandAction(value: unknown) {
 }
 
 function sanitizeDeviceStatus(value: unknown) {
-  const status = String(value || "").trim().toLowerCase();
+  const status = String(value || "")
+    .trim()
+    .toLowerCase();
   if (["active", "blocked"].includes(status)) {
     return status;
   }
@@ -450,12 +546,15 @@ function sanitizeDeviceStatus(value: unknown) {
 }
 
 function sanitizeDeviceAlias(value: unknown) {
-  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 80);
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 80);
 }
 
 async function ensureDeviceExists(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
-  deviceId: string
+  deviceId: string,
 ) {
   const { data, error } = await service
     .from("devices")
@@ -467,7 +566,9 @@ async function ensureDeviceExists(
     throw error;
   }
   if (!data) {
-    throw new Error("Device tidak ditemukan atau belum pernah terhubung ke School Services.");
+    throw new Error(
+      "Device tidak ditemukan atau belum pernah terhubung ke School Services.",
+    );
   }
 
   return data;
@@ -476,7 +577,7 @@ async function ensureDeviceExists(
 async function assertDeviceLinkAvailable(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   deviceId: string,
-  userId: string
+  userId: string,
 ) {
   const { data, error } = await service
     .from("device_assignments")
@@ -490,22 +591,30 @@ async function assertDeviceLinkAvailable(
     throw error;
   }
   if (data?.user_id && String(data.user_id) !== userId) {
-    throw new Error("Device ini sudah tertaut ke akun lain. Minta Operator atau SuperAdmin untuk memindahkan aksesnya.");
+    throw new Error(
+      "Device ini sudah tertaut ke akun lain. Minta Operator atau SuperAdmin untuk memindahkan aksesnya.",
+    );
   }
 }
 
 async function loadDeviceAssignmentsForUsers(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
-  userIds: string[]
+  userIds: string[],
 ) {
-  const scopedUserIds = [...new Set(userIds.map((userId) => String(userId || "").trim()).filter(Boolean))];
+  const scopedUserIds = [
+    ...new Set(
+      userIds.map((userId) => String(userId || "").trim()).filter(Boolean),
+    ),
+  ];
   if (!scopedUserIds.length) {
     return new Map<string, Record<string, unknown>[]>();
   }
 
   const { data, error } = await service
     .from("device_assignments")
-    .select("id, device_id, user_id, environment_id, assignment_role, status, is_primary, assigned_at, created_at, updated_at")
+    .select(
+      "id, device_id, user_id, environment_id, assignment_role, status, is_primary, assigned_at, created_at, updated_at",
+    )
     .in("user_id", scopedUserIds)
     .order("updated_at", { ascending: false });
 
@@ -527,38 +636,53 @@ async function loadDeviceAssignmentsForUsers(
 
 async function attachDeviceAssignmentsToAccounts(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
-  accounts: Record<string, unknown>[]
+  accounts: Record<string, unknown>[],
 ) {
   const assignmentsByUser = await loadDeviceAssignmentsForUsers(
     service,
-    accounts.map((account) => String(account.user_id || ""))
+    accounts.map((account) => String(account.user_id || "")),
   );
 
   return accounts.map((account) => ({
     ...account,
-    deviceAssignments: assignmentsByUser.get(String(account.user_id || "")) || [],
+    deviceAssignments:
+      assignmentsByUser.get(String(account.user_id || "")) || [],
   }));
 }
 
-function getActorEnvironmentId(actor: Awaited<ReturnType<typeof getRequestActor>>) {
+function getActorEnvironmentId(
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+) {
   return String(
     actor.profile?.primary_environment_id ||
       actor.environment?.id ||
-      actor.memberships?.find((membership: Record<string, unknown>) => membership.status === "approved")
-        ?.environment_id ||
-      ""
+      actor.memberships?.find(
+        (membership: Record<string, unknown>) =>
+          membership.status === "approved",
+      )?.environment_id ||
+      "",
   ).trim();
 }
 
-async function getScopedAccounts(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
+async function getScopedAccounts(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+) {
   if (isSuperAdminProfile(actor.profile)) {
-    const [{ data: profiles, error: profileError }, { data: memberships, error: membershipError }] =
-      await Promise.all([
-        service.from("admin_profiles").select("*").order("created_at", { ascending: false }),
-        service
-          .from("environment_memberships")
-          .select("user_id, environment_id, role, status, joined_via, approved_at, updated_at"),
-      ]);
+    const [
+      { data: profiles, error: profileError },
+      { data: memberships, error: membershipError },
+    ] = await Promise.all([
+      service
+        .from("admin_profiles")
+        .select("*")
+        .order("created_at", { ascending: false }),
+      service
+        .from("environment_memberships")
+        .select(
+          "user_id, environment_id, role, status, joined_via, approved_at, updated_at",
+        ),
+    ]);
 
     if (profileError) {
       throw profileError;
@@ -568,27 +692,37 @@ async function getScopedAccounts(service: Awaited<ReturnType<typeof getRequestAc
     }
 
     const membershipMap = new Map(
-      (memberships || []).map((membership) => [String(membership.user_id), membership])
+      (memberships || []).map((membership) => [
+        String(membership.user_id),
+        membership,
+      ]),
     );
 
-    return attachDeviceAssignmentsToAccounts(service, (profiles || []).map((profile) => ({
-      ...profile,
-      membership: membershipMap.get(String(profile.user_id)) || null,
-    })));
+    return attachDeviceAssignmentsToAccounts(
+      service,
+      (profiles || []).map((profile) => ({
+        ...profile,
+        membership: membershipMap.get(String(profile.user_id)) || null,
+      })),
+    );
   }
 
   if (!isOperatorProfile(actor.profile)) {
     return [];
   }
 
-  const environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+  const environmentId = String(
+    actor.environment?.id || actor.profile?.primary_environment_id || "",
+  ).trim();
   if (!environmentId) {
     return [];
   }
 
   const { data: memberships, error: membershipError } = await service
     .from("environment_memberships")
-    .select("user_id, environment_id, role, status, joined_via, approved_at, updated_at")
+    .select(
+      "user_id, environment_id, role, status, joined_via, approved_at, updated_at",
+    )
     .eq("environment_id", environmentId)
     .order("created_at", { ascending: false });
 
@@ -596,7 +730,13 @@ async function getScopedAccounts(service: Awaited<ReturnType<typeof getRequestAc
     throw membershipError;
   }
 
-  const userIds = [...new Set((memberships || []).map((row) => String(row.user_id || "").trim()).filter(Boolean))];
+  const userIds = [
+    ...new Set(
+      (memberships || [])
+        .map((row) => String(row.user_id || "").trim())
+        .filter(Boolean),
+    ),
+  ];
   if (!userIds.length) {
     return [];
   }
@@ -612,23 +752,31 @@ async function getScopedAccounts(service: Awaited<ReturnType<typeof getRequestAc
   }
 
   const membershipMap = new Map(
-    (memberships || []).map((membership) => [String(membership.user_id), membership])
+    (memberships || []).map((membership) => [
+      String(membership.user_id),
+      membership,
+    ]),
   );
 
-  return attachDeviceAssignmentsToAccounts(service, (profiles || []).map((profile) => ({
-    ...profile,
-    membership: membershipMap.get(String(profile.user_id)) || null,
-  })));
+  return attachDeviceAssignmentsToAccounts(
+    service,
+    (profiles || []).map((profile) => ({
+      ...profile,
+      membership: membershipMap.get(String(profile.user_id)) || null,
+    })),
+  );
 }
 
 async function getScopedDeviceAssignments(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  accessibleDeviceIds: string[] | null
+  accessibleDeviceIds: string[] | null,
 ) {
   let query = service
     .from("device_assignments")
-    .select("id, device_id, user_id, environment_id, assignment_role, status, is_primary, assigned_at, created_at, updated_at")
+    .select(
+      "id, device_id, user_id, environment_id, assignment_role, status, is_primary, assigned_at, created_at, updated_at",
+    )
     .order("updated_at", { ascending: false });
 
   if (isSuperAdminProfile(actor.profile)) {
@@ -640,7 +788,9 @@ async function getScopedDeviceAssignments(
   }
 
   if (isOperatorProfile(actor.profile)) {
-    const environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+    const environmentId = String(
+      actor.environment?.id || actor.profile?.primary_environment_id || "",
+    ).trim();
     if (!environmentId) {
       return [];
     }
@@ -663,11 +813,16 @@ async function getScopedDeviceAssignments(
   return data || [];
 }
 
-async function getScopedEnvironments(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
+async function getScopedEnvironments(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+) {
   if (isSuperAdminProfile(actor.profile)) {
     const { data, error } = await service
       .from("operator_environments")
-      .select("id, operator_id, name, referral_code, is_active, created_at, updated_at")
+      .select(
+        "id, operator_id, name, referral_code, is_active, created_at, updated_at",
+      )
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -687,7 +842,7 @@ async function getScopedEnvironments(service: Awaited<ReturnType<typeof getReque
 async function getDeviceAliases(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  accessibleDeviceIds: string[] | null
+  accessibleDeviceIds: string[] | null,
 ) {
   let query = service
     .from("device_aliases")
@@ -708,7 +863,10 @@ async function getDeviceAliases(
   return data || [];
 }
 
-async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
+async function getDashboardPayload(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+) {
   const accessibleDeviceIds = await getAccessibleDeviceIds(service, actor);
   const superAdmin = isSuperAdminProfile(actor.profile);
   const operator = isOperatorProfile(actor.profile);
@@ -728,6 +886,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     servicesResult,
     devicesResult,
     logsResult,
+    commandsResult,
     jobsResult,
     rootsResult,
     accounts,
@@ -738,22 +897,38 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
   ] = await Promise.all([
     buildQuery("services")
       .select(
-        "device_id, service_name, port, status, desired_state, last_error, public_url, last_ping, location_status, resolved_path, location_details, tunnel_state, last_public_url, tunnel_last_error, tunnel_provider"
+        "device_id, service_name, port, status, desired_state, last_error, public_url, last_ping, location_status, resolved_path, location_details, tunnel_state, last_public_url, tunnel_last_error, tunnel_provider",
       )
       .order("device_id", { ascending: true })
       .order("service_name", { ascending: true }),
     buildQuery("devices")
-      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name, tunnel_preferred_provider, tunnel_provider_order, tunnel_ngrok_configured, tunnel_settings_updated_at")
+      .select(
+        "device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name, tunnel_preferred_provider, tunnel_provider_order, tunnel_ngrok_configured, tunnel_settings_updated_at",
+      )
       .order("device_name", { ascending: true }),
     buildQuery("agent_logs")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(LOG_LIMIT),
+    buildQuery("commands")
+      .select(
+        "id, device_id, service_name, action, status, progress_percent, phase, message, error, started_at, updated_at, completed_at, claimed_by, claimed_pid, created_at",
+      )
+      .order("created_at", { ascending: false })
+      .limit(80),
     superAdmin
-      ? service.from("file_jobs").select("*").order("created_at", { ascending: false }).limit(JOB_LIMIT)
+      ? service
+          .from("file_jobs")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(JOB_LIMIT)
       : Promise.resolve({ data: [], error: null }),
     superAdmin
-      ? service.from("file_roots").select("*").order("root_type", { ascending: true }).order("label", { ascending: true })
+      ? service
+          .from("file_roots")
+          .select("*")
+          .order("root_type", { ascending: true })
+          .order("label", { ascending: true })
       : Promise.resolve({ data: [], error: null }),
     getScopedAccounts(service, actor),
     getScopedEnvironments(service, actor),
@@ -771,6 +946,9 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
   if (logsResult.error) {
     throw logsResult.error;
   }
+  if (commandsResult.error) {
+    throw commandsResult.error;
+  }
   if (jobsResult.error) {
     throw jobsResult.error;
   }
@@ -780,18 +958,25 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
 
   const latestRelease = await getLatestGitHubRelease();
   const devicesWithLatest = (devicesResult.data || []).map((device) =>
-    applyLatestReleaseToDevice(device, latestRelease)
+    applyLatestReleaseToDevice(device, latestRelease),
   );
   const actorNgrokTokenDeviceIds = await getActorNgrokTokenDeviceIds(
     service,
     actor,
-    devicesWithLatest.map((device) => String(device.device_id || ""))
+    devicesWithLatest.map((device) => String(device.device_id || "")),
   );
   const devicesWithTunnelSecrets = devicesWithLatest.map((device) => ({
     ...device,
-    tunnel_ngrok_account_configured: actorNgrokTokenDeviceIds.has(String(device.device_id || "")),
+    tunnel_ngrok_account_configured: actorNgrokTokenDeviceIds.has(
+      String(device.device_id || ""),
+    ),
   }));
-  const deviceMap = new Map(devicesWithTunnelSecrets.map((device) => [String(device.device_id), device]));
+  const deviceMap = new Map(
+    devicesWithTunnelSecrets.map((device) => [
+      String(device.device_id),
+      device,
+    ]),
+  );
   const services = (servicesResult.data || []).map((row) => ({
     ...row,
     devices: deviceMap.get(String(row.device_id)) || null,
@@ -807,6 +992,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     },
     services,
     logs: logsResult.data || [],
+    commands: commandsResult.data || [],
     fileJobs: jobsResult.data || [],
     roots: rootsResult.data || [],
     accounts,
@@ -817,12 +1003,19 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
   };
 }
 
-async function createManagedAccount(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>, body: Record<string, unknown>) {
-  const email = String(body.email || "").trim().toLowerCase();
+async function createManagedAccount(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>,
+) {
+  const email = String(body.email || "")
+    .trim()
+    .toLowerCase();
   const password = String(body.password || "").trim();
   const role = sanitizeRole(body.role);
   const displayName = String(body.displayName || "").trim() || null;
-  const requestedDeviceId = role === "user" ? String(body.deviceId || "").trim() : "";
+  const requestedDeviceId =
+    role === "user" ? String(body.deviceId || "").trim() : "";
   const approveImmediately = Boolean(body.approveImmediately);
   const authPolicy = await getAuthPolicy(service);
   const actorIsSuperAdmin = isSuperAdminProfile(actor.profile);
@@ -843,30 +1036,46 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
 
   let environmentId = String(body.environmentId || "").trim();
   if (actorIsOperator) {
-    environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+    environmentId = String(
+      actor.environment?.id || actor.profile?.primary_environment_id || "",
+    ).trim();
   }
 
   let approvalDueAt: string | null = null;
   let status = "approved";
-  let registrationSource = actorIsOperator ? "operator_created" : "super_admin_created";
+  let registrationSource = actorIsOperator
+    ? "operator_created"
+    : "super_admin_created";
   let standaloneState = "standalone";
 
   if (role === "operator") {
     status = approveImmediately ? "approved" : "pending";
-    approvalDueAt = status === "pending"
-      ? new Date(Date.now() + authPolicy.operatorAutoApproveHours * 60 * 60 * 1000).toISOString()
-      : null;
+    approvalDueAt =
+      status === "pending"
+        ? new Date(
+            Date.now() + authPolicy.operatorAutoApproveHours * 60 * 60 * 1000,
+          ).toISOString()
+        : null;
   } else if (environmentId) {
     status = approveImmediately ? "approved" : "pending";
-    approvalDueAt = status === "pending"
-      ? new Date(Date.now() + authPolicy.environmentUserAutoApproveHours * 60 * 60 * 1000).toISOString()
-      : null;
+    approvalDueAt =
+      status === "pending"
+        ? new Date(
+            Date.now() +
+              authPolicy.environmentUserAutoApproveHours * 60 * 60 * 1000,
+          ).toISOString()
+        : null;
     standaloneState = status === "approved" ? "linked" : "pending_environment";
   } else {
     registrationSource = "direct_superadmin";
-    if (authPolicy.standaloneUserApprovalMode === "auto" && !approveImmediately) {
+    if (
+      authPolicy.standaloneUserApprovalMode === "auto" &&
+      !approveImmediately
+    ) {
       status = "pending";
-      approvalDueAt = new Date(Date.now() + authPolicy.standaloneUserAutoApproveHours * 60 * 60 * 1000).toISOString();
+      approvalDueAt = new Date(
+        Date.now() + authPolicy.standaloneUserAutoApproveHours * 60 * 60 * 1000,
+      ).toISOString();
     } else {
       status = approveImmediately ? "approved" : "pending";
       approvalDueAt = null;
@@ -882,11 +1091,12 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
     await assertDeviceLinkAvailable(service, requestedDeviceId, "");
   }
 
-  const { data: created, error: createError } = await service.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
+  const { data: created, error: createError } =
+    await service.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
 
   if (createError || !created.user) {
     throw createError || new Error("Failed to create user.");
@@ -913,14 +1123,16 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
   }
 
   if (role === "operator") {
-    const { error: environmentError } = await service.from("operator_environments").upsert({
-      operator_id: created.user.id,
-      name: buildOperatorEnvironmentName(displayName, email),
-      referral_code: await generateReferralCode(service),
-      is_active: true,
-      created_by: actor.user.id,
-      updated_at: new Date().toISOString(),
-    });
+    const { error: environmentError } = await service
+      .from("operator_environments")
+      .upsert({
+        operator_id: created.user.id,
+        name: buildOperatorEnvironmentName(displayName, email),
+        referral_code: await generateReferralCode(service),
+        is_active: true,
+        created_by: actor.user.id,
+        updated_at: new Date().toISOString(),
+      });
 
     if (environmentError) {
       throw environmentError;
@@ -928,17 +1140,21 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
   }
 
   if (role === "user" && environmentId) {
-    const { error: membershipError } = await service.from("environment_memberships").upsert({
-      environment_id: environmentId,
-      user_id: created.user.id,
-      role: "user",
-      status: status === "approved" ? "approved" : "pending",
-      joined_via: actorIsOperator ? "operator_created" : "super_admin_created",
-      requested_by_user_id: actor.user.id,
-      approved_by: status === "approved" ? actor.user.id : null,
-      approved_at: status === "approved" ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
-    });
+    const { error: membershipError } = await service
+      .from("environment_memberships")
+      .upsert({
+        environment_id: environmentId,
+        user_id: created.user.id,
+        role: "user",
+        status: status === "approved" ? "approved" : "pending",
+        joined_via: actorIsOperator
+          ? "operator_created"
+          : "super_admin_created",
+        requested_by_user_id: actor.user.id,
+        approved_by: status === "approved" ? actor.user.id : null,
+        approved_at: status === "approved" ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      });
 
     if (membershipError) {
       throw membershipError;
@@ -946,16 +1162,18 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
   }
 
   if (role === "user" && requestedDeviceId) {
-    const { error: assignmentError } = await service.from("device_assignments").upsert({
-      device_id: requestedDeviceId,
-      user_id: created.user.id,
-      environment_id: environmentId || null,
-      assignment_role: "owner",
-      status: "active",
-      is_primary: true,
-      assigned_by: actor.user.id,
-      updated_at: new Date().toISOString(),
-    });
+    const { error: assignmentError } = await service
+      .from("device_assignments")
+      .upsert({
+        device_id: requestedDeviceId,
+        user_id: created.user.id,
+        environment_id: environmentId || null,
+        assignment_role: "owner",
+        status: "active",
+        is_primary: true,
+        assigned_by: actor.user.id,
+        updated_at: new Date().toISOString(),
+      });
 
     if (assignmentError) {
       throw assignmentError;
@@ -970,13 +1188,23 @@ async function createManagedAccount(service: Awaited<ReturnType<typeof getReques
   };
 }
 
-async function updateAccountStatus(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>, action: string, body: Record<string, unknown>) {
+async function updateAccountStatus(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  action: string,
+  body: Record<string, unknown>,
+) {
   const userId = String(body.userId || "").trim();
   if (!userId) {
     throw new Error("userId is required.");
   }
-  if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
-    throw new Error("Hanya SuperAdmin atau Operator yang dapat mengubah status akun.");
+  if (
+    !isSuperAdminProfile(actor.profile) &&
+    !isOperatorProfile(actor.profile)
+  ) {
+    throw new Error(
+      "Hanya SuperAdmin atau Operator yang dapat mengubah status akun.",
+    );
   }
 
   const { data: target, error: targetError } = await service
@@ -1042,7 +1270,9 @@ async function updateAccountStatus(service: Awaited<ReturnType<typeof getRequest
     patch.status = "rejected";
     patch.rejected_at = new Date().toISOString();
     patch.rejected_by = actor.user.id;
-    patch.rejection_reason = String(body.reason || "").trim() || "Permintaan akun ditolak oleh administrator.";
+    patch.rejection_reason =
+      String(body.reason || "").trim() ||
+      "Permintaan akun ditolak oleh administrator.";
     await service
       .from("environment_memberships")
       .update({
@@ -1076,7 +1306,7 @@ async function updateAccountStatus(service: Awaited<ReturnType<typeof getRequest
 async function deleteManagedAccount(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   if (!isSuperAdminProfile(actor.profile)) {
     throw new Error("Hanya SuperAdmin yang dapat menghapus akun.");
@@ -1103,7 +1333,9 @@ async function deleteManagedAccount(
     throw new Error("Akun target tidak ditemukan.");
   }
   if (!["operator", "user"].includes(String(target.role || ""))) {
-    throw new Error("Hanya akun Operator dan User yang dapat dihapus lewat fitur ini.");
+    throw new Error(
+      "Hanya akun Operator dan User yang dapat dihapus lewat fitur ini.",
+    );
   }
 
   const { data: ownedEnvironments, error: envError } = await service
@@ -1163,8 +1395,14 @@ async function deleteManagedAccount(
 
   await service.from("device_assignments").delete().eq("user_id", userId);
   await service.from("environment_memberships").delete().eq("user_id", userId);
-  await service.from("environment_invitations").delete().eq("created_by", userId);
-  await service.from("environment_invitations").delete().eq("accepted_by", userId);
+  await service
+    .from("environment_invitations")
+    .delete()
+    .eq("created_by", userId);
+  await service
+    .from("environment_invitations")
+    .delete()
+    .eq("accepted_by", userId);
   await service.from("admin_profiles").delete().eq("user_id", userId);
 
   const { error: deleteError } = await service.auth.admin.deleteUser(userId);
@@ -1183,7 +1421,7 @@ async function deleteManagedAccount(
 async function linkGuestDevice(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   const deviceId = String(body.deviceId || "").trim();
   if (!deviceId) {
@@ -1191,7 +1429,9 @@ async function linkGuestDevice(
   }
   const role = String(actor.profile?.role || "");
   if (!["user", "operator"].includes(role)) {
-    throw new Error("Penautan dari Guest Mode hanya tersedia untuk akun User atau Operator.");
+    throw new Error(
+      "Penautan dari Guest Mode hanya tersedia untuk akun User atau Operator.",
+    );
   }
 
   const device = await ensureDeviceExists(service, deviceId);
@@ -1236,7 +1476,7 @@ async function linkGuestDevice(
 async function unlinkDeviceAssignment(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   const deviceId = String(body.deviceId || "").trim();
   const requestedUserId = String(body.userId || actor.user.id).trim();
@@ -1259,29 +1499,38 @@ async function unlinkDeviceAssignment(
 
   let query = service
     .from("device_assignments")
-    .select("*")
+    .select(
+      "id, device_id, service_name, action, status, progress_percent, phase, message, error, started_at, updated_at, completed_at, claimed_by, claimed_pid, created_at",
+    )
     .eq("device_id", deviceId)
     .eq("user_id", requestedUserId)
     .eq("status", "active");
 
   if (actorIsOperator) {
-    const environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+    const environmentId = String(
+      actor.environment?.id || actor.profile?.primary_environment_id || "",
+    ).trim();
     if (!environmentId) {
       throw new Error("Lingkungan operator belum tersedia.");
     }
     query = query.eq("environment_id", environmentId);
   }
 
-  const { data: assignment, error: assignmentError } = await query.maybeSingle();
+  const { data: assignment, error: assignmentError } =
+    await query.maybeSingle();
   if (assignmentError) {
     throw assignmentError;
   }
   if (!assignment) {
-    throw new Error("Tautan device aktif tidak ditemukan atau berada di luar cakupan akun Anda.");
+    throw new Error(
+      "Tautan device aktif tidak ditemukan atau berada di luar cakupan akun Anda.",
+    );
   }
 
   if (isSelfUnlink && !confirmCurrentDevice) {
-    throw new Error("Konfirmasi diperlukan karena device ini tertaut ke akun yang sedang login.");
+    throw new Error(
+      "Konfirmasi diperlukan karena device ini tertaut ke akun yang sedang login.",
+    );
   }
 
   const now = new Date().toISOString();
@@ -1332,7 +1581,7 @@ async function unlinkDeviceAssignment(
 async function updateDeviceAlias(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   const deviceId = String(body.deviceId || "").trim();
   const alias = sanitizeDeviceAlias(body.alias);
@@ -1371,20 +1620,37 @@ async function updateDeviceAlias(
 async function queueScopedCommand(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   const deviceId = String(body.deviceId || "").trim();
-  const action = sanitizeCommandAction(body.commandAction || body.command || body.actionName);
-  const deviceWideAction = ["kill", "update", "agent_start", "agent_stop", "agent_restart", "configure_tunnel"].includes(action);
-  const serviceName = deviceWideAction ? null : String(body.serviceName || "").trim();
+  const action = sanitizeCommandAction(
+    body.commandAction || body.command || body.actionName,
+  );
+  const deviceWideAction = [
+    "kill",
+    "update",
+    "agent_start",
+    "agent_stop",
+    "agent_restart",
+    "configure_tunnel",
+  ].includes(action);
+  const serviceName = deviceWideAction
+    ? null
+    : String(body.serviceName || "").trim();
   let payload: Record<string, unknown> | null = null;
   await requireDeviceAccess(service, actor, deviceId);
 
   if (!deviceWideAction && !serviceName) {
     throw new Error("Nama service wajib diisi untuk aksi start/stop.");
   }
-  if ((action === "kill" || action.startsWith("agent_")) && !isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
-    throw new Error("Hanya SuperAdmin atau Operator yang dapat menghentikan agent.");
+  if (
+    (action === "kill" || action.startsWith("agent_")) &&
+    !isSuperAdminProfile(actor.profile) &&
+    !isOperatorProfile(actor.profile)
+  ) {
+    throw new Error(
+      "Hanya SuperAdmin atau Operator yang dapat menghentikan agent.",
+    );
   }
   if (action === "update") {
     const { data: device, error: deviceError } = await service
@@ -1398,7 +1664,7 @@ async function queueScopedCommand(
     }
     if (!supportsRemoteUpdate(device)) {
       throw new Error(
-        `Agent versi ini belum mendukung update jarak jauh. Jalankan installer School Services v${REMOTE_UPDATE_MIN_VERSION} atau lebih baru langsung di komputer ini.`
+        `Agent versi ini belum mendukung update jarak jauh. Jalankan installer School Services v${REMOTE_UPDATE_MIN_VERSION} atau lebih baru langsung di komputer ini.`,
       );
     }
   }
@@ -1409,18 +1675,30 @@ async function queueScopedCommand(
       ? submittedNgrokAuthtoken
       : await getStoredNgrokAuthtoken(service, deviceId, actor.user.id);
     if (preferredProvider === "ngrok" && !storedNgrokAuthtoken) {
-      throw new Error("Auth token Ngrok wajib diisi atau sudah tersimpan untuk akun ini sebelum memilih Ngrok.");
+      throw new Error(
+        "Auth token Ngrok wajib diisi atau sudah tersimpan untuk akun ini sebelum memilih Ngrok.",
+      );
     }
-    const providerOrder = buildTunnelProviderOrder(preferredProvider, Boolean(storedNgrokAuthtoken));
+    const providerOrder = buildTunnelProviderOrder(
+      preferredProvider,
+      Boolean(storedNgrokAuthtoken),
+    );
     if (submittedNgrokAuthtoken) {
-      await saveStoredNgrokAuthtoken(service, deviceId, actor.user.id, submittedNgrokAuthtoken);
+      await saveStoredNgrokAuthtoken(
+        service,
+        deviceId,
+        actor.user.id,
+        submittedNgrokAuthtoken,
+      );
     }
     payload = {
       tunnel: {
         preferredProvider,
         providerOrder,
         ngrokAuthtoken: storedNgrokAuthtoken || undefined,
-        validateNgrokAuthtoken: Boolean(submittedNgrokAuthtoken || preferredProvider === "ngrok"),
+        validateNgrokAuthtoken: Boolean(
+          submittedNgrokAuthtoken || preferredProvider === "ngrok",
+        ),
       },
     };
 
@@ -1449,6 +1727,10 @@ async function queueScopedCommand(
       action,
       payload,
       status: "pending",
+      progress_percent: 0,
+      phase: "queued",
+      message: "Perintah masuk antrean dan menunggu agent mengambil tugas.",
+      error: null,
     })
     .select("*")
     .single();
@@ -1463,10 +1745,12 @@ async function queueScopedCommand(
 async function updateScopedDeviceStatus(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   if (!isSuperAdminProfile(actor.profile)) {
-    throw new Error("Hanya SuperAdmin yang dapat memblokir atau membuka blokir device.");
+    throw new Error(
+      "Hanya SuperAdmin yang dapat memblokir atau membuka blokir device.",
+    );
   }
 
   const deviceId = String(body.deviceId || "").trim();
@@ -1490,7 +1774,7 @@ async function updateScopedDeviceStatus(
 async function listTransferHistory(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   if (!isSuperAdminProfile(actor.profile)) {
     throw new Error("Riwayat transfer data hanya tersedia untuk SuperAdmin.");
@@ -1533,7 +1817,7 @@ async function listTransferHistory(
 async function listStorageArtifacts(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   if (!isSuperAdminProfile(actor.profile)) {
     throw new Error("Inventaris bucket hanya tersedia untuk SuperAdmin.");
@@ -1541,9 +1825,10 @@ async function listStorageArtifacts(
 
   const requestedDeviceId = String(body.deviceId || "").trim();
   const requestedBucket = String(body.bucket || "").trim();
-  const buckets = requestedBucket && FILE_BUCKETS.includes(requestedBucket)
-    ? [requestedBucket]
-    : FILE_BUCKETS;
+  const buckets =
+    requestedBucket && FILE_BUCKETS.includes(requestedBucket)
+      ? [requestedBucket]
+      : FILE_BUCKETS;
 
   let jobsQuery = service
     .from("file_jobs")
@@ -1560,7 +1845,10 @@ async function listStorageArtifacts(
     jobsQuery = jobsQuery.eq("artifact_bucket", requestedBucket);
   }
 
-  const [{ data: jobs, error: jobsError }, { data: devices, error: devicesError }] = await Promise.all([
+  const [
+    { data: jobs, error: jobsError },
+    { data: devices, error: devicesError },
+  ] = await Promise.all([
     jobsQuery,
     service.from("devices").select("device_id, device_name"),
   ]);
@@ -1573,15 +1861,26 @@ async function listStorageArtifacts(
   }
 
   const deviceMap = new Map(
-    (devices || []).map((device) => [String(device.device_id), String(device.device_name || "")])
+    (devices || []).map((device) => [
+      String(device.device_id),
+      String(device.device_name || ""),
+    ]),
   );
   const artifacts: Record<string, unknown>[] = [];
   for (const job of jobs || []) {
-    const normalized = normalizeArtifactJob(job, deviceMap.get(String(job.device_id)) || "");
+    const normalized = normalizeArtifactJob(
+      job,
+      deviceMap.get(String(job.device_id)) || "",
+    );
     if (normalized.deletedAt) {
-      const exists = normalized.bucket && normalized.objectKey
-        ? await storageObjectExists(service, String(normalized.bucket), String(normalized.objectKey))
-        : false;
+      const exists =
+        normalized.bucket && normalized.objectKey
+          ? await storageObjectExists(
+              service,
+              String(normalized.bucket),
+              String(normalized.objectKey),
+            )
+          : false;
       if (!exists) {
         continue;
       }
@@ -1597,7 +1896,7 @@ async function listStorageArtifacts(
   const knownKeys = new Set(
     artifacts
       .filter((artifact) => artifact.bucket && artifact.objectKey)
-      .map((artifact) => `${artifact.bucket}:${artifact.objectKey}`)
+      .map((artifact) => `${artifact.bucket}:${artifact.objectKey}`),
   );
 
   const orphanedObjects: Record<string, unknown>[] = [];
@@ -1658,7 +1957,7 @@ async function listStorageArtifacts(
 async function deleteStorageArtifact(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
 ) {
   if (!isSuperAdminProfile(actor.profile)) {
     throw new Error("Hanya SuperAdmin yang dapat menghapus berkas bucket.");
@@ -1694,7 +1993,11 @@ async function deleteStorageArtifact(
     if (await storageObjectExists(service, bucket, objectKey)) {
       addRemovalTarget(bucket, objectKey);
     }
-    for (const childKey of await collectStorageKeysByPrefix(service, bucket, objectKey)) {
+    for (const childKey of await collectStorageKeysByPrefix(
+      service,
+      bucket,
+      objectKey,
+    )) {
       addRemovalTarget(bucket, childKey);
     }
   } else {
@@ -1713,17 +2016,24 @@ async function deleteStorageArtifact(
     }
 
     jobRecord = job || null;
-    addRemovalTarget(String(job?.artifact_bucket || ""), String(job?.artifact_object_key || ""));
+    addRemovalTarget(
+      String(job?.artifact_bucket || ""),
+      String(job?.artifact_object_key || ""),
+    );
 
-    const result = job?.result && typeof job.result === "object"
-      ? job.result as Record<string, unknown>
-      : null;
+    const result =
+      job?.result && typeof job.result === "object"
+        ? (job.result as Record<string, unknown>)
+        : null;
     const parts = Array.isArray(result?.parts) ? result.parts : [];
     for (const part of parts) {
       if (!part || typeof part !== "object") {
         continue;
       }
-      addRemovalTarget(String((part as Record<string, unknown>).bucket || ""), String((part as Record<string, unknown>).objectKey || ""));
+      addRemovalTarget(
+        String((part as Record<string, unknown>).bucket || ""),
+        String((part as Record<string, unknown>).objectKey || ""),
+      );
     }
   }
 
@@ -1732,7 +2042,9 @@ async function deleteStorageArtifact(
     if (!keys.length) {
       continue;
     }
-    const { error: removeError } = await service.storage.from(targetBucket).remove(keys);
+    const { error: removeError } = await service.storage
+      .from(targetBucket)
+      .remove(keys);
     if (removeError) {
       throw removeError;
     }
@@ -1757,18 +2069,26 @@ async function deleteStorageArtifact(
   }
 
   await service.from("file_audit_logs").insert({
-    device_id: String(updatedJob?.device_id || jobRecord?.device_id || body.deviceId || "storage"),
+    device_id: String(
+      updatedJob?.device_id ||
+        jobRecord?.device_id ||
+        body.deviceId ||
+        "storage",
+    ),
     requested_by: actor.user.id,
     job_id: jobId || null,
     action: "delete_artifact",
     target_path: objectKey,
-      details: {
-        bucket,
-        objectKey,
-        isFolder,
-        fileName: String(body.fileName || safeFileNameFromKey(objectKey)),
-        removedTargetCount: [...removalTargets.values()].reduce((total, keys) => total + keys.size, 0),
-      },
+    details: {
+      bucket,
+      objectKey,
+      isFolder,
+      fileName: String(body.fileName || safeFileNameFromKey(objectKey)),
+      removedTargetCount: [...removalTargets.values()].reduce(
+        (total, keys) => total + keys.size,
+        0,
+      ),
+    },
   });
 
   return {
@@ -1788,7 +2108,15 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const action = String(body.action || "").trim();
 
-    if (["createJob", "cancelJob", "signArtifact", "promoteArchive", "setupStatus"].includes(action)) {
+    if (
+      [
+        "createJob",
+        "cancelJob",
+        "signArtifact",
+        "promoteArchive",
+        "setupStatus",
+      ].includes(action)
+    ) {
       const { service, user } = await requireSuperAdmin(request);
 
       if (action === "createJob") {
@@ -1798,9 +2126,14 @@ Deno.serve(async (request) => {
           job_type: String(body.jobType || "").trim(),
           delivery_mode: String(body.deliveryMode || "temp").trim(),
           source_path: body.sourcePath ? String(body.sourcePath) : null,
-          destination_path: body.destinationPath ? String(body.destinationPath) : null,
+          destination_path: body.destinationPath
+            ? String(body.destinationPath)
+            : null,
           selection: sanitizeSelection(body.selection),
-          options: body.options && typeof body.options === "object" ? body.options : {},
+          options:
+            body.options && typeof body.options === "object"
+              ? body.options
+              : {},
           status: "pending",
         };
 
@@ -1860,7 +2193,9 @@ Deno.serve(async (request) => {
         const { data, error } = await service.storage
           .from(bucket)
           .createSignedUrl(objectKey, 60 * 15, {
-            download: body.downloadFileName ? String(body.downloadFileName) : undefined,
+            download: body.downloadFileName
+              ? String(body.downloadFileName)
+              : undefined,
           });
 
         if (error) {
@@ -1939,13 +2274,22 @@ Deno.serve(async (request) => {
         return json({ ok: true, job: updatedJob });
       }
 
-      const [adminProfiles, fileJobs, fileRoots, authPolicy, guestShortcuts] = await Promise.all([
-        service.from("admin_profiles").select("user_id", { count: "exact", head: true }),
-        service.from("file_jobs").select("id", { count: "exact", head: true }),
-        service.from("file_roots").select("id", { count: "exact", head: true }),
-        getAuthPolicy(service),
-        service.from("guest_shortcuts").select("device_id", { count: "exact", head: true }),
-      ]);
+      const [adminProfiles, fileJobs, fileRoots, authPolicy, guestShortcuts] =
+        await Promise.all([
+          service
+            .from("admin_profiles")
+            .select("user_id", { count: "exact", head: true }),
+          service
+            .from("file_jobs")
+            .select("id", { count: "exact", head: true }),
+          service
+            .from("file_roots")
+            .select("id", { count: "exact", head: true }),
+          getAuthPolicy(service),
+          service
+            .from("guest_shortcuts")
+            .select("device_id", { count: "exact", head: true }),
+        ]);
 
       return json({
         ok: true,
@@ -1967,16 +2311,24 @@ Deno.serve(async (request) => {
     }
 
     if (action === "listAccounts") {
-      return json({ ok: true, accounts: await getScopedAccounts(service, actor) });
+      return json({
+        ok: true,
+        accounts: await getScopedAccounts(service, actor),
+      });
     }
 
     if (action === "listEnvironments") {
-      return json({ ok: true, environments: await getScopedEnvironments(service, actor) });
+      return json({
+        ok: true,
+        environments: await getScopedEnvironments(service, actor),
+      });
     }
 
     if (action === "createEnvironment") {
       if (!isSuperAdminProfile(actor.profile)) {
-        throw new Error("Hanya SuperAdmin yang dapat membuat lingkungan operator.");
+        throw new Error(
+          "Hanya SuperAdmin yang dapat membuat lingkungan operator.",
+        );
       }
 
       const operatorUserId = String(body.operatorUserId || "").trim();
@@ -2014,12 +2366,19 @@ Deno.serve(async (request) => {
     }
 
     if (action === "rotateReferralCode") {
-      const requestedEnvironmentId = String(body.environmentId || actor.environment?.id || "").trim();
+      const requestedEnvironmentId = String(
+        body.environmentId || actor.environment?.id || "",
+      ).trim();
       if (!requestedEnvironmentId) {
         throw new Error("environmentId is required.");
       }
-      if (!isSuperAdminProfile(actor.profile) && requestedEnvironmentId !== String(actor.environment?.id || "")) {
-        throw new Error("Anda tidak dapat mengubah referral code di luar lingkungan Anda.");
+      if (
+        !isSuperAdminProfile(actor.profile) &&
+        requestedEnvironmentId !== String(actor.environment?.id || "")
+      ) {
+        throw new Error(
+          "Anda tidak dapat mengubah referral code di luar lingkungan Anda.",
+        );
       }
 
       const { data, error } = await service
@@ -2040,13 +2399,22 @@ Deno.serve(async (request) => {
     }
 
     if (action === "inviteUser") {
-      const environmentId = String(body.environmentId || actor.environment?.id || "").trim();
-      const email = String(body.email || "").trim().toLowerCase();
+      const environmentId = String(
+        body.environmentId || actor.environment?.id || "",
+      ).trim();
+      const email = String(body.email || "")
+        .trim()
+        .toLowerCase();
       if (!environmentId || !email) {
         throw new Error("environmentId dan email wajib diisi.");
       }
-      if (!isSuperAdminProfile(actor.profile) && environmentId !== String(actor.environment?.id || "")) {
-        throw new Error("Anda tidak dapat membuat undangan di luar lingkungan Anda.");
+      if (
+        !isSuperAdminProfile(actor.profile) &&
+        environmentId !== String(actor.environment?.id || "")
+      ) {
+        throw new Error(
+          "Anda tidak dapat membuat undangan di luar lingkungan Anda.",
+        );
       }
 
       const { data, error } = await service
@@ -2056,7 +2424,9 @@ Deno.serve(async (request) => {
           email,
           invite_role: "user",
           status: "pending",
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          expires_at: new Date(
+            Date.now() + 7 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
           created_by: actor.user.id,
           metadata: {
             invitedByRole: actor.profile?.role,
@@ -2090,7 +2460,13 @@ Deno.serve(async (request) => {
     }
 
     if (isQueueCommandAction(action)) {
-      return json(await queueScopedCommand(service, actor, buildLegacyServiceCommandBody(body)));
+      return json(
+        await queueScopedCommand(
+          service,
+          actor,
+          buildLegacyServiceCommandBody(body),
+        ),
+      );
     }
 
     if (action === "updateDeviceStatus") {
@@ -2109,7 +2485,11 @@ Deno.serve(async (request) => {
       return json(await deleteStorageArtifact(service, actor, body));
     }
 
-    if (action === "approveAccount" || action === "rejectAccount" || action === "disableAccount") {
+    if (
+      action === "approveAccount" ||
+      action === "rejectAccount" ||
+      action === "disableAccount"
+    ) {
       return json(await updateAccountStatus(service, actor, action, body));
     }
 
@@ -2125,8 +2505,13 @@ Deno.serve(async (request) => {
       if (!userId) {
         throw new Error("userId is required.");
       }
-      if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
-        throw new Error("Hanya SuperAdmin atau Operator yang dapat memperpanjang approval akun.");
+      if (
+        !isSuperAdminProfile(actor.profile) &&
+        !isOperatorProfile(actor.profile)
+      ) {
+        throw new Error(
+          "Hanya SuperAdmin atau Operator yang dapat memperpanjang approval akun.",
+        );
       }
 
       if (!isSuperAdminProfile(actor.profile)) {
@@ -2139,7 +2524,9 @@ Deno.serve(async (request) => {
           .maybeSingle();
 
         if (!membership) {
-          throw new Error("Akun target berada di luar lingkungan operator Anda.");
+          throw new Error(
+            "Akun target berada di luar lingkungan operator Anda.",
+          );
         }
       }
 
@@ -2169,26 +2556,35 @@ Deno.serve(async (request) => {
       const current = await getAuthPolicy(service);
       const value = {
         ...current.raw,
-        operatorAutoApproveHours: sanitizeApprovalHours(body.operatorAutoApproveHours, current.operatorAutoApproveHours),
+        operatorAutoApproveHours: sanitizeApprovalHours(
+          body.operatorAutoApproveHours,
+          current.operatorAutoApproveHours,
+        ),
         environmentUserAutoApproveHours: sanitizeApprovalHours(
           body.environmentUserAutoApproveHours,
-          current.environmentUserAutoApproveHours
+          current.environmentUserAutoApproveHours,
         ),
         standaloneUserApprovalMode:
-          String(body.standaloneUserApprovalMode || current.standaloneUserApprovalMode).trim().toLowerCase() === "auto"
+          String(
+            body.standaloneUserApprovalMode ||
+              current.standaloneUserApprovalMode,
+          )
+            .trim()
+            .toLowerCase() === "auto"
             ? "auto"
             : "manual",
         standaloneUserAutoApproveHours: sanitizeApprovalHours(
           body.standaloneUserAutoApproveHours,
-          current.standaloneUserAutoApproveHours
+          current.standaloneUserAutoApproveHours,
         ),
         maintenanceIntervalMinutes: sanitizeApprovalHours(
           body.maintenanceIntervalMinutes,
-          current.maintenanceIntervalMinutes
+          current.maintenanceIntervalMinutes,
         ),
         passwordResetRedirectUrl:
-          String(body.passwordResetRedirectUrl || current.passwordResetRedirectUrl).trim() ||
-          `${DASHBOARD_PUBLIC_URL}/auth/reset-password`,
+          String(
+            body.passwordResetRedirectUrl || current.passwordResetRedirectUrl,
+          ).trim() || `${DASHBOARD_PUBLIC_URL}/auth/reset-password`,
       };
 
       const { error } = await service.from("app_settings").upsert({
@@ -2205,19 +2601,30 @@ Deno.serve(async (request) => {
     }
 
     if (action === "resetPassword") {
-      if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
+      if (
+        !isSuperAdminProfile(actor.profile) &&
+        !isOperatorProfile(actor.profile)
+      ) {
         throw new Error("Akses reset password tidak diizinkan.");
       }
 
-      const email = String(body.email || "").trim().toLowerCase();
+      const email = String(body.email || "")
+        .trim()
+        .toLowerCase();
       if (!email) {
         throw new Error("Email is required.");
       }
 
       if (isOperatorProfile(actor.profile)) {
         const scopedAccounts = await getScopedAccounts(service, actor);
-        if (!scopedAccounts.some((account) => String(account.email || "").toLowerCase() === email)) {
-          throw new Error("Email target berada di luar lingkungan operator Anda.");
+        if (
+          !scopedAccounts.some(
+            (account) => String(account.email || "").toLowerCase() === email,
+          )
+        ) {
+          throw new Error(
+            "Email target berada di luar lingkungan operator Anda.",
+          );
         }
       }
 
@@ -2226,7 +2633,9 @@ Deno.serve(async (request) => {
         String(authPolicy.passwordResetRedirectUrl || "").trim() ||
         `${DASHBOARD_PUBLIC_URL}/auth/reset-password`;
       const anon = createAnonClient();
-      const { error } = await anon.auth.resetPasswordForEmail(email, { redirectTo });
+      const { error } = await anon.auth.resetPasswordForEmail(email, {
+        redirectTo,
+      });
       if (error) {
         throw error;
       }
@@ -2237,18 +2646,30 @@ Deno.serve(async (request) => {
     if (action === "assignDevice") {
       const deviceId = String(body.deviceId || "").trim();
       const userId = String(body.userId || "").trim();
-      let environmentId = String(body.environmentId || actor.environment?.id || "").trim();
+      let environmentId = String(
+        body.environmentId || actor.environment?.id || "",
+      ).trim();
 
       if (!deviceId || !userId) {
         throw new Error("deviceId dan userId wajib diisi.");
       }
-      if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
-        throw new Error("Hanya SuperAdmin atau Operator yang dapat menautkan device ke akun lain.");
+      if (
+        !isSuperAdminProfile(actor.profile) &&
+        !isOperatorProfile(actor.profile)
+      ) {
+        throw new Error(
+          "Hanya SuperAdmin atau Operator yang dapat menautkan device ke akun lain.",
+        );
       }
 
       if (!isSuperAdminProfile(actor.profile)) {
-        if (!environmentId || environmentId !== String(actor.environment?.id || "")) {
-          throw new Error("Device assignment hanya dapat dilakukan di lingkungan operator Anda.");
+        if (
+          !environmentId ||
+          environmentId !== String(actor.environment?.id || "")
+        ) {
+          throw new Error(
+            "Device assignment hanya dapat dilakukan di lingkungan operator Anda.",
+          );
         }
       }
 
@@ -2258,7 +2679,9 @@ Deno.serve(async (request) => {
           .select("primary_environment_id")
           .eq("user_id", userId)
           .maybeSingle();
-        environmentId = String(targetProfile?.primary_environment_id || "").trim();
+        environmentId = String(
+          targetProfile?.primary_environment_id || "",
+        ).trim();
       }
 
       const { data, error } = await service
@@ -2288,8 +2711,13 @@ Deno.serve(async (request) => {
       if (!assignmentId) {
         throw new Error("assignmentId wajib diisi.");
       }
-      if (!isSuperAdminProfile(actor.profile) && !isOperatorProfile(actor.profile)) {
-        throw new Error("Hanya SuperAdmin atau Operator yang dapat melepas assignment device.");
+      if (
+        !isSuperAdminProfile(actor.profile) &&
+        !isOperatorProfile(actor.profile)
+      ) {
+        throw new Error(
+          "Hanya SuperAdmin atau Operator yang dapat melepas assignment device.",
+        );
       }
 
       let assignmentQuery = service
@@ -2302,7 +2730,10 @@ Deno.serve(async (request) => {
         .eq("id", assignmentId);
 
       if (!isSuperAdminProfile(actor.profile)) {
-        assignmentQuery = assignmentQuery.eq("environment_id", String(actor.environment?.id || ""));
+        assignmentQuery = assignmentQuery.eq(
+          "environment_id",
+          String(actor.environment?.id || ""),
+        );
       }
 
       const { data, error } = await assignmentQuery.select("*").single();
@@ -2347,7 +2778,7 @@ Deno.serve(async (request) => {
         ok: false,
         error: formatUnknownError(error),
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 });

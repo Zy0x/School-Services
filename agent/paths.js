@@ -3,6 +3,7 @@ const {
   AGENT_EXE_NAME,
   APP_NAME,
   LAUNCHER_EXE_NAME,
+  SUPERVISOR_EXE_NAME,
 } = require("./appConstants");
 
 function isPackagedRuntime() {
@@ -77,6 +78,10 @@ function getLauncherExePath() {
   return path.join(getInstallDir(), LAUNCHER_EXE_NAME);
 }
 
+function getSupervisorExePath() {
+  return path.join(getInstallDir(), SUPERVISOR_EXE_NAME);
+}
+
 module.exports = {
   getAgentExePath,
   getBuildInfoPath,
@@ -91,6 +96,7 @@ module.exports = {
   getRuntimeConfigPath,
   getRuntimeDir,
   getStateDir,
+  getSupervisorExePath,
   getUpdatesDir,
   isPackagedRuntime,
 };

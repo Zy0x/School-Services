@@ -95,8 +95,24 @@ export function isNgrokFreeTunnelUrl(url) {
   }
 }
 
+export function isNgrokFreeProxyUrl(url) {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.split("/").includes("ngrok-proxy");
+  } catch {
+    return false;
+  }
+}
+
 export function shouldShowNgrokVisitSiteNotice(url, tunnelProvider) {
-  return String(tunnelProvider || "").trim().toLowerCase() === "ngrok" && isNgrokFreeTunnelUrl(url);
+  return (
+    String(tunnelProvider || "").trim().toLowerCase() === "ngrok" &&
+    (isNgrokFreeTunnelUrl(url) || isNgrokFreeProxyUrl(url))
+  );
 }
 
 export function buildWhatsAppShareText(url, label = "Tautan akses", options = {}) {

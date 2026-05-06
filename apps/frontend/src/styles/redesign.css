@@ -5819,17 +5819,23 @@ label > textarea {
   z-index: 70;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(96, 55, 246, 0.22), transparent 32%),
-    rgba(18, 23, 45, 0.42);
+  background: rgba(18, 23, 45, 0.42);
   backdrop-filter: blur(16px) saturate(1.18);
+  color: var(--purple);
+}
+
+.command-progress-overlay.is-minimized {
+  inset: auto 18px 18px auto;
+  display: block;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .command-progress-card {
   width: min(420px, calc(100vw - 28px));
   padding: 22px;
   border: 1px solid rgba(96, 55, 246, 0.2);
-  border-radius: 24px;
+  border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 249, 255, 0.99)),
     rgba(255, 255, 255, 0.98);
@@ -5839,12 +5845,38 @@ label > textarea {
   animation: command-card-enter 260ms cubic-bezier(0.2, 0.9, 0.28, 1.12);
 }
 
+.command-progress-overlay.is-minimized .command-progress-card {
+  width: min(360px, calc(100vw - 24px));
+  padding: 14px;
+  box-shadow: 0 16px 42px rgba(18, 23, 45, 0.28);
+}
+
+.command-progress-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.command-progress-toolbar > span {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.command-progress-toolbar > div {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .command-progress-orb {
   width: 44px;
   height: 44px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: 8px;
   background: linear-gradient(135deg, rgba(96, 55, 246, 0.18), rgba(72, 166, 217, 0.16));
   color: var(--purple);
 }
@@ -5857,6 +5889,12 @@ label > textarea {
   margin: 0;
   color: var(--ink-muted);
   line-height: 1.5;
+}
+
+.command-progress-card small {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .command-progress-track {
@@ -5884,6 +5922,29 @@ label > textarea {
   width: 38%;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.56), transparent);
   animation: command-progress-sheen 1.25s ease-in-out infinite;
+}
+
+.command-progress-overlay.tone-success .command-progress-orb {
+  background: rgba(38, 182, 111, 0.14);
+  color: #168553;
+}
+
+.command-progress-overlay.tone-success {
+  color: #168553;
+}
+
+.command-progress-overlay.tone-error .command-progress-orb {
+  background: rgba(217, 48, 37, 0.12);
+  color: #b42318;
+}
+
+.command-progress-overlay.tone-error {
+  color: #b42318;
+}
+
+.command-progress-overlay.tone-success .command-progress-track span,
+.command-progress-overlay.tone-error .command-progress-track span {
+  background: currentColor;
 }
 
 @media (max-width: 920px) {

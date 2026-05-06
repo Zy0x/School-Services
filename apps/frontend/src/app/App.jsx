@@ -1491,13 +1491,6 @@ function getCommandCopy(action, serviceName, versionLabel = "") {
   };
 }
 
-function getCommandProgressTarget(action) {
-  if (action === "stop" || action === "agent_stop") {
-    return "stopped";
-  }
-  return "running";
-}
-
 function buildWhatsAppShareUrl(url, label = "Tautan akses") {
   const text = `${label}\n${url}`;
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
@@ -2938,6 +2931,7 @@ export default function App() {
   });
   const [services, setServices] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [commands, setCommands] = useState([]);
   const [fileJobs, setFileJobs] = useState([]);
   const [storageArtifacts, setStorageArtifacts] = useState([]);
   const [roots, setRoots] = useState([]);
@@ -2990,7 +2984,8 @@ export default function App() {
   const [logOverlayOpen, setLogOverlayOpen] = useState(false);
   const [filesView, setFilesView] = useState("storage");
   const [deleteArtifactTarget, setDeleteArtifactTarget] = useState(null);
-  const [pendingCommandStates, setPendingCommandStates] = useState([]);
+  const [activeCommandId, setActiveCommandId] = useState(null);
+  const [commandProgressMinimized, setCommandProgressMinimized] = useState(false);
   const [tunnelProviderDraft, setTunnelProviderDraft] = useState("cloudflare");
   const [ngrokTokenDraft, setNgrokTokenDraft] = useState("");
   const [ngrokTokenEditing, setNgrokTokenEditing] = useState(false);
@@ -3003,6 +2998,7 @@ export default function App() {
   });
   const fileInputRef = useRef(null);
   const pageVisibleRef = useRef(pageVisible);
+  const announcedCommandStatusRef = useRef(new Map());
 
   function dismissToast(id) {
     setToastItems((current) => current.filter((item) => item.id !== id));
@@ -3049,6 +3045,7 @@ export default function App() {
     setDeviceAssignments([]);
     setServices([]);
     setLogs([]);
+    setCommands([]);
     setFileJobs([]);
     setStorageArtifacts([]);
     setRoots([]);
@@ -3093,7 +3090,8 @@ export default function App() {
     setFleetPage(1);
     setFilesView("storage");
     setDeleteArtifactTarget(null);
-    setPendingCommandStates([]);
+    setActiveCommandId(null);
+    setCommandProgressMinimized(false);
   }
 
   function clearGuestLinkRequest() {
@@ -3424,6 +3422,7 @@ export default function App() {
       startTransition(() => {
         setServices(dashboard.services || []);
         setLogs(dashboard.logs || []);
+        setCommands(dashboard.commands || []);
         setFileJobs(dashboard.fileJobs || []);
         setStorageArtifacts(artifactPayload.artifacts || []);
         setRoots(dashboard.roots || []);
@@ -3613,28 +3612,102 @@ export default function App() {
     [accounts]
   );
   const currentUserId = String(profile?.user_id || session?.user?.id || "");
+  const commandRows = useMemo(
+    () =>
+      commands
+        .map((command) => ({
+          ...command,
+          id: command.id,
+          deviceId: command.device_id || command.deviceId || "",
+          serviceName: command.service_name || command.serviceName || "",
+          progressPercent: Number(command.progress_percent ?? command.progressPercent ?? 0) || 0,
+          status: String(command.status || "pending"),
+          phase: command.phase || "",
+          message: command.message || "",
+          error: command.error || "",
+        }))
+        .sort((left, right) => {
+          const leftTime = new Date(left.updated_at || left.created_at || 0).getTime();
+          const rightTime = new Date(right.updated_at || right.created_at || 0).getTime();
+          return rightTime - leftTime;
+        }),
+    [commands]
+  );
+  const visibleCommandRows = useMemo(() => {
+    if (!selectedDevice?.deviceId) {
+      return commandRows;
+    }
+    return commandRows.filter((command) => command.deviceId === selectedDevice.deviceId);
+  }, [commandRows, selectedDevice?.deviceId]);
   const activeCommandExecution =
-    pendingCommandStates[0] ||
+    (activeCommandId
+      ? commandRows.find((command) => String(command.id) === String(activeCommandId))
+      : null) ||
+    visibleCommandRows.find((command) => ["pending", "running"].includes(command.status)) ||
     (/:(start|stop|agent_start|agent_stop|agent_restart|update|configure_tunnel)$/.test(busyAction)
       ? {
           action: busyAction.split(":").pop() || "command",
           deviceId: busyAction.split(":")[0] || "",
           serviceName: busyAction.split(":").length > 2 ? busyAction.split(":")[1] : "",
+          status: "pending",
+          phase: "queued",
+          progressPercent: 4,
+          message: "",
+          error: "",
         }
       : null);
   const commandExecutionActive = Boolean(activeCommandExecution);
+  const activeCommandStatus = activeCommandExecution?.status || "running";
   const commandProgressMessage = activeCommandExecution
-    ? getCommandCopy(
+    ? activeCommandExecution.message ||
+      getCommandCopy(
         activeCommandExecution.action,
         activeCommandExecution.serviceName,
         selectedDevice ? getDeviceUpdateModel(selectedDevice.deviceRecord).latestVersion : ""
       ).pending
     : "";
-  const commandExecutionProgress = pendingCommandStates.length
-    ? Math.min(92, 36 + pendingCommandStates.length * 18)
-    : commandExecutionActive
-      ? 24
-      : 0;
+  const commandExecutionProgress = commandExecutionActive
+    ? activeCommandExecution.progressPercent || (activeCommandStatus === "pending" ? 4 : 24)
+    : 0;
+  const commandProgressTitle = activeCommandExecution
+    ? getCommandCopy(
+        activeCommandExecution.action,
+        activeCommandExecution.serviceName,
+        selectedDevice ? getDeviceUpdateModel(selectedDevice.deviceRecord).latestVersion : ""
+      ).pending
+    : "Perintah sedang diproses";
+
+  useEffect(() => {
+    if (!activeCommandExecution?.id || !["done", "failed"].includes(activeCommandStatus)) {
+      return;
+    }
+    const key = String(activeCommandExecution.id);
+    if (announcedCommandStatusRef.current.get(key) === activeCommandStatus) {
+      return;
+    }
+    announcedCommandStatusRef.current.set(key, activeCommandStatus);
+    const copy = getCommandCopy(
+      activeCommandExecution.action,
+      activeCommandExecution.serviceName,
+      selectedDevice ? getDeviceUpdateModel(selectedDevice.deviceRecord).latestVersion : ""
+    );
+    if (activeCommandStatus === "done") {
+      const message = activeCommandExecution.message || copy.success;
+      pushToast("Aksi selesai", message, "success");
+      setDashboardInfo(message);
+      return;
+    }
+    const message = activeCommandExecution.error || activeCommandExecution.message || "Command gagal diproses agent.";
+    pushToast("Aksi gagal", message, "error");
+    setError(message);
+  }, [
+    activeCommandExecution?.id,
+    activeCommandExecution?.message,
+    activeCommandExecution?.error,
+    activeCommandStatus,
+    selectedDevice?.deviceId,
+  ]);
+
   const fileExplorerBusy =
     busyAction.startsWith("job:list_directory") ||
     busyAction.startsWith("job:discover_roots") ||
@@ -3782,60 +3855,6 @@ export default function App() {
     Boolean(selectedDevice) &&
     selectedDevice.deviceStatus === "offline" &&
     ["devices", "files", "activity"].includes(selectedTab);
-
-  useEffect(() => {
-    if (!pendingCommandStates.length) {
-      return;
-    }
-
-    const resolved = [];
-    const remaining = [];
-
-    for (const item of pendingCommandStates) {
-      const device = deviceEntries.find((entry) => entry.deviceId === item.deviceId);
-      const targetStatus = item.targetStatus || "running";
-
-      if (!device) {
-        remaining.push(item);
-        continue;
-      }
-
-      let done = false;
-      if (item.scope === "service" && item.serviceName) {
-        const service = device.services.find((entry) => entry.service_name === item.serviceName);
-        done = Boolean(
-          service &&
-          (targetStatus === "running"
-            ? service.serviceStatus === "running" && service.desired_state !== "stopped"
-            : ["stopped", "offline", "blocked"].includes(service.serviceStatus) && service.desired_state === "stopped")
-        );
-      } else {
-        done = device.services.length
-          ? device.services.every((service) =>
-              targetStatus === "running"
-                ? service.serviceStatus === "running" && service.desired_state !== "stopped"
-                : ["stopped", "offline", "blocked"].includes(service.serviceStatus) && service.desired_state === "stopped"
-            )
-          : false;
-      }
-
-      if (done) {
-        resolved.push(item);
-      } else {
-        remaining.push(item);
-      }
-    }
-
-    if (resolved.length) {
-      for (const item of resolved) {
-        pushToast("Aksi selesai", item.successMessage, "success");
-        if (selectedDevice?.deviceId === item.deviceId) {
-          setDashboardInfo(item.successMessage);
-        }
-      }
-      setPendingCommandStates(remaining);
-    }
-  }, [deviceEntries, pendingCommandStates, selectedDevice?.deviceId]);
 
   useEffect(() => {
     setCurrentPath("");
@@ -4083,61 +4102,25 @@ export default function App() {
       ? getDeviceUpdateModel(selectedDevice.deviceRecord).latestVersion
       : "";
     const commandCopy = getCommandCopy(action, serviceName, updateVersion);
-    if (action === "update") {
-      setUpdateModal({
-        open: true,
-        deviceId,
-        title: "Mengupdate Agent & Service",
-        message: "Permintaan update dikirim. Agent akan menjalankan installer silent saat command diterima.",
-        error: "",
-      });
-    }
     try {
-      await invokeAdmin("queueCommand", {
+      const data = await invokeAdmin("queueCommand", {
         deviceId,
         serviceName,
         commandAction: action,
         ...payload,
       });
-      if (["start", "stop", "agent_start", "agent_stop", "agent_restart"].includes(action)) {
-        setPendingCommandStates((current) => [
-          ...current.filter(
-            (item) => !(item.deviceId === deviceId && item.serviceName === serviceName && item.action === action)
-          ),
-          {
-            id: `${deviceId}:${serviceName || "agent"}:${action}`,
-            deviceId,
-            serviceName,
-            action,
-            scope: serviceName ? "service" : "agent",
-            targetStatus: getCommandProgressTarget(action),
-            successMessage: commandCopy.success,
-          },
-        ]);
+      if (data?.command?.id) {
+        setCommands((current) => [data.command, ...current.filter((command) => command.id !== data.command.id)]);
+        setActiveCommandId(data.command.id);
+        setCommandProgressMinimized(false);
       }
       setDashboardInfo(commandCopy.pending);
       pushToast("Perintah dikirim", commandCopy.pending, "info");
       loadAll(true);
-      if (action === "update") {
-        setUpdateModal((current) => ({
-          ...current,
-          message: "Update diminta. Status akan berubah ke Sedang update saat agent mulai memasang versi baru.",
-          error: "",
-        }));
-      }
     } catch (commandError) {
       const message = formatEdgeFunctionError(commandError);
       setError(message);
       pushToast("Perintah gagal", message, "error");
-      if (action === "update") {
-        setUpdateModal((current) => ({
-          ...current,
-          open: true,
-          title: "Update gagal dikirim",
-          message,
-          error: message,
-        }));
-      }
     } finally {
       setBusyAction("");
     }
@@ -5910,9 +5893,20 @@ export default function App() {
       />
       <CommandProgressOverlay
         open={commandExecutionActive}
-        title="Perintah sedang diproses"
+        title={commandProgressTitle}
         message={commandProgressMessage}
         percent={commandExecutionProgress}
+        phase={activeCommandExecution?.phase || ""}
+        status={activeCommandStatus}
+        error={activeCommandExecution?.error || ""}
+        minimized={commandProgressMinimized}
+        onMinimize={() => setCommandProgressMinimized(true)}
+        onRestore={() => setCommandProgressMinimized(false)}
+        onClose={() => {
+          if (["done", "failed"].includes(activeCommandStatus)) {
+            setActiveCommandId(null);
+          }
+        }}
       />
       <ToastViewport items={toastItems} onDismiss={dismissToast} />
 

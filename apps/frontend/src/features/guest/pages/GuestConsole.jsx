@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import Avatar3D from "../../../components/Avatar3D.jsx";
 import { legacyDataClient } from "../../../services/legacyDataClient.js";
@@ -30,7 +30,6 @@ import {
   StatusChip,
   ToastViewport,
 } from "../../../components/ui/core.jsx";
-import { UpdateProgressModal } from "../../dashboard/components/updates.jsx";
 import { PublicLinkActions, SiteFooter } from "../components/GuestActions.jsx";
 
 function getTunnelProviderBadgeModel(value) {
@@ -45,7 +44,7 @@ function getTunnelProviderBadgeModel(value) {
 }
 
 export function GuestConsole({ deviceId }) {
-  const [state, setState] = useState({ device: null, service: null });
+  const [state, setState] = useState({ device: null, service: null, commands: [] });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -56,7 +55,11 @@ export function GuestConsole({ deviceId }) {
     action: "",
     title: "",
     message: "",
+    commandId: null,
+    minimized: false,
+    status: "",
   });
+  const announcedCommandStatusRef = useRef(new Map());
 
   function dismissToast(id) {
     setToastItems((current) => current.filter((item) => item.id !== id));
@@ -94,7 +97,7 @@ export function GuestConsole({ deviceId }) {
       if (!data?.ok) {
         throw new Error(data?.error || "Status perangkat belum dapat dimuat.");
       }
-      setState({ device: data.device, service: data.service });
+      setState({ device: data.device, service: data.service, commands: data.commands || [] });
       setError("");
       if (options.announce) {
         pushToast("Status diperbarui", "Informasi guest access sudah disegarkan.", "success");
@@ -133,6 +136,11 @@ export function GuestConsole({ deviceId }) {
         { event: "*", schema: "public", table: "services", filter: `device_id=eq.${deviceId}` },
         () => loadGuest({ silent: true })
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "commands", filter: `device_id=eq.${deviceId}` },
+        () => loadGuest({ silent: true })
+      )
       .subscribe();
 
     return () => {
@@ -159,6 +167,9 @@ export function GuestConsole({ deviceId }) {
             : isUpdateAction
               ? "Permintaan update sedang dikirim. Installer silent akan berjalan setelah agent menerima command."
               : "Permintaan sedang diproses. Tunggu beberapa saat sampai status berubah.",
+        commandId: null,
+        minimized: false,
+        status: "pending",
       });
       const { data, error: invokeError } = await legacyDataClient.functions.invoke("guest-access", {
         body: { action, deviceId },
@@ -168,6 +179,12 @@ export function GuestConsole({ deviceId }) {
       }
       if (!data?.ok) {
         throw new Error(data?.error || "Permintaan belum dapat diproses.");
+      }
+      if (data.command?.id) {
+        setState((current) => ({
+          ...current,
+          commands: [data.command, ...(current.commands || []).filter((command) => command.id !== data.command.id)],
+        }));
       }
       await loadGuest({ silent: true });
       pushToast(
@@ -181,6 +198,7 @@ export function GuestConsole({ deviceId }) {
       );
       setCommandModal((current) => ({
         ...current,
+        commandId: data.command?.id || current.commandId,
         message:
           action === "start"
             ? "E-Rapor sedang dinyalakan. Status akan berubah setelah layanan siap."
@@ -188,16 +206,11 @@ export function GuestConsole({ deviceId }) {
               ? "Update diminta. Agent akan menghentikan layanan, memasang versi baru, lalu aktif kembali otomatis."
               : "E-Rapor sedang dihentikan. Status akan diperbarui setelah selesai.",
       }));
-      if (!isUpdateAction) {
-        window.setTimeout(() => {
-          setCommandModal((current) => ({ ...current, open: false }));
-        }, 1200);
-      }
     } catch (nextError) {
       const message = formatEdgeFunctionError(nextError);
       setError(message);
       pushToast("Perintah gagal", message, "error");
-      setCommandModal((current) => ({ ...current, open: true, message }));
+      setCommandModal((current) => ({ ...current, open: true, message, status: "failed" }));
     } finally {
       setBusy(false);
     }
@@ -214,6 +227,26 @@ export function GuestConsole({ deviceId }) {
   }
 
   const service = state.service;
+  const guestCommands = (state.commands || [])
+    .map((command) => ({
+      ...command,
+      status: String(command.status || "pending"),
+      progressPercent: Number(command.progress_percent ?? 0) || 0,
+      phase: command.phase || "",
+      message: command.message || "",
+      error: command.error || "",
+    }))
+    .sort((left, right) => new Date(right.updated_at || right.created_at || 0).getTime() - new Date(left.updated_at || left.created_at || 0).getTime());
+  const activeCommand =
+    (commandModal.commandId
+      ? guestCommands.find((command) => String(command.id) === String(commandModal.commandId))
+      : null) ||
+    guestCommands.find((command) => ["pending", "running"].includes(command.status));
+  const activeCommandStatus = activeCommand?.status || commandModal.status || (commandModal.open ? "pending" : "");
+  const activeCommandAction = activeCommand?.action || commandModal.action;
+  const activeCommandMessage = activeCommand?.message || commandModal.message;
+  const activeCommandPercent = activeCommand?.progressPercent || (activeCommandStatus === "pending" ? 4 : 24);
+  const commandInFlight = ["pending", "running"].includes(activeCommandStatus);
   const guestStatus = getGuestStatusModel(state.device, service);
   const guestRuntimeStatus =
     guestStatus.overallStatus === "ready" || guestStatus.overallStatus === "degraded"
@@ -229,8 +262,8 @@ export function GuestConsole({ deviceId }) {
     ["starting", "reconnecting", "waiting_retry"].includes(String(service?.status || "").toLowerCase()) ||
     service?.desired_state === "running";
   const isServiceActiveOrStarting = isRunning || isServicePendingActive;
-  const startDisabled = busy || isServiceActiveOrStarting;
-  const stopDisabled = busy || !isServiceActiveOrStarting;
+  const startDisabled = busy || commandInFlight || isServiceActiveOrStarting;
+  const stopDisabled = busy || commandInFlight || !isServiceActiveOrStarting;
   const canUpdateService =
     guestUpdate.updateAvailable &&
     guestUpdate.status !== "updating" &&
@@ -248,7 +281,7 @@ export function GuestConsole({ deviceId }) {
           : guestUpdate.updateAvailable && !remoteUpdateSupported
             ? "Update manual"
             : "Update belum tersedia";
-  const updateDisabled = busy || !canUpdateService;
+  const updateDisabled = busy || commandInFlight || !canUpdateService;
   const unsupportedUpdateMessage =
     guestUpdate.updateAvailable && !remoteUpdateSupported
       ? `Update jarak jauh tersedia mulai agent v${REMOTE_UPDATE_MIN_VERSION}. Jalankan installer terbaru langsung di komputer ini.`
@@ -283,9 +316,28 @@ export function GuestConsole({ deviceId }) {
         action: "update",
         title: "Mengupdate Agent & Service",
         message: "Pembaruan otomatis sedang berjalan. Agent akan hidup kembali setelah installer selesai.",
+        commandId: null,
+        minimized: false,
+        status: "running",
       });
     }
   }, [guestUpdate.status]);
+
+  useEffect(() => {
+    if (!activeCommand?.id || !["done", "failed"].includes(activeCommandStatus)) {
+      return;
+    }
+    const key = String(activeCommand.id);
+    if (announcedCommandStatusRef.current.get(key) === activeCommandStatus) {
+      return;
+    }
+    announcedCommandStatusRef.current.set(key, activeCommandStatus);
+    if (activeCommandStatus === "done") {
+      pushToast("Aksi selesai", activeCommand.message || "Command selesai diproses.", "success");
+      return;
+    }
+    pushToast("Aksi gagal", activeCommand.error || activeCommand.message || "Command gagal diproses.", "error");
+  }, [activeCommand?.id, activeCommandStatus, activeCommand?.message, activeCommand?.error]);
 
   const accessHint = guestStatus.ready
     ? "Layanan siap. Gunakan tautan utama untuk membuka E-Rapor."
@@ -501,19 +553,25 @@ export function GuestConsole({ deviceId }) {
         </section>
         <SiteFooter />
       </div>
-      {commandModal.open ? (
-        commandModal.action === "update" ? (
-          <UpdateProgressModal
-            open
-            update={guestUpdate}
-            title={commandModal.title}
-            message={commandModal.message}
-            onClose={() => setCommandModal((current) => ({ ...current, open: false }))}
-          />
-        ) : (
-          <CommandProgressOverlay open title={commandModal.title} message={commandModal.message} percent={busy ? 42 : 78} />
-        )
-      ) : null}
+      <CommandProgressOverlay
+        open={commandModal.open || Boolean(activeCommand)}
+        title={commandModal.title || (activeCommandAction === "update" ? "Mengupdate Agent & Service" : "Perintah sedang diproses")}
+        message={activeCommandMessage}
+        percent={activeCommandPercent}
+        phase={activeCommand?.phase || ""}
+        status={activeCommandStatus || "running"}
+        error={activeCommand?.error || ""}
+        minimized={commandModal.minimized}
+        onMinimize={() => setCommandModal((current) => ({ ...current, minimized: true }))}
+        onRestore={() => setCommandModal((current) => ({ ...current, minimized: false }))}
+        onClose={() =>
+          setCommandModal((current) =>
+            ["done", "failed"].includes(activeCommandStatus)
+              ? { ...current, open: false, commandId: null }
+              : current
+          )
+        }
+      />
       <ToastViewport items={toastItems} onDismiss={dismissToast} />
     </main>
   );

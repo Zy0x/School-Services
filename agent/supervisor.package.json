@@ -1,0 +1,16 @@
+{
+  "name": "school-services-supervisor",
+  "version": "2.0.7",
+  "private": true,
+  "main": "supervisor.js",
+  "bin": "supervisor.js",
+  "pkg": {
+    "assets": [
+      "../cloudflared.exe"
+    ]
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "dotenv": "^16.6.1"
+  }
+}

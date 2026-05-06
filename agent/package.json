@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node index.js",
     "test": "node --test test/*.test.js",
-    "build": "npx pkg . --targets node18-win-x64 --output \"dist/payload/School Services Agent.exe\" && npx pkg launcher.package.json --targets node18-win-x64 --output \"dist/payload/School Services.exe\" && node write-launchers.js && node build-installer.js"
+    "build": "npx pkg . --targets node18-win-x64 --output \"dist/payload/School Services Agent.exe\" && npx pkg -c supervisor.package.json supervisor.js --targets node18-win-x64 --output \"dist/payload/School Services Supervisor.exe\" && npx pkg -c launcher.package.json launcher.js --targets node18-win-x64 --output \"dist/payload/School Services.exe\" && node write-launchers.js && node build-installer.js"
   },
   "pkg": {
     "assets": [

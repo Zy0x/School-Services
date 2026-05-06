@@ -47,7 +47,16 @@ create table if not exists public.commands (
   service_name text,
   action text not null check (action in ('start', 'stop', 'kill', 'update', 'agent_start', 'agent_stop', 'agent_restart', 'configure_tunnel')),
   payload jsonb,
-  status text not null default 'pending' check (status in ('pending', 'done')),
+  status text not null default 'pending' check (status in ('pending', 'running', 'done', 'failed')),
+  progress_percent integer not null default 0,
+  phase text,
+  message text,
+  error text,
+  started_at timestamptz,
+  updated_at timestamptz not null default timezone('utc', now()),
+  completed_at timestamptz,
+  claimed_by text,
+  claimed_pid integer,
   created_at timestamptz not null default timezone('utc', now())
 );
 
@@ -55,6 +64,7 @@ create table if not exists public.agent_logs (
   id bigint generated always as identity primary key,
   device_id text not null references public.devices(device_id) on delete cascade,
   service_name text,
+  command_id bigint references public.commands(id) on delete set null,
   level text not null check (level in ('debug', 'info', 'warn', 'error')),
   message text not null,
   details jsonb,
@@ -73,7 +83,10 @@ create table if not exists public.device_tunnel_secrets (
 
 create index if not exists idx_services_device_id on public.services(device_id);
 create index if not exists idx_commands_device_status on public.commands(device_id, status);
+create index if not exists idx_commands_device_recent on public.commands(device_id, created_at desc);
+create index if not exists idx_commands_device_active on public.commands(device_id, status, created_at desc) where status in ('pending', 'running');
 create index if not exists idx_agent_logs_device_created_at on public.agent_logs(device_id, created_at desc);
+create index if not exists idx_agent_logs_command_created_at on public.agent_logs(command_id, created_at desc);
 create index if not exists idx_device_tunnel_secrets_user_device on public.device_tunnel_secrets(user_id, device_id);
 
 alter table public.devices enable row level security;

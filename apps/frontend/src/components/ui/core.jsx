@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { Copy, Eye, Info, Loader2, MoreHorizontal, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Eye, Info, Loader2, Maximize2, Minimize2, MoreHorizontal, X } from "lucide-react";
 import {
   copyTextToClipboard,
   dismissOnBackdrop,
@@ -72,22 +72,60 @@ export function CommandProgressOverlay({
   title = "Menjalankan perintah",
   message = "Sedang memproses perubahan layanan.",
   percent = 24,
+  phase = "",
+  status = "running",
+  error = "",
+  minimized = false,
+  onMinimize,
+  onRestore,
+  onClose,
 }) {
   if (!open) {
     return null;
   }
+  const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+  const normalizedStatus = String(status || "running").toLowerCase();
+  const isDone = normalizedStatus === "done";
+  const isFailed = normalizedStatus === "failed";
+  const StatusIcon = isDone ? CheckCircle2 : isFailed ? AlertTriangle : Loader2;
+  const canClose = isDone || isFailed;
 
   return createPortal(
-    <div className="command-progress-overlay" role="status" aria-live="polite" aria-atomic="true">
+    <div
+      className={`command-progress-overlay ${minimized ? "is-minimized" : ""} tone-${isFailed ? "error" : isDone ? "success" : "running"}`.trim()}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       <div className="command-progress-card">
+        <div className="command-progress-toolbar">
+          <span>{phase || normalizedStatus}</span>
+          <div>
+            {minimized ? (
+              <button type="button" className="icon-button" aria-label="Buka progress" onClick={onRestore}>
+                <Maximize2 size={15} strokeWidth={2.3} aria-hidden="true" />
+              </button>
+            ) : (
+              <button type="button" className="icon-button" aria-label="Minimize progress" onClick={onMinimize}>
+                <Minimize2 size={15} strokeWidth={2.3} aria-hidden="true" />
+              </button>
+            )}
+            {canClose ? (
+              <button type="button" className="icon-button" aria-label="Tutup progress" onClick={onClose}>
+                <X size={15} strokeWidth={2.3} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        </div>
         <div className="command-progress-orb" aria-hidden="true">
-          <Loader2 size={18} className="button-spinner-icon" />
+          <StatusIcon size={18} className={!isDone && !isFailed ? "button-spinner-icon" : ""} />
         </div>
         <strong>{title}</strong>
-        <p>{message}</p>
-        <div className="command-progress-track" aria-label={`Progress perintah ${percent}%`}>
-          <span style={{ width: `${percent}%` }} />
+        {minimized ? null : <p>{error || message}</p>}
+        <div className="command-progress-track" aria-label={`Progress perintah ${safePercent}%`}>
+          <span style={{ width: `${safePercent}%` }} />
         </div>
+        <small>{safePercent}%</small>
       </div>
     </div>,
     document.body

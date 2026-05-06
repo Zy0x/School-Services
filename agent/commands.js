@@ -1,7 +1,10 @@
 const logger = require("./logger");
-const SelfUpdater = require("./selfUpdater");
+const { CommandProgress } = require("./commandProgress");
+const { sleep } = require("./utils");
 
-const { buildUpdateStateFromCheck } = SelfUpdater;
+const SERVICE_READY_TIMEOUT_MS = 180000;
+const SERVICE_STOP_TIMEOUT_MS = 90000;
+const COMMAND_POLL_MS = 2500;
 
 async function executeCommands({
   commands,
@@ -11,6 +14,7 @@ async function executeCommands({
   shortcutManager,
   urlCache,
   selfUpdater,
+  publicUrlFormatter = (url) => url,
 }) {
   let shouldExit = false;
   let exitMode = null;
@@ -53,8 +57,8 @@ async function executeCommands({
       status: overrides.status || snapshot.status,
       publicUrl:
         Object.prototype.hasOwnProperty.call(overrides, "publicUrl")
-          ? overrides.publicUrl
-          : tunnelManager.getPublicUrl(serviceName),
+          ? publicUrlFormatter(overrides.publicUrl)
+          : publicUrlFormatter(tunnelManager.getPublicUrl(serviceName)),
       desiredState: snapshot.desiredState,
       lastError:
         Object.prototype.hasOwnProperty.call(overrides, "lastError")
@@ -63,6 +67,88 @@ async function executeCommands({
       tunnelProvider: tunnelManager.getStatusSnapshot(serviceName)?.provider || null,
       ...locationPayload,
     });
+  }
+
+  async function waitForServiceReady(deviceId, serviceName, progress, startPercent = 48) {
+    const deadline = Date.now() + SERVICE_READY_TIMEOUT_MS;
+    let lastSnapshot = null;
+    let lastTunnel = null;
+
+    while (Date.now() < deadline) {
+      lastSnapshot = await serviceManager.refreshService(serviceName);
+      if (lastSnapshot.status !== "running") {
+        await progress.step(
+          "waiting_service",
+          startPercent,
+          `Menunggu service ${serviceName} membuka port ${lastSnapshot.port}.`,
+          { status: lastSnapshot.status }
+        );
+        await publishServiceSnapshot(deviceId, serviceName, lastSnapshot);
+        await sleep(COMMAND_POLL_MS);
+        continue;
+      }
+
+      await progress.step(
+        "preparing_tunnel",
+        Math.max(startPercent + 18, 66),
+        `Service ${serviceName} sudah running. Menyiapkan tunnel publik.`,
+        { status: lastSnapshot.status }
+      );
+      lastTunnel = await tunnelManager.ensureTunnel(serviceManager.getDefinition(serviceName));
+      await publishServiceSnapshot(deviceId, serviceName, lastSnapshot, {
+        publicUrl: lastTunnel?.publicUrl || null,
+        lastError: lastSnapshot.lastError || lastTunnel?.lastError || null,
+      });
+
+      if (lastTunnel?.publicUrl) {
+        await progress.step(
+          "ready",
+          94,
+          `Service ${serviceName} sudah running dan link publik siap.`,
+          { publicUrl: lastTunnel.publicUrl }
+        );
+        return { snapshot: lastSnapshot, tunnel: lastTunnel };
+      }
+
+      await sleep(COMMAND_POLL_MS);
+    }
+
+    throw new Error(
+      `Timeout menunggu service ${serviceName} siap. Status terakhir: ${lastSnapshot?.status || "unknown"}; tunnel: ${lastTunnel?.state || "unknown"}.`
+    );
+  }
+
+  async function waitForServiceStopped(deviceId, serviceName, progress) {
+    const deadline = Date.now() + SERVICE_STOP_TIMEOUT_MS;
+    let lastSnapshot = null;
+
+    while (Date.now() < deadline) {
+      lastSnapshot = await serviceManager.refreshService(serviceName);
+      await publishServiceSnapshot(deviceId, serviceName, lastSnapshot, {
+        publicUrl: null,
+      });
+      if (lastSnapshot.status !== "running") {
+        await progress.step(
+          "stopped",
+          94,
+          `Service ${serviceName} sudah berhenti.`,
+          { status: lastSnapshot.status }
+        );
+        return lastSnapshot;
+      }
+
+      await progress.step(
+        "waiting_stop",
+        72,
+        `Menunggu service ${serviceName} berhenti.`,
+        { status: lastSnapshot.status }
+      );
+      await sleep(COMMAND_POLL_MS);
+    }
+
+    throw new Error(
+      `Timeout menunggu service ${serviceName} berhenti. Status terakhir: ${lastSnapshot?.status || "unknown"}.`
+    );
   }
 
   async function stopManagedServices(deviceId, reason) {
@@ -77,8 +163,8 @@ async function executeCommands({
         shortcutManager.syncServiceUrl(service.serviceName, null);
       }
       await publishServiceSnapshot(deviceId, service.serviceName, snapshot, {
-        status: "stopped",
-        publicUrl: null,
+          status: "stopped",
+          publicUrl: null,
         lastError: null,
       });
     }
@@ -121,6 +207,12 @@ async function executeCommands({
   }
 
   for (const command of commands) {
+    const progress = new CommandProgress({
+      command,
+      supabaseApi,
+      workerId: "agent",
+      logger,
+    });
     logger.info(
       `Executing command ${command.action} for ${command.service_name || "all services"}`,
       {
@@ -130,18 +222,36 @@ async function executeCommands({
     );
 
     try {
+      await progress.claim("Command diterima agent dan mulai diproses.");
       if (command.action === "start" && command.service_name) {
+        await progress.step(
+          "starting_service",
+          18,
+          `Memulai service ${command.service_name}.`
+        );
         serviceManager.setDesiredState(command.service_name, "running", "remote-start");
         const snapshot = await serviceManager.startService(command.service_name);
         await publishServiceSnapshot(command.device_id, command.service_name, snapshot);
+        await waitForServiceReady(command.device_id, command.service_name, progress, 42);
         logger.info(`Command start completed for ${command.service_name}`, {
           serviceName: command.service_name,
           status: snapshot.status,
           desiredState: snapshot.desiredState,
         });
+        await progress.done(`Service ${command.service_name} sudah aktif dan link publik siap.`);
       } else if (command.action === "stop" && command.service_name) {
+        await progress.step(
+          "stopping_service",
+          18,
+          `Menghentikan service ${command.service_name}.`
+        );
         serviceManager.setDesiredState(command.service_name, "stopped", "remote-stop");
         const snapshot = await serviceManager.stopService(command.service_name);
+        await progress.step(
+          "stopping_tunnel",
+          58,
+          `Menghentikan tunnel ${command.service_name}.`
+        );
         await tunnelManager.suspendTunnel(command.service_name);
         if (urlCache) {
           urlCache.clear(command.service_name);
@@ -152,38 +262,23 @@ async function executeCommands({
         await publishServiceSnapshot(command.device_id, command.service_name, snapshot, {
           publicUrl: null,
         });
+        await waitForServiceStopped(command.device_id, command.service_name, progress);
         logger.info(`Command stop completed for ${command.service_name}`, {
           serviceName: command.service_name,
           status: snapshot.status,
           desiredState: snapshot.desiredState,
           publicUrl: null,
         });
-      } else if (command.action === "agent_stop") {
-        await stopManagedServices(command.device_id, "remote-agent-stop");
-        logger.info("Command agent_stop completed.", {
-          serviceName: null,
-          action: command.action,
-        });
-      } else if (command.action === "agent_start") {
-        await startManagedServices(command.device_id, "remote-agent-start");
-        logger.info("Command agent_start completed.", {
-          serviceName: null,
-          action: command.action,
-        });
-      } else if (command.action === "agent_restart") {
-        await stopManagedServices(command.device_id, "remote-agent-restart-stop");
-        await startManagedServices(command.device_id, "remote-agent-restart-start");
-        logger.info("Command agent_restart completed.", {
-          serviceName: null,
-          action: command.action,
-        });
+        await progress.done(`Service ${command.service_name} sudah berhenti.`);
       } else if (command.action === "configure_tunnel") {
+        await progress.step("configuring_tunnel", 20, "Menyimpan dan menerapkan preferensi tunnel.");
         const configPayload = command.payload || {};
         if (configPayload.tunnel?.validateNgrokAuthtoken) {
           configPayload.tunnel.validationService = getTunnelValidationService();
         }
         const settings = await tunnelManager.configureSettings(configPayload);
         await refreshRunningTunnels(command.device_id);
+        await progress.done("Preferensi tunnel diterapkan.");
         logger.info("Command configure_tunnel completed.", {
           serviceName: null,
           action: command.action,
@@ -193,6 +288,7 @@ async function executeCommands({
           ngrokConfigured: settings.ngrokConfigured,
         });
       } else if (command.action === "kill") {
+        await progress.step("stopping_agent", 30, "Menghentikan agent dan tunnel.");
         await tunnelManager.stopAll();
         for (const service of serviceManager.list()) {
           if (urlCache) {
@@ -217,66 +313,14 @@ async function executeCommands({
         }
         shouldExit = true;
         exitMode = "kill";
-      } else if (command.action === "update") {
-        if (!selfUpdater) {
-          throw new Error("Self updater is not available.");
-        }
-
-        const check = await selfUpdater.checkForUpdate(true);
-        const now = new Date().toISOString();
-        const updateState = buildUpdateStateFromCheck(check, {
-          ...(check.updateAvailable
-            ? {
-                updateStatus: "updating",
-                updateStartedAt: now,
-                updateError: null,
-              }
-            : {}),
-          updateCheckedAt: now,
-        });
-        await supabaseApi.updateDeviceUpdateState({
-          deviceId: command.device_id,
-          ...updateState,
-        });
-
-        if (!check.updateAvailable) {
-          logger.info("Update command skipped because no newer GitHub release is available.", {
-            serviceName: null,
-            currentVersion: check.currentVersion,
-            latestReleaseTag: check.latestReleaseTag,
-          });
-        } else {
-          await tunnelManager.stopAll();
-          for (const service of serviceManager.list()) {
-            if (urlCache) {
-              urlCache.clear(service.serviceName);
-            }
-            if (shortcutManager) {
-              shortcutManager.syncServiceUrl(service.serviceName, null);
-            }
-            const snapshot = await serviceManager.stopService(service.serviceName);
-            const locationPayload = await buildLocationPayload(service.serviceName);
-            await supabaseApi.upsertServiceStatus({
-              deviceId: command.device_id,
-              serviceName: service.serviceName,
-              port: snapshot.port,
-              status: "stopped",
-              publicUrl: null,
-              desiredState: snapshot.desiredState,
-              lastError: "Agent update is running.",
-              tunnelProvider: tunnelManager.getStatusSnapshot(service.serviceName)?.provider || null,
-              ...locationPayload,
-            });
-          }
-          selfUpdater.launchUpdater();
-          shouldExit = true;
-          exitMode = "update";
-        }
+        await progress.done("Agent dihentikan.");
       } else {
-        logger.warn(`Unsupported command payload: ${JSON.stringify(command)}`, {
+        const unsupportedMessage = `Unsupported command payload: ${JSON.stringify(command)}`;
+        logger.warn(unsupportedMessage, {
           serviceName: command.service_name || null,
           action: command.action,
         });
+        await progress.failed(new Error(unsupportedMessage), "unsupported");
       }
     } catch (error) {
       logger.error(
@@ -286,21 +330,6 @@ async function executeCommands({
           action: command.action,
         }
       );
-
-      if (command.action === "update") {
-        try {
-          await supabaseApi.updateDeviceUpdateState({
-            deviceId: command.device_id,
-            updateAvailable: false,
-            updateStatus: "failed",
-            updateCheckedAt: new Date().toISOString(),
-            updateStartedAt: null,
-            updateError: error.message,
-          });
-        } catch (publishError) {
-          logger.warn(`Failed to publish update command error: ${publishError.message}`);
-        }
-      }
 
       if (command.service_name) {
         await tunnelManager.stopTunnel(command.service_name);
@@ -320,7 +349,7 @@ async function executeCommands({
             serviceName: command.service_name,
             port: snapshot.port,
             status: "error",
-            publicUrl: tunnelManager.getPublicUrl(command.service_name),
+            publicUrl: publicUrlFormatter(tunnelManager.getPublicUrl(command.service_name)),
             desiredState: snapshot.desiredState,
             lastError: snapshot.lastError || error.message,
             tunnelProvider: tunnelManager.getStatusSnapshot(command.service_name)?.provider || null,
@@ -336,8 +365,7 @@ async function executeCommands({
           );
         }
       }
-    } finally {
-      await supabaseApi.markCommandDone(command.id);
+      await progress.failed(error);
     }
   }
 

@@ -33,7 +33,9 @@ Deno.serve(async (request) => {
 
     const { data: device, error: deviceError } = await service
       .from("devices")
-      .select("device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name")
+      .select(
+        "device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name",
+      )
       .eq("device_id", deviceId)
       .maybeSingle();
 
@@ -76,7 +78,7 @@ Deno.serve(async (request) => {
       const { data: serviceRow, error: serviceError } = await service
         .from("services")
         .select(
-          "device_id, service_name, status, desired_state, public_url, tunnel_provider, tunnel_state, last_public_url, tunnel_last_error, last_error, last_ping, location_status, resolved_path, location_details"
+          "device_id, service_name, status, desired_state, public_url, tunnel_provider, tunnel_state, last_public_url, tunnel_last_error, last_error, last_ping, location_status, resolved_path, location_details",
         )
         .eq("device_id", deviceId)
         .eq("service_name", "rapor")
@@ -86,12 +88,31 @@ Deno.serve(async (request) => {
         throw serviceError;
       }
 
+      const { data: commandRows, error: commandError } = await service
+        .from("commands")
+        .select(
+          "id, device_id, service_name, action, status, progress_percent, phase, message, error, started_at, updated_at, completed_at, claimed_by, claimed_pid, created_at",
+        )
+        .eq("device_id", deviceId)
+        .or("service_name.eq.rapor,service_name.is.null")
+        .order("created_at", { ascending: false })
+        .limit(8);
+
+      if (commandError) {
+        throw commandError;
+      }
+
       return json({
         ok: true,
         device: {
           deviceId: deviceWithLatest.device_id,
           deviceName: deviceWithLatest.device_name,
-          deviceStatus: deviceWithLatest.status === "blocked" ? "blocked" : isFresh(deviceWithLatest.last_seen) ? "online" : "offline",
+          deviceStatus:
+            deviceWithLatest.status === "blocked"
+              ? "blocked"
+              : isFresh(deviceWithLatest.last_seen)
+                ? "online"
+                : "offline",
           lastSeen: deviceWithLatest.last_seen,
           appVersion: deviceWithLatest.app_version || null,
           releaseTag: deviceWithLatest.release_tag || null,
@@ -107,6 +128,7 @@ Deno.serve(async (request) => {
           updateAssetName: deviceWithLatest.update_asset_name || null,
         },
         service: serviceRow || null,
+        commands: commandRows || [],
       });
     }
 
@@ -115,42 +137,72 @@ Deno.serve(async (request) => {
         return json({
           ok: false,
           pendingSetup: true,
-          error: "Perangkat belum terhubung. Buka aplikasi School Services di komputer ini sampai status perangkat aktif, lalu coba lagi.",
+          error:
+            "Perangkat belum terhubung. Buka aplikasi School Services di komputer ini sampai status perangkat aktif, lalu coba lagi.",
         });
       }
 
-      const latestRelease = action === "update" ? await getLatestGitHubRelease(true) : null;
-      const deviceWithLatest = action === "update"
-        ? applyLatestReleaseToDevice(device, latestRelease)
-        : device;
+      const latestRelease =
+        action === "update" ? await getLatestGitHubRelease(true) : null;
+      const deviceWithLatest =
+        action === "update"
+          ? applyLatestReleaseToDevice(device, latestRelease)
+          : device;
       if (action === "update" && !supportsRemoteUpdate(deviceWithLatest)) {
         return json({
           ok: false,
           error: `Agent versi ini belum mendukung update jarak jauh. Jalankan installer School Services v${REMOTE_UPDATE_MIN_VERSION} atau lebih baru langsung di komputer ini.`,
         });
       }
-      if (action === "update" && deviceWithLatest.update_status === "updating") {
-        return json({ ok: true, queued: true, action, deviceId, serviceName: null });
+      if (
+        action === "update" &&
+        deviceWithLatest.update_status === "updating"
+      ) {
+        return json({
+          ok: true,
+          queued: true,
+          action,
+          deviceId,
+          serviceName: null,
+        });
       }
       if (action === "update" && !deviceWithLatest.update_available) {
         return json({
           ok: false,
-          error: "Update belum tersedia atau latest GitHub belum memiliki installer yang didukung.",
+          error:
+            "Update belum tersedia atau latest GitHub belum memiliki installer yang didukung.",
         });
       }
 
-      const { error: commandError } = await service.from("commands").insert({
-        device_id: deviceId,
-        service_name: action === "update" ? null : "rapor",
-        action,
-        status: "pending",
-      });
+      const { data: commandRow, error: commandError } = await service
+        .from("commands")
+        .insert({
+          device_id: deviceId,
+          service_name: action === "update" ? null : "rapor",
+          action,
+          status: "pending",
+          progress_percent: 0,
+          phase: "queued",
+          message: "Perintah masuk antrean dan menunggu agent mengambil tugas.",
+          error: null,
+        })
+        .select(
+          "id, device_id, service_name, action, status, progress_percent, phase, message, error, started_at, updated_at, completed_at, claimed_by, claimed_pid, created_at",
+        )
+        .single();
 
       if (commandError) {
         throw commandError;
       }
 
-      return json({ ok: true, queued: true, action, deviceId, serviceName: action === "update" ? null : "rapor" });
+      return json({
+        ok: true,
+        queued: true,
+        action,
+        deviceId,
+        serviceName: action === "update" ? null : "rapor",
+        command: commandRow,
+      });
     }
 
     throw new Error(`Unsupported guest action: ${action}`);
@@ -160,7 +212,7 @@ Deno.serve(async (request) => {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 });

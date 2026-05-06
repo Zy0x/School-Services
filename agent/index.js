@@ -9,6 +9,7 @@ const { createDeviceMetadata } = require("./device");
 const { ensureProcessPathEntries } = require("./environment");
 const FileWorker = require("./fileWorker");
 const logger = require("./logger");
+const { buildNgrokProxyUrl } = require("./ngrokProxy");
 const { getCacheDir, getDataDir, getInstallDir, getStateDir } = require("./paths");
 const { acquireProcessLock, releaseProcessLock } = require("./processLock");
 const { getConfigTargetsForService } = require("./serviceConfigs");
@@ -20,6 +21,13 @@ const ShortcutManager = require("./shortcutManager");
 const TunnelManager = require("./tunnel");
 const UrlCache = require("./urlCache");
 const { sleep } = require("./utils");
+
+const SUPERVISOR_COMMAND_ACTIONS = new Set([
+  "agent_start",
+  "agent_stop",
+  "agent_restart",
+  "update",
+]);
 
 function buildPendingCommandState(commands) {
   const latestByService = new Map();
@@ -211,6 +219,10 @@ async function main() {
     deviceBlocked: false,
   };
 
+  function formatPublicUrlForPublishing(publicUrl) {
+    return buildNgrokProxyUrl(publicUrl, config.guestPortal.baseUrl);
+  }
+
   async function publishDeviceUpdateState(update) {
     await trySupabase(
       "publish-device-update-state",
@@ -354,17 +366,22 @@ async function main() {
         return;
       }
 
-      logger.info(`Detected new public URL for ${service.serviceName}: ${publicUrl}`);
+      const displayPublicUrl = formatPublicUrlForPublishing(publicUrl);
+      logger.info(`Detected new public URL for ${service.serviceName}: ${publicUrl}`, {
+        serviceName: service.serviceName,
+        publicUrl,
+        displayPublicUrl,
+      });
       let configTargets = getConfigTargetsForService(service);
       if (configTargets.length > 0) {
         configTargets = await serviceManager.getResolvedConfigTargets(service.serviceName);
       }
 
-      urlCache.remember(service.serviceName, publicUrl);
-      shortcutManager.syncServiceUrl(service.serviceName, publicUrl, {
+      urlCache.remember(service.serviceName, displayPublicUrl);
+      shortcutManager.syncServiceUrl(service.serviceName, displayPublicUrl, {
         skipDiscoveryIfPriorityMissing: service.serviceName === "rapor",
       });
-      shortcutManager.syncGuestPortalUrl(device.deviceId, publicUrl);
+      shortcutManager.syncGuestPortalUrl(device.deviceId, displayPublicUrl);
 
       if (configTargets.length === 0) {
         logger.info(
@@ -373,7 +390,7 @@ async function main() {
       } else {
         for (const target of configTargets) {
           try {
-            const result = updateMappedConfig(target, publicUrl, {
+            const result = updateMappedConfig(target, displayPublicUrl, {
               localUrl: buildServiceLocalUrl(service),
               serviceName: service.serviceName,
             });
@@ -396,7 +413,7 @@ async function main() {
             serviceName: service.serviceName,
             port: service.port,
             status: "running",
-            publicUrl,
+            publicUrl: displayPublicUrl,
             desiredState: serviceManager.getDesiredState(service.serviceName),
             lastError: null,
             tunnelProvider: tunnelManager.getStatusSnapshot(service.serviceName)?.provider || null,
@@ -502,6 +519,7 @@ async function main() {
     supabaseApi.insertAgentLog({
       deviceId: device.deviceId,
       serviceName: entry.details?.serviceName || null,
+      commandId: entry.details?.commandId || null,
       level: entry.level,
       message: entry.message,
       details: entry.details,
@@ -568,7 +586,7 @@ async function main() {
           serviceName,
           port: snapshot.port,
           status: derivePublishedStatus(snapshot, tunnelSnapshot),
-          publicUrl: tunnelManager.getPublicUrl(serviceName),
+          publicUrl: formatPublicUrlForPublishing(tunnelManager.getPublicUrl(serviceName)),
           desiredState: snapshot.desiredState,
           lastError: tunnelSnapshot.lastError || snapshot.lastError,
           tunnelProvider: tunnelSnapshot.provider || null,
@@ -761,10 +779,10 @@ async function main() {
       )) || [];
     const executableCommands = deviceBlocked
       ? commands.filter((command) => command.action === "kill")
-      : commands;
+      : commands.filter((command) => !SUPERVISOR_COMMAND_ACTIONS.has(command.action));
 
     if (executableCommands.length > 0) {
-      const result = await executeCommands({
+        const result = await executeCommands({
         commands: executableCommands,
         serviceManager,
         selfUpdater,
@@ -772,6 +790,7 @@ async function main() {
         supabaseApi,
         shortcutManager,
         urlCache,
+        publicUrlFormatter: formatPublicUrlForPublishing,
       });
 
       if (result.shouldExit) {
@@ -836,7 +855,7 @@ async function main() {
 
         if (snapshot.status === "running" && desiredState === "running") {
           await tunnelManager.ensureTunnel(service);
-          publicUrl = tunnelManager.getPublicUrl(service.serviceName);
+          publicUrl = formatPublicUrlForPublishing(tunnelManager.getPublicUrl(service.serviceName));
         } else if (snapshot.status === "stopped" && desiredState === "stopped") {
           await tunnelManager.suspendTunnel(service.serviceName);
         } else {
@@ -877,7 +896,7 @@ async function main() {
               tunnelState: refreshedTunnelSnapshot?.state || null,
               tunnelProvider: refreshedTunnelSnapshot?.provider || null,
               lastPublicUrl:
-                tunnelManager.getLastKnownPublicUrl(service.serviceName) || publicUrl || null,
+                formatPublicUrlForPublishing(tunnelManager.getLastKnownPublicUrl(service.serviceName)) || publicUrl || null,
               tunnelLastError: refreshedTunnelSnapshot?.lastError || null,
               ...locationPayload,
             }),
@@ -894,7 +913,7 @@ async function main() {
               serviceName: service.serviceName,
               port: service.port,
               status: "error",
-              publicUrl: tunnelManager.getPublicUrl(service.serviceName),
+              publicUrl: formatPublicUrlForPublishing(tunnelManager.getPublicUrl(service.serviceName)),
               desiredState: serviceManager.getDesiredState(service.serviceName),
               lastError: error.message,
               tunnelProvider: tunnelManager.getStatusSnapshot(service.serviceName)?.provider || null,

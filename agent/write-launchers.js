@@ -9,6 +9,7 @@ const {
   LEGACY_GUEST_SHORTCUT_NAME,
   STARTUP_TASK_DESCRIPTION,
   STARTUP_TASK_NAME,
+  SUPERVISOR_EXE_NAME,
 } = require("./appConstants");
 const packageJson = require("./package.json");
 
@@ -269,8 +270,10 @@ function createFirewallRuleFunctions() {
     `  $appName = '${APP_NAME.replace(/'/g, "''")}'`,
     `  $agentExeName = '${AGENT_EXE_NAME.replace(/'/g, "''")}'`,
     `  $launcherExeName = '${LAUNCHER_EXE_NAME.replace(/'/g, "''")}'`,
+    `  $supervisorExeName = '${SUPERVISOR_EXE_NAME.replace(/'/g, "''")}'`,
     "  $agentExePath = Join-Path $installDir $agentExeName",
     "  $launcherExePath = Join-Path $installDir $launcherExeName",
+    "  $supervisorExePath = Join-Path $installDir $supervisorExeName",
     "  $bundledCloudflaredPath = Join-Path $installDir 'cloudflared.exe'",
     "  $bundledNgrokPath = Join-Path $installDir 'ngrok.exe'",
     "  $runtimeCloudflaredPath = Join-Path $runtimeDir 'cloudflared.exe'",
@@ -286,6 +289,8 @@ function createFirewallRuleFunctions() {
     "  Remove-FirewallRuleGroup ($appName + ' ')",
     "  Ensure-FirewallRule ($appName + ' Agent Inbound') $agentExePath 'Inbound'",
     "  Ensure-FirewallRule ($appName + ' Agent Outbound') $agentExePath 'Outbound'",
+    "  Ensure-FirewallRule ($appName + ' Supervisor Inbound') $supervisorExePath 'Inbound'",
+    "  Ensure-FirewallRule ($appName + ' Supervisor Outbound') $supervisorExePath 'Outbound'",
     "  Ensure-FirewallRule ($appName + ' Launcher Outbound') $launcherExePath 'Outbound'",
     "  Ensure-FirewallRule ($appName + ' Cloudflared Inbound') $runtimeCloudflaredPath 'Inbound'",
     "  Ensure-FirewallRule ($appName + ' Cloudflared Outbound') $runtimeCloudflaredPath 'Outbound'",
@@ -308,7 +313,7 @@ function createPowerShellScripts() {
     '$programData = $env:ProgramData',
     'if (-not $programData) { $programData = "C:\\ProgramData" }',
     '$dataDir = Join-Path $programData $appName',
-    '$startScriptPath = Join-Path $installDir "start-agent-clean.ps1"',
+    '$startScriptPath = Join-Path $installDir "start-supervisor.ps1"',
     '$powerShellPath = Join-Path $env:SystemRoot "System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
     'New-Item -ItemType Directory -Path $dataDir -Force | Out-Null',
     '$argument = \'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "\' + $startScriptPath + \'"\'',
@@ -373,6 +378,7 @@ function createPowerShellScripts() {
     '$logPath = Join-Path $installLogsDir "school-services.log"',
     ...createRollingLogFunction("Write-BootstrapLog", "[bootstrap]"),
     `$agentExeName = '${AGENT_EXE_NAME.replace(/'/g, "''")}'`,
+    `$supervisorExeName = '${SUPERVISOR_EXE_NAME.replace(/'/g, "''")}'`,
     `$appName = '${APP_NAME.replace(/'/g, "''")}'`,
     '$programData = $env:ProgramData',
     'if (-not $programData) { $programData = "C:\\ProgramData" }',
@@ -398,6 +404,52 @@ function createPowerShellScripts() {
     'Write-BootstrapLog ("Launching agent executable " + $agentExePath)',
     '$agentProcess = Start-Process -FilePath $agentExePath -WorkingDirectory $installDir -WindowStyle Hidden -PassThru',
     'Write-BootstrapLog ("Agent process started with PID " + $agentProcess.Id)',
+    '',
+  ].join("\r\n");
+
+  const startSupervisorPs1 = [
+    '$ErrorActionPreference = "Stop"',
+    '$installDir = $PSScriptRoot',
+    '$installLogsDir = Join-Path $installDir "logs"',
+    '$logPath = Join-Path $installLogsDir "school-services.log"',
+    ...createRollingLogFunction("Write-SupervisorBootstrapLog", "[supervisor-bootstrap]"),
+    `$supervisorExeName = '${SUPERVISOR_EXE_NAME.replace(/'/g, "''")}'`,
+    `$appName = '${APP_NAME.replace(/'/g, "''")}'`,
+    '$programData = $env:ProgramData',
+    'if (-not $programData) { $programData = "C:\\ProgramData" }',
+    '$dataDir = Join-Path $programData $appName',
+    '$stateDir = Join-Path $dataDir "state"',
+    '$runtimeDir = Join-Path $dataDir "runtime"',
+    '$cacheDir = Join-Path $dataDir "cache"',
+    '$logsDir = Join-Path $dataDir "logs"',
+    '$updatesDir = Join-Path $dataDir "updates"',
+    ...createFirewallRuleFunctions(),
+    'foreach ($dir in @($dataDir, $stateDir, $runtimeDir, $cacheDir, $logsDir, $updatesDir)) {',
+    '  New-Item -ItemType Directory -Path $dir -Force | Out-Null',
+    '}',
+    'Ensure-SilentFirewallAccess $installDir $runtimeDir',
+    '$supervisorExePath = Join-Path $installDir $supervisorExeName',
+    '$running = Get-CimInstance Win32_Process -Filter ("Name = \'" + $supervisorExeName.Replace("\'","\'\'") + "\'") -ErrorAction SilentlyContinue | Select-Object -First 1',
+    'if ($running) {',
+    '  Write-SupervisorBootstrapLog ("Supervisor already running with PID " + $running.ProcessId)',
+    '  return',
+    '}',
+    'Write-SupervisorBootstrapLog ("Launching supervisor executable " + $supervisorExePath)',
+    '$supervisorProcess = Start-Process -FilePath $supervisorExePath -WorkingDirectory $installDir -WindowStyle Hidden -PassThru',
+    'Write-SupervisorBootstrapLog ("Supervisor process started with PID " + $supervisorProcess.Id)',
+    '',
+  ].join("\r\n");
+
+  const stopSupervisorPs1 = [
+    '$ErrorActionPreference = "Continue"',
+    '$installDir = $PSScriptRoot',
+    '$installLogsDir = Join-Path $installDir "logs"',
+    '$logPath = Join-Path $installLogsDir "school-services.log"',
+    ...createRollingLogFunction("Write-SupervisorStopLog", "[supervisor-stop]"),
+    `$supervisorExeName = '${SUPERVISOR_EXE_NAME.replace(/'/g, "''")}'`,
+    'Write-SupervisorStopLog "Stopping supervisor process."',
+    'taskkill /F /IM $supervisorExeName /T *> $null',
+    'Write-SupervisorStopLog "Supervisor stop completed."',
     '',
   ].join("\r\n");
 
@@ -481,13 +533,14 @@ function createPowerShellScripts() {
     '$ErrorActionPreference = "Stop"',
     '$installDir = $PSScriptRoot',
     '& (Join-Path $installDir "register-startup.ps1")',
-    '& (Join-Path $installDir "start-agent-clean.ps1")',
+    '& (Join-Path $installDir "start-supervisor.ps1")',
     '',
   ].join("\r\n");
 
   const adminStopServicePs1 = [
     '$ErrorActionPreference = "Stop"',
     '$installDir = $PSScriptRoot',
+    '& (Join-Path $installDir "stop-supervisor.ps1")',
     '& (Join-Path $installDir "stop-agent.ps1")',
     '',
   ].join("\r\n");
@@ -495,10 +548,11 @@ function createPowerShellScripts() {
   const adminRestartServicePs1 = [
     '$ErrorActionPreference = "Stop"',
     '$installDir = $PSScriptRoot',
+    '& (Join-Path $installDir "stop-supervisor.ps1")',
     '& (Join-Path $installDir "stop-agent.ps1")',
     'Start-Sleep -Seconds 2',
     '& (Join-Path $installDir "register-startup.ps1")',
-    '& (Join-Path $installDir "start-agent-clean.ps1")',
+    '& (Join-Path $installDir "start-supervisor.ps1")',
     '',
   ].join("\r\n");
 
@@ -682,8 +736,8 @@ function createPowerShellScripts() {
     '  Ensure-SilentFirewallAccess $installDir (Join-Path $dataDir "runtime")',
     '  Write-PostInstallLog "Registering startup task."',
     '  & (Join-Path $installDir "register-startup.ps1")',
-    '  Write-PostInstallLog "Starting clean agent bootstrap."',
-    '  & (Join-Path $installDir "start-agent-clean.ps1")',
+    '  Write-PostInstallLog "Starting supervisor bootstrap."',
+    '  & (Join-Path $installDir "start-supervisor.ps1")',
     '  Write-PostInstallLog "Post-install completed successfully."',
     '} catch {',
     '  Write-PostInstallLog ("Post-install failed: " + $_.Exception.Message)',
@@ -696,6 +750,7 @@ function createPowerShellScripts() {
     '$ErrorActionPreference = "Continue"',
     `try { Unregister-ScheduledTask -TaskName '${STARTUP_TASK_NAME.replace(/'/g, "''")}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}`,
     `try { Get-NetFirewallRule -DisplayName '${APP_NAME.replace(/'/g, "''")} *' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch {}`,
+    '& (Join-Path $PSScriptRoot "stop-supervisor.ps1")',
     '& (Join-Path $PSScriptRoot "stop-agent.ps1")',
     '',
   ].join("\r\n");
@@ -704,6 +759,8 @@ function createPowerShellScripts() {
     "register-startup.ps1": registerStartupPs1,
     "stop-agent.ps1": stopAgentPs1,
     "start-agent-clean.ps1": startAgentCleanPs1,
+    "start-supervisor.ps1": startSupervisorPs1,
+    "stop-supervisor.ps1": stopSupervisorPs1,
     "watch-agent-log.ps1": watchAgentLogPs1,
     "open-guest-dashboard.ps1": openGuestDashboardPs1,
     "School Services Guest Web.vbs": createSilentPowerShellVbsScript(

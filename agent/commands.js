@@ -102,12 +102,30 @@ async function executeCommands({
 
       if (lastTunnel?.publicUrl) {
         await progress.step(
-          "ready",
-          94,
-          `Service ${serviceName} sudah running dan link publik siap.`,
+          "verifying_public_link",
+          96,
+          `Link publik ${serviceName} sudah diterima. Memastikan status layanan tetap aktif.`,
           { publicUrl: lastTunnel.publicUrl }
         );
-        return { snapshot: lastSnapshot, tunnel: lastTunnel };
+        const finalSnapshot = await serviceManager.refreshService(serviceName);
+        if (finalSnapshot.status !== "running") {
+          await publishServiceSnapshot(deviceId, serviceName, finalSnapshot, {
+            publicUrl: null,
+            lastError: finalSnapshot.lastError || `Service ${serviceName} berhenti sebelum link publik siap digunakan.`,
+          });
+          throw new Error(`Service ${serviceName} berhenti sebelum link publik siap digunakan.`);
+        }
+        await publishServiceSnapshot(deviceId, serviceName, finalSnapshot, {
+          publicUrl: lastTunnel.publicUrl,
+          lastError: null,
+        });
+        await progress.step(
+          "ready",
+          99,
+          `Service ${serviceName} aktif dan link publik sudah siap digunakan.`,
+          { publicUrl: lastTunnel.publicUrl }
+        );
+        return { snapshot: finalSnapshot, tunnel: lastTunnel };
       }
 
       await sleep(COMMAND_POLL_MS);
@@ -128,10 +146,16 @@ async function executeCommands({
         publicUrl: null,
       });
       if (lastSnapshot.status !== "running") {
+        await tunnelManager.suspendTunnel(serviceName);
+        await publishServiceSnapshot(deviceId, serviceName, lastSnapshot, {
+          status: "stopped",
+          publicUrl: null,
+          lastError: null,
+        });
         await progress.step(
           "stopped",
-          94,
-          `Service ${serviceName} sudah berhenti.`,
+          99,
+          `Service ${serviceName} sudah berhenti dan link publik dinonaktifkan.`,
           { status: lastSnapshot.status }
         );
         return lastSnapshot;

@@ -14,6 +14,7 @@ import {
 import {
   buildNgrokVisitSiteNotice,
   getGuestStatusModel,
+  isCommandInProgress,
   shouldAutoShowCommandProgress,
   shouldShowNgrokVisitSiteNotice,
 } from "../../../app/lib/guest.js";
@@ -294,7 +295,9 @@ export function GuestConsole({ deviceId }) {
   const activeCommandAction = activeCommand?.action || commandModal.action;
   const activeCommandMessage = activeCommand?.message || commandModal.message;
   const activeCommandPercent = activeCommand?.progressPercent || (activeCommandStatus === "pending" ? 4 : 24);
-  const commandInFlight = ["pending", "running"].includes(activeCommandStatus);
+  const commandInFlight =
+    (Boolean(activeCommand) && ["pending", "running"].includes(activeCommandStatus)) ||
+    (commandModal.open && ["pending", "running"].includes(String(commandModal.status || "")));
   const guestStatus = getGuestStatusModel(state.device, service);
   const guestRuntimeStatus =
     guestStatus.overallStatus === "ready" || guestStatus.overallStatus === "degraded"
@@ -305,13 +308,24 @@ export function GuestConsole({ deviceId }) {
   const guestUpdateSummary = getUpdateStatusSummary(guestUpdate);
   const remoteUpdateSupported = supportsRemoteUpdate(state.device);
   const canOpenService = guestStatus.ready;
-  const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
+  const isDeviceOffline =
+    state.device?.deviceStatus === "offline" ||
+    guestStatus.overallStatus === "offline" ||
+    guestStatus.overallStatus === "blocked";
+  const isDeviceOnline = state.device?.deviceStatus === "online";
+  const normalizedServiceStatus = String(service?.status || "").toLowerCase();
+  const desiredServiceState = String(service?.desired_state || "").toLowerCase();
+  const isRunning = normalizedServiceStatus === "running" && desiredServiceState !== "stopped";
   const isServicePendingActive =
-    ["starting", "reconnecting", "waiting_retry"].includes(String(service?.status || "").toLowerCase()) ||
-    service?.desired_state === "running";
+    ["starting", "reconnecting", "waiting_retry"].includes(normalizedServiceStatus) ||
+    (desiredServiceState === "running" && normalizedServiceStatus !== "running");
+  const isServiceStopping = desiredServiceState === "stopped" && normalizedServiceStatus === "running";
   const isServiceActiveOrStarting = isRunning || isServicePendingActive;
-  const startDisabled = busy || commandInFlight || isServiceActiveOrStarting;
-  const stopDisabled = busy || commandInFlight || !isServiceActiveOrStarting;
+  const activeServiceCommandInFlight = guestCommands.some(
+    (command) => ["start", "stop"].includes(String(command.action || "")) && isCommandInProgress(command)
+  );
+  const startDisabled = busy || commandInFlight || activeServiceCommandInFlight || !isDeviceOnline || isServiceActiveOrStarting;
+  const stopDisabled = busy || commandInFlight || activeServiceCommandInFlight || !isDeviceOnline || (!isServiceActiveOrStarting && !isServiceStopping);
   const canUpdateService =
     guestUpdate.updateAvailable &&
     guestUpdate.status !== "updating" &&
@@ -338,10 +352,6 @@ export function GuestConsole({ deviceId }) {
     guestUpdate.updateAvailable && state.device?.deviceStatus !== "online"
       ? "Perangkat harus online sebelum update jarak jauh bisa dimulai."
       : "";
-  const isDeviceOffline =
-    state.device?.deviceStatus === "offline" ||
-    guestStatus.overallStatus === "offline" ||
-    guestStatus.overallStatus === "blocked";
   const serviceLabel = formatServiceDisplayName(service?.service_name || "rapor");
   const tunnelProviderBadge = getTunnelProviderBadgeModel(service?.tunnel_provider);
   const showNgrokVisitSiteNotice =
@@ -372,6 +382,24 @@ export function GuestConsole({ deviceId }) {
   }, [guestUpdate.status]);
 
   useEffect(() => {
+    const body = document.body;
+    if (!body) {
+      return undefined;
+    }
+
+    body.classList.remove("school-device-online", "school-device-offline");
+    if (isDeviceOnline) {
+      body.classList.add("school-device-online");
+    } else if (state.device && (isDeviceOffline || state.device.deviceStatus === "unstable")) {
+      body.classList.add("school-device-offline");
+    }
+
+    return () => {
+      body.classList.remove("school-device-online", "school-device-offline");
+    };
+  }, [isDeviceOnline, isDeviceOffline, state.device?.deviceId, state.device?.deviceStatus]);
+
+  useEffect(() => {
     if (!activeCommand?.id || !["done", "failed"].includes(activeCommandStatus)) {
       return;
     }
@@ -391,6 +419,31 @@ export function GuestConsole({ deviceId }) {
     pushToast("Aksi gagal", activeCommand.error || activeCommand.message || "Command gagal diproses.", "error");
   }, [activeCommand?.id, activeCommandStatus, activeCommandPhase, activeCommand?.message, activeCommand?.error]);
 
+  useEffect(() => {
+    if (!activeCommand?.id || !["done", "failed"].includes(activeCommandStatus)) {
+      return undefined;
+    }
+
+    const commandId = activeCommand.id;
+    const timeoutId = window.setTimeout(() => {
+      setCommandModal((current) =>
+        String(current.commandId || "") === String(commandId)
+          ? {
+              open: false,
+              action: "",
+              title: "",
+              message: "",
+              commandId: null,
+              minimized: false,
+              status: "",
+            }
+          : current
+      );
+    }, activeCommandStatus === "done" ? 1400 : 2600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeCommand?.id, activeCommandStatus]);
+
   const accessHint = guestStatus.ready
     ? "Layanan siap. Gunakan tautan utama untuk membuka E-Rapor."
     : guestStatus.publicStatus === "disabled"
@@ -404,7 +457,7 @@ export function GuestConsole({ deviceId }) {
         : service?.desired_state || "-";
 
   return (
-    <main className={`console-shell guest-console-shell route-guest ${isDeviceOffline ? "is-device-offline" : ""}`.trim()}>
+    <main className={`console-shell guest-console-shell route-guest ${isDeviceOnline ? "is-device-online" : ""} ${isDeviceOffline ? "is-device-offline" : ""}`.trim()}>
       <div className="guest-shell-inner">
         <header className="top-command-bar guest-top-command-bar guest-top-command-surface" aria-label="Status dan aksi guest access">
           <div className="workspace-switcher guest-workspace-switcher">
@@ -621,7 +674,15 @@ export function GuestConsole({ deviceId }) {
         onClose={() =>
           setCommandModal((current) =>
             ["done", "failed"].includes(activeCommandStatus)
-              ? { ...current, open: false, commandId: null }
+              ? {
+                  open: false,
+                  action: "",
+                  title: "",
+                  message: "",
+                  commandId: null,
+                  minimized: false,
+                  status: "",
+                }
               : current
           )
         }

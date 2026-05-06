@@ -67,6 +67,7 @@ import {
 } from "./lib/routes.js";
 import {
   buildNgrokVisitSiteNotice,
+  isCommandInProgress,
   shouldAutoShowCommandProgress,
   shouldShowNgrokVisitSiteNotice,
 } from "./lib/guest.js";
@@ -3664,6 +3665,7 @@ export default function App() {
   const commandExecutionActive = Boolean(activeCommandExecution);
   const activeCommandStatus = activeCommandExecution?.status || "running";
   const activeCommandPhase = String(activeCommandExecution?.phase || "").toLowerCase();
+  const commandExecutionInFlight = ["pending", "running"].includes(activeCommandStatus);
   const commandProgressMessage = activeCommandExecution
     ? activeCommandExecution.message ||
       getCommandCopy(
@@ -3720,6 +3722,38 @@ export default function App() {
     activeCommandStatus,
     selectedDevice?.deviceId,
   ]);
+
+  useEffect(() => {
+    if (!activeCommandExecution?.id || !["done", "failed"].includes(activeCommandStatus)) {
+      return undefined;
+    }
+
+    const commandId = activeCommandExecution.id;
+    const timeoutId = window.setTimeout(() => {
+      setActiveCommandId((current) => (String(current) === String(commandId) ? null : current));
+    }, activeCommandStatus === "done" ? 1400 : 2600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeCommandExecution?.id, activeCommandStatus]);
+
+  useEffect(() => {
+    const body = document.body;
+    if (!body) {
+      return undefined;
+    }
+
+    const status = String(selectedDevice?.deviceStatus || "").toLowerCase();
+    body.classList.remove("school-device-online", "school-device-offline");
+    if (status === "online") {
+      body.classList.add("school-device-online");
+    } else if (selectedDevice && ["offline", "blocked", "unstable", "pending_setup"].includes(status)) {
+      body.classList.add("school-device-offline");
+    }
+
+    return () => {
+      body.classList.remove("school-device-online", "school-device-offline");
+    };
+  }, [selectedDevice?.deviceId, selectedDevice?.deviceStatus]);
 
   const fileExplorerBusy =
     busyAction.startsWith("job:list_directory") ||
@@ -4910,7 +4944,22 @@ export default function App() {
             service.public_url,
             service.tunnel_provider
           );
-          const runningNow = service.serviceStatus === "running" && service.desired_state !== "stopped";
+          const normalizedServiceStatus = String(service.serviceStatus || service.status || "").toLowerCase();
+          const desiredServiceState = String(service.desired_state || "").toLowerCase();
+          const runningNow = normalizedServiceStatus === "running" && desiredServiceState !== "stopped";
+          const serviceStarting =
+            ["starting", "reconnecting", "waiting_retry"].includes(normalizedServiceStatus) ||
+            (desiredServiceState === "running" && normalizedServiceStatus !== "running");
+          const serviceStopping = desiredServiceState === "stopped" && normalizedServiceStatus === "running";
+          const serviceCommandInFlight = visibleCommandRows.some(
+            (command) =>
+              command.deviceId === selectedDevice.deviceId &&
+              command.serviceName === service.service_name &&
+              isCommandInProgress(command)
+          );
+          const deviceOnline = selectedDevice.deviceStatus === "online";
+          const canStartService = deviceOnline && !runningNow && !serviceStarting && !serviceCommandInFlight;
+          const canStopService = deviceOnline && (runningNow || serviceStarting || serviceStopping) && !serviceCommandInFlight;
           return (
             <article
               key={service.id}
@@ -4944,7 +4993,7 @@ export default function App() {
                 <ActionButton
                   className="primary-button"
                   busy={busyAction === `${selectedDevice.deviceId}:${service.service_name}:start`}
-                  disabled={busyAction !== "" || runningNow}
+                  disabled={busyAction !== "" || !canStartService}
                   onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "start")}
                 >
                   Mulai
@@ -4952,7 +5001,7 @@ export default function App() {
                 <ActionButton
                   className="secondary-button"
                   busy={busyAction === `${selectedDevice.deviceId}:${service.service_name}:stop`}
-                  disabled={busyAction !== "" || !runningNow}
+                  disabled={busyAction !== "" || !canStopService}
                   onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "stop")}
                 >
                   Hentikan
@@ -5810,7 +5859,7 @@ export default function App() {
   }
 
   return (
-    <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab} ${deviceScopedOffline ? "is-device-offline" : ""} ${commandExecutionActive ? "is-command-locked" : ""}`.trim()}>
+    <main className={`console-shell app-shell-page role-${profile.role} route-${selectedTab} ${selectedDevice?.deviceStatus === "online" ? "is-device-online" : ""} ${deviceScopedOffline ? "is-device-offline" : ""} ${commandExecutionInFlight ? "is-command-locked" : ""}`.trim()}>
       <div className={`app-shell ${sidebarPinned ? "sidebar-is-pinned" : ""}`}>
         <SidebarNav
           profile={profile}

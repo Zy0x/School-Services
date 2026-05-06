@@ -286,13 +286,10 @@ function sanitizeCommandAction(value: unknown) {
 
 function sanitizeTunnelProvider(value: unknown, fallback = "cloudflare") {
   const provider = String(value || fallback).trim().toLowerCase();
-  if (provider === "cloudflare" || provider === "cloudflared") {
-    return "cloudflare";
-  }
-  if (provider === "ngrok") {
+  if (provider.includes("ngrok")) {
     return "ngrok";
   }
-  throw new Error("Provider tunnel tidak dikenali.");
+  return "cloudflare";
 }
 
 function buildTunnelProviderOrder(preferredProvider: string, hasNgrokAuthtoken = false) {

@@ -50,6 +50,7 @@ export function GuestConsole({ deviceId }) {
   const [error, setError] = useState("");
   const [toastItems, setToastItems] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [cancelingCommandId, setCancelingCommandId] = useState(null);
   const [commandModal, setCommandModal] = useState({
     open: false,
     action: "",
@@ -216,6 +217,51 @@ export function GuestConsole({ deviceId }) {
     }
   }
 
+  async function cancelActiveCommand() {
+    if (!activeCommand?.id || cancelingCommandId) {
+      return;
+    }
+
+    const commandId = activeCommand.id;
+    setCancelingCommandId(commandId);
+    try {
+      const { data, error: invokeError } = await legacyDataClient.functions.invoke("guest-access", {
+        body: { action: "cancelCommand", deviceId, commandId },
+      });
+      if (invokeError) {
+        throw invokeError;
+      }
+      if (!data?.ok) {
+        throw new Error(data?.error || "Perintah belum dapat dibatalkan.");
+      }
+      if (data.command?.id) {
+        setState((current) => ({
+          ...current,
+          commands: [data.command, ...(current.commands || []).filter((command) => command.id !== data.command.id)],
+        }));
+      }
+      await loadGuest({ silent: true });
+      pushToast(
+        data?.alreadyCompleted ? "Perintah sudah selesai" : "Aksi dibatalkan",
+        data?.alreadyCompleted ? "Perintah sudah selesai sebelum pembatalan diproses." : "Perintah dibatalkan pengguna.",
+        "info"
+      );
+      setCommandModal((current) => ({
+        ...current,
+        open: true,
+        commandId,
+        message: data?.alreadyCompleted ? current.message : "Perintah dibatalkan pengguna.",
+        status: data?.alreadyCompleted ? current.status : "failed",
+      }));
+    } catch (nextError) {
+      const message = formatEdgeFunctionError(nextError);
+      setError(message);
+      pushToast("Gagal membatalkan", message, "error");
+    } finally {
+      setCancelingCommandId(null);
+    }
+  }
+
   function handleOpenService(event) {
     if (!canOpenService || !service?.public_url) {
       event?.preventDefault?.();
@@ -243,6 +289,7 @@ export function GuestConsole({ deviceId }) {
       : null) ||
     guestCommands.find((command) => ["pending", "running"].includes(command.status));
   const activeCommandStatus = activeCommand?.status || commandModal.status || (commandModal.open ? "pending" : "");
+  const activeCommandPhase = String(activeCommand?.phase || "").toLowerCase();
   const activeCommandAction = activeCommand?.action || commandModal.action;
   const activeCommandMessage = activeCommand?.message || commandModal.message;
   const activeCommandPercent = activeCommand?.progressPercent || (activeCommandStatus === "pending" ? 4 : 24);
@@ -336,8 +383,12 @@ export function GuestConsole({ deviceId }) {
       pushToast("Aksi selesai", activeCommand.message || "Command selesai diproses.", "success");
       return;
     }
+    if (activeCommandPhase === "cancelled") {
+      pushToast("Aksi dibatalkan", activeCommand.message || "Perintah dibatalkan pengguna.", "info");
+      return;
+    }
     pushToast("Aksi gagal", activeCommand.error || activeCommand.message || "Command gagal diproses.", "error");
-  }, [activeCommand?.id, activeCommandStatus, activeCommand?.message, activeCommand?.error]);
+  }, [activeCommand?.id, activeCommandStatus, activeCommandPhase, activeCommand?.message, activeCommand?.error]);
 
   const accessHint = guestStatus.ready
     ? "Layanan siap. Gunakan tautan utama untuk membuka E-Rapor."
@@ -562,8 +613,10 @@ export function GuestConsole({ deviceId }) {
         status={activeCommandStatus || "running"}
         error={activeCommand?.error || ""}
         minimized={commandModal.minimized}
+        cancelLabel={cancelingCommandId ? "Membatalkan..." : "Batalkan"}
         onMinimize={() => setCommandModal((current) => ({ ...current, minimized: true }))}
         onRestore={() => setCommandModal((current) => ({ ...current, minimized: false }))}
+        onCancel={activeCommand?.id && ["pending", "running"].includes(activeCommandStatus) ? cancelActiveCommand : undefined}
         onClose={() =>
           setCommandModal((current) =>
             ["done", "failed"].includes(activeCommandStatus)

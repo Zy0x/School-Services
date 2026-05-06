@@ -22,6 +22,21 @@ function normalizeError(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isCancelledCommand(command) {
+  return (
+    String(command?.status || "").toLowerCase() === "failed" &&
+    String(command?.phase || "").toLowerCase() === "cancelled"
+  );
+}
+
+class CommandCancelledError extends Error {
+  constructor(message = "Command dibatalkan pengguna.") {
+    super(message);
+    this.name = "CommandCancelledError";
+    this.cancelled = true;
+  }
+}
+
 class CommandProgress {
   constructor({ command, supabaseApi, workerId, logger }) {
     this.command = command;
@@ -43,6 +58,7 @@ class CommandProgress {
   }
 
   async step(phase, progressPercent, message, details = {}) {
+    await this.throwIfCancelled();
     this.logger?.info?.(message, {
       serviceName: this.command.service_name || null,
       action: this.command.action,
@@ -62,6 +78,7 @@ class CommandProgress {
   }
 
   async done(message = "Command selesai.") {
+    await this.throwIfCancelled();
     await this.update({
       status: "done",
       phase: "done",
@@ -74,6 +91,17 @@ class CommandProgress {
 
   async failed(error, phase = "failed") {
     const message = normalizeError(error) || "Command gagal.";
+    if (error?.cancelled || phase === "cancelled") {
+      await this.update({
+        status: "failed",
+        phase: "cancelled",
+        progressPercent: 100,
+        message,
+        error: message,
+        completedAt: new Date().toISOString(),
+      });
+      return;
+    }
     await this.update({
       status: "failed",
       phase,
@@ -90,6 +118,9 @@ class CommandProgress {
     }
 
     try {
+      if (!patch.status || patch.status === "running" || patch.status === "done") {
+        await this.throwIfCancelled();
+      }
       const nextPatch = { ...patch };
       if (Object.prototype.hasOwnProperty.call(nextPatch, "progressPercent")) {
         nextPatch.progressPercent = clampPercent(nextPatch.progressPercent);
@@ -105,9 +136,21 @@ class CommandProgress {
       });
     }
   }
+
+  async throwIfCancelled() {
+    if (!this.command?.id || !this.supabaseApi?.fetchCommand) {
+      return;
+    }
+
+    const current = await this.supabaseApi.fetchCommand(this.command.id);
+    if (isCancelledCommand(current)) {
+      throw new CommandCancelledError(current.error || current.message || undefined);
+    }
+  }
 }
 
 module.exports = {
   CommandProgress,
+  CommandCancelledError,
   clampPercent,
 };

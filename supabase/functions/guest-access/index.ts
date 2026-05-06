@@ -132,6 +132,65 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (action === "cancelCommand") {
+      const commandId = Number(body.commandId || body.id);
+      if (!Number.isFinite(commandId) || commandId <= 0) {
+        return json(
+          {
+            ok: false,
+            error: "commandId wajib diisi untuk membatalkan perintah.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const { data: command, error: commandError } = await service
+        .from("commands")
+        .select("*")
+        .eq("id", commandId)
+        .eq("device_id", deviceId)
+        .maybeSingle();
+
+      if (commandError) {
+        throw commandError;
+      }
+      if (!command) {
+        return json(
+          { ok: false, error: "Command tidak ditemukan untuk perangkat ini." },
+          { status: 404 },
+        );
+      }
+      if (!["pending", "running"].includes(String(command.status || ""))) {
+        return json({ ok: true, command, alreadyCompleted: true });
+      }
+
+      const message = "Perintah dibatalkan pengguna.";
+      const { data: commandRow, error: cancelError } = await service
+        .from("commands")
+        .update({
+          status: "failed",
+          progress_percent: 100,
+          phase: "cancelled",
+          message,
+          error: message,
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", commandId)
+        .eq("device_id", deviceId)
+        .in("status", ["pending", "running"])
+        .select(
+          "id, device_id, service_name, action, status, progress_percent, phase, message, error, started_at, updated_at, completed_at, claimed_by, claimed_pid, created_at",
+        )
+        .single();
+
+      if (cancelError) {
+        throw cancelError;
+      }
+
+      return json({ ok: true, command: commandRow, cancelled: true });
+    }
+
     if (action === "start" || action === "stop" || action === "update") {
       if (!device) {
         return json({

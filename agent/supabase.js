@@ -245,6 +245,20 @@ function createSupabaseApi(config) {
     return data || [];
   }
 
+  async function fetchCommand(commandId) {
+    const { data, error } = await client
+      .from("commands")
+      .select("*")
+      .eq("id", commandId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return data || null;
+  }
+
   async function fetchSupervisorCommands(deviceId) {
     const { data, error } = await client
       .from("commands")
@@ -494,6 +508,7 @@ function createSupabaseApi(config) {
     fetchDevice,
     fetchNextFileJob,
     fetchServiceStates,
+    fetchCommand,
     fetchSupervisorCommands,
     fetchPendingCommands,
     heartbeatDevice,

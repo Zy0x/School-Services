@@ -5897,6 +5897,26 @@ label > textarea {
   font-weight: 700;
 }
 
+.command-progress-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.command-progress-cancel {
+  min-height: 34px;
+  padding: 8px 12px;
+  color: #b42318;
+  border-color: rgba(180, 35, 24, 0.24);
+  background: rgba(180, 35, 24, 0.06);
+}
+
+.command-progress-cancel:hover {
+  border-color: rgba(180, 35, 24, 0.42);
+  background: rgba(180, 35, 24, 0.1);
+}
+
 .command-progress-track {
   width: 100%;
   height: 10px;

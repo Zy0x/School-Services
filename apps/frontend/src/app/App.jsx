@@ -2986,6 +2986,7 @@ export default function App() {
   const [deleteArtifactTarget, setDeleteArtifactTarget] = useState(null);
   const [activeCommandId, setActiveCommandId] = useState(null);
   const [commandProgressMinimized, setCommandProgressMinimized] = useState(false);
+  const [cancelingCommandId, setCancelingCommandId] = useState(null);
   const [tunnelProviderDraft, setTunnelProviderDraft] = useState("cloudflare");
   const [ngrokTokenDraft, setNgrokTokenDraft] = useState("");
   const [ngrokTokenEditing, setNgrokTokenEditing] = useState(false);
@@ -3658,6 +3659,7 @@ export default function App() {
       : null);
   const commandExecutionActive = Boolean(activeCommandExecution);
   const activeCommandStatus = activeCommandExecution?.status || "running";
+  const activeCommandPhase = String(activeCommandExecution?.phase || "").toLowerCase();
   const commandProgressMessage = activeCommandExecution
     ? activeCommandExecution.message ||
       getCommandCopy(
@@ -3697,6 +3699,12 @@ export default function App() {
       setDashboardInfo(message);
       return;
     }
+    if (activeCommandPhase === "cancelled") {
+      const message = activeCommandExecution.message || "Perintah dibatalkan pengguna.";
+      pushToast("Aksi dibatalkan", message, "info");
+      setDashboardInfo(message);
+      return;
+    }
     const message = activeCommandExecution.error || activeCommandExecution.message || "Command gagal diproses agent.";
     pushToast("Aksi gagal", message, "error");
     setError(message);
@@ -3704,6 +3712,7 @@ export default function App() {
     activeCommandExecution?.id,
     activeCommandExecution?.message,
     activeCommandExecution?.error,
+    activeCommandPhase,
     activeCommandStatus,
     selectedDevice?.deviceId,
   ]);
@@ -4123,6 +4132,34 @@ export default function App() {
       pushToast("Perintah gagal", message, "error");
     } finally {
       setBusyAction("");
+    }
+  }
+
+  async function cancelActiveCommand() {
+    if (!activeCommandExecution?.id || cancelingCommandId) {
+      return;
+    }
+
+    const commandId = activeCommandExecution.id;
+    setCancelingCommandId(commandId);
+    try {
+      const data = await invokeAdmin("cancelCommand", { commandId });
+      if (data?.command?.id) {
+        setCommands((current) => [data.command, ...current.filter((command) => command.id !== data.command.id)]);
+        setActiveCommandId(data.command.id);
+      }
+      const message = data?.alreadyCompleted
+        ? "Perintah sudah selesai sebelum pembatalan diproses."
+        : "Perintah dibatalkan pengguna.";
+      setDashboardInfo(message);
+      pushToast(data?.alreadyCompleted ? "Perintah sudah selesai" : "Aksi dibatalkan", message, "info");
+      loadAll(true);
+    } catch (cancelError) {
+      const message = formatEdgeFunctionError(cancelError);
+      setError(message);
+      pushToast("Gagal membatalkan", message, "error");
+    } finally {
+      setCancelingCommandId(null);
     }
   }
 
@@ -5900,8 +5937,14 @@ export default function App() {
         status={activeCommandStatus}
         error={activeCommandExecution?.error || ""}
         minimized={commandProgressMinimized}
+        cancelLabel={cancelingCommandId ? "Membatalkan..." : "Batalkan"}
         onMinimize={() => setCommandProgressMinimized(true)}
         onRestore={() => setCommandProgressMinimized(false)}
+        onCancel={
+          activeCommandExecution?.id && ["pending", "running"].includes(activeCommandStatus)
+            ? cancelActiveCommand
+            : undefined
+        }
         onClose={() => {
           if (["done", "failed"].includes(activeCommandStatus)) {
             setActiveCommandId(null);

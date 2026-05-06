@@ -76,9 +76,11 @@ export function CommandProgressOverlay({
   status = "running",
   error = "",
   minimized = false,
+  cancelLabel = "Batalkan",
   onMinimize,
   onRestore,
   onClose,
+  onCancel,
 }) {
   if (!open) {
     return null;
@@ -87,6 +89,7 @@ export function CommandProgressOverlay({
   const normalizedStatus = String(status || "running").toLowerCase();
   const isDone = normalizedStatus === "done";
   const isFailed = normalizedStatus === "failed";
+  const canCancel = Boolean(onCancel) && !isDone && !isFailed;
   const StatusIcon = isDone ? CheckCircle2 : isFailed ? AlertTriangle : Loader2;
   const canClose = isDone || isFailed;
 
@@ -125,7 +128,14 @@ export function CommandProgressOverlay({
         <div className="command-progress-track" aria-label={`Progress perintah ${safePercent}%`}>
           <span style={{ width: `${safePercent}%` }} />
         </div>
-        <small>{safePercent}%</small>
+        <div className="command-progress-footer">
+          <small>{safePercent}%</small>
+          {canCancel && !minimized ? (
+            <button type="button" className="secondary-button command-progress-cancel" onClick={onCancel}>
+              {cancelLabel}
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>,
     document.body

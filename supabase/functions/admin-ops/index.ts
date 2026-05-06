@@ -1742,6 +1742,59 @@ async function queueScopedCommand(
   return { ok: true, command: data };
 }
 
+async function cancelScopedCommand(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>,
+) {
+  const commandId = Number(body.commandId || body.id);
+  if (!Number.isFinite(commandId) || commandId <= 0) {
+    throw new Error("commandId wajib diisi untuk membatalkan perintah.");
+  }
+
+  const { data: command, error: commandError } = await service
+    .from("commands")
+    .select("*")
+    .eq("id", commandId)
+    .maybeSingle();
+
+  if (commandError) {
+    throw commandError;
+  }
+  if (!command) {
+    throw new Error("Command tidak ditemukan.");
+  }
+
+  await requireDeviceAccess(service, actor, String(command.device_id || ""));
+
+  if (!["pending", "running"].includes(String(command.status || ""))) {
+    return { ok: true, command, alreadyCompleted: true };
+  }
+
+  const message = "Perintah dibatalkan pengguna.";
+  const { data, error } = await service
+    .from("commands")
+    .update({
+      status: "failed",
+      progress_percent: 100,
+      phase: "cancelled",
+      message,
+      error: message,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", commandId)
+    .in("status", ["pending", "running"])
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return { ok: true, command: data, cancelled: true };
+}
+
 async function updateScopedDeviceStatus(
   service: Awaited<ReturnType<typeof getRequestActor>>["service"],
   actor: Awaited<ReturnType<typeof getRequestActor>>,
@@ -2467,6 +2520,10 @@ Deno.serve(async (request) => {
           buildLegacyServiceCommandBody(body),
         ),
       );
+    }
+
+    if (action === "cancelCommand") {
+      return json(await cancelScopedCommand(service, actor, body));
     }
 
     if (action === "updateDeviceStatus") {

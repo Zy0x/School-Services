@@ -41,7 +41,7 @@
   width: min(1560px, 100%);
   margin: 0 auto;
   display: grid;
-  gap: 12px;
+  gap: 18px;
 }
 
 .guest-panel,
@@ -66,6 +66,7 @@
   top: 12px;
   z-index: 30;
   background: rgba(255, 255, 255, 0.72);
+  margin-bottom: 2px;
 }
 
 .guest-workspace-switcher {
@@ -361,7 +362,7 @@
 
 .guest-main-layout {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .guest-main-layout-streamlined {
@@ -369,8 +370,8 @@
 }
 
 .guest-access-card {
-  gap: 12px;
-  padding: clamp(16px, 1.6vw, 20px);
+  gap: 18px;
+  padding: clamp(18px, 1.8vw, 24px);
 }
 
 .guest-access-card-head {
@@ -411,8 +412,8 @@
 
 .guest-link-panel {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: 14px;
+  padding: 16px;
   border: 1px solid rgba(83, 136, 208, 0.12);
   border-radius: 18px;
   background:
@@ -446,7 +447,7 @@
 .guest-service-facts {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 
 .guest-service-facts > div {
@@ -487,9 +488,9 @@
 .guest-control-band {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(240px, 0.42fr);
-  gap: 10px;
+  gap: 14px;
   align-items: center;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid rgba(45, 56, 96, 0.08);
   border-radius: 16px;
   background: rgba(250, 251, 255, 0.74);
@@ -565,8 +566,8 @@
 
 .guest-detail-disclosure-body {
   display: grid;
-  gap: 8px;
-  padding: 0 12px 12px;
+  gap: 10px;
+  padding: 0 14px 14px;
 }
 
 .guest-detail-row {
@@ -937,7 +938,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 12px 14px;
+  padding: 14px 16px;
+  margin-top: 2px;
 }
 
 .guest-site-footer-copy {
@@ -1088,7 +1090,7 @@
   }
 
   .guest-access-card {
-    gap: 10px;
+    gap: 14px;
   }
 
   .guest-access-title h1 {

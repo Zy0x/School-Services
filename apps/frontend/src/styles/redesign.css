@@ -5263,14 +5263,14 @@ textarea {
 
 .route-overview .fresh-section-stack,
 .route-devices .fresh-section-stack {
-  gap: 12px;
+  gap: 16px;
 }
 
 .route-overview .fresh-panel,
 .route-devices .fresh-panel,
 .route-overview .fresh-service-card,
 .route-devices .fresh-service-card {
-  padding: 14px;
+  padding: 16px;
 }
 
 .route-overview .fresh-metric-grid,
@@ -5325,8 +5325,8 @@ textarea {
 
 .selected-device-operation-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .selected-device-operation-strip > div,
@@ -5362,6 +5362,7 @@ textarea {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
+  gap: 10px;
 }
 
 .selected-device-agent-actions .action-button {
@@ -5410,14 +5411,15 @@ textarea {
 
 .compact-detail-disclosure {
   display: grid;
-  gap: 10px;
+  gap: 14px;
 }
 
 .compact-detail-disclosure summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
+  min-height: 34px;
   cursor: pointer;
   list-style: none;
 }
@@ -5461,7 +5463,7 @@ textarea {
 .compact-detail-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 
 .fresh-service-card .fresh-actions {
@@ -5486,14 +5488,15 @@ textarea {
 }
 
 .tunnel-settings-panel {
-  gap: 14px;
+  gap: 18px;
 }
 
 .tunnel-settings-status {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  padding-top: 2px;
 }
 
 .tunnel-settings-status small {
@@ -5504,7 +5507,7 @@ textarea {
 .tunnel-provider-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .tunnel-provider-option {
@@ -5562,9 +5565,89 @@ textarea {
 
 .tunnel-token-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
   gap: 12px;
   align-items: end;
+}
+
+.tunnel-token-edit-button {
+  min-width: 156px;
+  justify-content: center;
+}
+
+.referral-code-panel {
+  gap: 14px;
+}
+
+.referral-code-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.referral-code-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(67, 57, 109, 0.1);
+  border-radius: 14px;
+  background: rgba(248, 250, 255, 0.82);
+}
+
+.referral-code-card span,
+.account-device-cell > span {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.referral-code-card strong {
+  display: block;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.referral-code-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account-device-cell {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.device-assignment-chip {
+  min-width: 0;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid rgba(219, 63, 76, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 246, 247, 0.92);
+  color: #9f2633;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.device-assignment-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-device-link-actions {
+  justify-content: start;
 }
 
 .masked-field input,

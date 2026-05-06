@@ -4,6 +4,20 @@ Semua perubahan penting pada project ini dicatat di file ini.
 
 Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) dengan versi rilis project.
 
+## [2.0.7] - 2026-05-06
+
+### Changed
+
+- Dashboard Guest dan role admin diberi spacing compact-relaxed agar card, modal, disclosure, dan form tunnel tidak saling menempel.
+- Preferensi tunnel Cloudflared/Ngrok menampilkan token Ngrok cadangan yang terkunci saat Cloudflared aktif, dengan mode edit eksplisit.
+- Startup agent menjaga service lokal yang sudah sehat tetap berjalan dan mengurangi antrean tunnel antar-service.
+
+### Fixed
+
+- Kode referral lingkungan ditampilkan untuk SuperAdmin dan Operator dengan aksi salin dan bagikan.
+- Device aktif hanya dapat tertaut ke satu akun dan bisa dilepas secara aman lewat aksi unlink.
+- Public URL terakhir tetap dipertahankan selama reconnect tunnel singkat, dan log tunnel baru memakai file per launch untuk menghindari `EPERM`.
+
 ## [2.0.6] - 2026-05-03
 
 ### Added

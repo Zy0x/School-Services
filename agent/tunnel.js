@@ -10,7 +10,7 @@ const TRY_CLOUDFLARE_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi;
 const NGROK_PATTERN = /https:\/\/[a-z0-9.-]+\.ngrok(?:-free)?\.(?:app|dev|io)/gi;
 const RATE_LIMIT_PATTERN = /rate[- ]limited|429|error code:\s*1015|too many requests/i;
 const NOT_READY_PATTERN = /not ready|failed to unmarshal quick tunnel/i;
-const PUBLIC_URL_PROBE_TIMEOUT_MS = 5000;
+const PUBLIC_URL_PROBE_TIMEOUT_MS = 7000;
 const PROVIDERS = {
   cloudflare: {
     key: "cloudflare",
@@ -212,6 +212,14 @@ class TunnelManager {
     return path.join(this.stateDir, `${serviceName}.${provider.logSuffix}.log`);
   }
 
+  getLaunchLogPath(serviceName, providerKey) {
+    const provider = PROVIDERS[providerKey] || PROVIDERS.cloudflare;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const nonce = Math.random().toString(36).slice(2, 8);
+    this.ensureStateDir();
+    return path.join(this.stateDir, `${serviceName}.${provider.logSuffix}.${timestamp}.${nonce}.log`);
+  }
+
   getFallbackTunnelDir() {
     const fallbackDir = path.join(os.tmpdir(), "school-services", "tunnels");
     fs.mkdirSync(fallbackDir, { recursive: true });
@@ -220,12 +228,12 @@ class TunnelManager {
 
   getWritableTunnelPaths(serviceName, providerKey = "cloudflare") {
     const primaryPaths = {
-      logPath: this.getProviderLogPath(serviceName, providerKey),
+      logPath: this.getLaunchLogPath(serviceName, providerKey),
       metaPath: this.getTunnelPaths(serviceName).metaPath,
     };
 
     try {
-      fs.writeFileSync(primaryPaths.logPath, "", "utf8");
+      fs.closeSync(fs.openSync(primaryPaths.logPath, "a"));
       return primaryPaths;
     } catch (error) {
       if (!["EPERM", "EACCES"].includes(String(error?.code || ""))) {
@@ -249,8 +257,33 @@ class TunnelManager {
           error: error.message,
         }
       );
-      fs.writeFileSync(fallbackPaths.logPath, "", "utf8");
+      fs.closeSync(fs.openSync(fallbackPaths.logPath, "a"));
       return fallbackPaths;
+    }
+  }
+
+  pruneOldLaunchLogs(serviceName, providerKey, keep = 6) {
+    const provider = PROVIDERS[providerKey] || PROVIDERS.cloudflare;
+    const prefix = `${serviceName}.${provider.logSuffix}.`;
+    try {
+      const entries = fs
+        .readdirSync(this.stateDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith(".log"))
+        .map((entry) => {
+          const filePath = path.join(this.stateDir, entry.name);
+          return { filePath, mtimeMs: fs.statSync(filePath).mtimeMs };
+        })
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+      for (const entry of entries.slice(keep)) {
+        try {
+          fs.unlinkSync(entry.filePath);
+        } catch (_error) {
+          // Old launch logs are best-effort cleanup only.
+        }
+      }
+    } catch (_error) {
+      // Cleanup must never block tunnel startup.
     }
   }
 
@@ -264,7 +297,14 @@ class TunnelManager {
 
     for (const logPath of paths) {
       if (logPath && fs.existsSync(logPath)) {
-        fs.unlinkSync(logPath);
+        try {
+          fs.unlinkSync(logPath);
+        } catch (error) {
+          logger.warn(`Tunnel log cleanup skipped for ${serviceName}: ${error.message}`, {
+            serviceName,
+            logPath,
+          });
+        }
       }
     }
   }
@@ -579,6 +619,7 @@ class TunnelManager {
     tunnel.provider = nextProvider;
     tunnel.pid = null;
     tunnel.child = null;
+    tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
     tunnel.publicUrl = null;
     tunnel.logPath = this.getProviderLogPath(serviceName, nextProvider);
     tunnel.lastError = `${this.getProviderLabel(previousProvider)} tunnel failed; switching to ${this.getProviderLabel(nextProvider)}.`;
@@ -607,7 +648,7 @@ class TunnelManager {
 
     tunnel.pid = null;
     tunnel.child = null;
-    tunnel.publicUrl = null;
+    tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
     tunnel.lastError = retry.reason;
     tunnel.nextRetryAt = retry.nextRetryAt;
     tunnel.retryAttempt = retry.attempt;
@@ -681,7 +722,7 @@ class TunnelManager {
           category: "network_switch",
           message:
             "Jaringan sedang berpindah atau tunnel publik lama sudah tidak berlaku. Menunggu tunnel baru tersambung.",
-          restartRecommended: true,
+          restartRecommended: false,
         };
       }
 
@@ -706,7 +747,7 @@ class TunnelManager {
         category: "network_switch",
         message:
           "Koneksi publik belum stabil. Menunggu jaringan dan tunnel publik tersambung kembali.",
-        restartRecommended: true,
+        restartRecommended: false,
         details: error instanceof Error ? error.message : String(error),
       };
     } finally {
@@ -715,7 +756,7 @@ class TunnelManager {
   }
 
   markReconnectingState(serviceName, tunnel, issue, options = {}) {
-    tunnel.publicUrl = null;
+    tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
     tunnel.lastError = issue.message;
     tunnel.lastFailureCategory = issue.category || null;
     tunnel.nextRetryAt = null;
@@ -900,7 +941,7 @@ class TunnelManager {
       return null;
     }
 
-    return tunnel.publicUrl || null;
+    return tunnel.publicUrl || tunnel.lastKnownPublicUrl || null;
   }
 
   getLastKnownPublicUrl(serviceName) {
@@ -1042,6 +1083,7 @@ class TunnelManager {
     const args = this.buildProviderArgs(service, provider);
     const { logPath } = this.getWritableTunnelPaths(service.serviceName, provider);
     const stdoutFd = fs.openSync(logPath, "a");
+    this.pruneOldLaunchLogs(service.serviceName, provider);
 
     try {
       const child = await new Promise((resolve, reject) => {
@@ -1146,29 +1188,6 @@ class TunnelManager {
         retryAttempt: blockers.attempt,
         lastError: blockers.reason,
         lastFailureCategory: blockers.category,
-      });
-      return tunnel;
-    }
-
-    const startBlocker = this.getStartBlocker(service.serviceName);
-    if (startBlocker) {
-      const queueToken = `${startBlocker.serviceName}:${startBlocker.state}:${startBlocker.nextRetryAt || "none"}`;
-      if (tunnel.lastQueueLogAt !== queueToken) {
-        logger.info(`Queued tunnel start for ${service.serviceName}`, {
-          serviceName: service.serviceName,
-          provider: tunnel.provider,
-          waitingForService: startBlocker.serviceName,
-          waitingForState: startBlocker.state,
-          waitingUntil: startBlocker.nextRetryAt
-            ? new Date(startBlocker.nextRetryAt).toISOString()
-            : null,
-          reason: startBlocker.lastError,
-        });
-        tunnel.lastQueueLogAt = queueToken;
-      }
-
-      this.markState(service.serviceName, tunnel, "starting", {
-        nextRetryAt: startBlocker.nextRetryAt || null,
       });
       return tunnel;
     }

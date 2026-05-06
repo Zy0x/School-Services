@@ -583,23 +583,33 @@ async function main() {
 
   async function prepareCleanOnlineStartup() {
     logger.info(
-      "Preparing clean startup: resetting tracked tunnels and reinitializing services"
+      "Preparing startup: resetting tracked tunnels and keeping healthy local services online"
     );
     await tunnelManager.resetAll();
 
     for (const service of serviceManager.list()) {
-      try {
-        await serviceManager.stopService(service.serviceName);
-      } catch (error) {
-        logger.warn(
-          `Startup cleanup could not stop ${service.serviceName}: ${error.message}`,
-          { serviceName: service.serviceName }
-        );
+      const snapshot = await serviceManager.refreshService(service.serviceName);
+      const shouldRun = Boolean(service.autoStart);
+
+      if (!shouldRun && snapshot.status === "running") {
+        try {
+          await serviceManager.stopService(service.serviceName);
+        } catch (error) {
+          logger.warn(
+            `Startup cleanup could not stop ${service.serviceName}: ${error.message}`,
+            { serviceName: service.serviceName }
+          );
+        }
+      } else if (shouldRun && snapshot.status === "running") {
+        logger.info(`Startup found ${service.serviceName} already running; skipping stop/start cycle.`, {
+          serviceName: service.serviceName,
+          port: service.port,
+        });
       }
 
       serviceManager.setDesiredState(
         service.serviceName,
-        service.autoStart ? "running" : "stopped",
+        shouldRun ? "running" : "stopped",
         "startup-clean-online"
       );
       await publishStartupState(service.serviceName);

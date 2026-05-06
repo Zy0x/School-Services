@@ -196,7 +196,7 @@ function loadConfig() {
   const tunnelStartSpacingMs = Number(
     overrides.tunnel?.startSpacingMs ||
       process.env.TUNNEL_START_SPACING_MS ||
-      5000
+      1500
   );
   const tunnelGlobalCooldownMs = Number(
     overrides.tunnel?.globalCooldownMs ||

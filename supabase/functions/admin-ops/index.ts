@@ -378,6 +378,52 @@ async function assertDeviceLinkAvailable(
   }
 }
 
+async function loadDeviceAssignmentsForUsers(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  userIds: string[]
+) {
+  const scopedUserIds = [...new Set(userIds.map((userId) => String(userId || "").trim()).filter(Boolean))];
+  if (!scopedUserIds.length) {
+    return new Map<string, Record<string, unknown>[]>();
+  }
+
+  const { data, error } = await service
+    .from("device_assignments")
+    .select("id, device_id, user_id, environment_id, assignment_role, status, is_primary, assigned_at, created_at, updated_at")
+    .in("user_id", scopedUserIds)
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  const assignmentsByUser = new Map<string, Record<string, unknown>[]>();
+  for (const assignment of data || []) {
+    const assignmentUserId = String(assignment.user_id || "").trim();
+    if (!assignmentsByUser.has(assignmentUserId)) {
+      assignmentsByUser.set(assignmentUserId, []);
+    }
+    assignmentsByUser.get(assignmentUserId)?.push(assignment);
+  }
+
+  return assignmentsByUser;
+}
+
+async function attachDeviceAssignmentsToAccounts(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  accounts: Record<string, unknown>[]
+) {
+  const assignmentsByUser = await loadDeviceAssignmentsForUsers(
+    service,
+    accounts.map((account) => String(account.user_id || ""))
+  );
+
+  return accounts.map((account) => ({
+    ...account,
+    deviceAssignments: assignmentsByUser.get(String(account.user_id || "")) || [],
+  }));
+}
+
 function getActorEnvironmentId(actor: Awaited<ReturnType<typeof getRequestActor>>) {
   return String(
     actor.profile?.primary_environment_id ||
@@ -409,10 +455,10 @@ async function getScopedAccounts(service: Awaited<ReturnType<typeof getRequestAc
       (memberships || []).map((membership) => [String(membership.user_id), membership])
     );
 
-    return (profiles || []).map((profile) => ({
+    return attachDeviceAssignmentsToAccounts(service, (profiles || []).map((profile) => ({
       ...profile,
       membership: membershipMap.get(String(profile.user_id)) || null,
-    }));
+    })));
   }
 
   if (!isOperatorProfile(actor.profile)) {
@@ -453,10 +499,52 @@ async function getScopedAccounts(service: Awaited<ReturnType<typeof getRequestAc
     (memberships || []).map((membership) => [String(membership.user_id), membership])
   );
 
-  return (profiles || []).map((profile) => ({
+  return attachDeviceAssignmentsToAccounts(service, (profiles || []).map((profile) => ({
     ...profile,
     membership: membershipMap.get(String(profile.user_id)) || null,
-  }));
+  })));
+}
+
+async function getScopedDeviceAssignments(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  accessibleDeviceIds: string[] | null
+) {
+  let query = service
+    .from("device_assignments")
+    .select("id, device_id, user_id, environment_id, assignment_role, status, is_primary, assigned_at, created_at, updated_at")
+    .order("updated_at", { ascending: false });
+
+  if (isSuperAdminProfile(actor.profile)) {
+    const { data, error } = await query;
+    if (error) {
+      throw error;
+    }
+    return data || [];
+  }
+
+  if (isOperatorProfile(actor.profile)) {
+    const environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+    if (!environmentId) {
+      return [];
+    }
+    query = query.eq("environment_id", environmentId);
+  } else {
+    query = query.eq("user_id", actor.user.id);
+  }
+
+  if (accessibleDeviceIds !== null) {
+    if (!accessibleDeviceIds.length) {
+      return [];
+    }
+    query = query.in("device_id", accessibleDeviceIds);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw error;
+  }
+  return data || [];
 }
 
 async function getScopedEnvironments(service: Awaited<ReturnType<typeof getRequestActor>>["service"], actor: Awaited<ReturnType<typeof getRequestActor>>) {
@@ -530,6 +618,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     environments,
     authPolicy,
     aliases,
+    deviceAssignments,
   ] = await Promise.all([
     buildQuery("services")
       .select(
@@ -554,6 +643,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     getScopedEnvironments(service, actor),
     superAdmin ? getAuthPolicy(service) : Promise.resolve(null),
     getDeviceAliases(service, actor, accessibleDeviceIds),
+    getScopedDeviceAssignments(service, actor, accessibleDeviceIds),
   ]);
 
   if (servicesResult.error) {
@@ -598,6 +688,7 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
     environments,
     authPolicy: authPolicy?.raw || null,
     deviceAliases: aliases,
+    deviceAssignments,
   };
 }
 
@@ -1014,6 +1105,102 @@ async function linkGuestDevice(
     ok: true,
     device,
     assignment: data,
+  };
+}
+
+async function unlinkDeviceAssignment(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  body: Record<string, unknown>
+) {
+  const deviceId = String(body.deviceId || "").trim();
+  const requestedUserId = String(body.userId || actor.user.id).trim();
+  const confirmCurrentDevice = Boolean(body.confirmCurrentDevice);
+
+  if (!deviceId) {
+    throw new Error("deviceId wajib diisi.");
+  }
+  if (!requestedUserId) {
+    throw new Error("userId wajib diisi.");
+  }
+
+  const actorIsSuperAdmin = isSuperAdminProfile(actor.profile);
+  const actorIsOperator = isOperatorProfile(actor.profile);
+  const isSelfUnlink = requestedUserId === actor.user.id;
+
+  if (!actorIsSuperAdmin && !actorIsOperator && !isSelfUnlink) {
+    throw new Error("Anda hanya dapat melepas device dari akun sendiri.");
+  }
+
+  let query = service
+    .from("device_assignments")
+    .select("*")
+    .eq("device_id", deviceId)
+    .eq("user_id", requestedUserId)
+    .eq("status", "active");
+
+  if (actorIsOperator) {
+    const environmentId = String(actor.environment?.id || actor.profile?.primary_environment_id || "").trim();
+    if (!environmentId) {
+      throw new Error("Lingkungan operator belum tersedia.");
+    }
+    query = query.eq("environment_id", environmentId);
+  }
+
+  const { data: assignment, error: assignmentError } = await query.maybeSingle();
+  if (assignmentError) {
+    throw assignmentError;
+  }
+  if (!assignment) {
+    throw new Error("Tautan device aktif tidak ditemukan atau berada di luar cakupan akun Anda.");
+  }
+
+  if (isSelfUnlink && !confirmCurrentDevice) {
+    throw new Error("Konfirmasi diperlukan karena device ini tertaut ke akun yang sedang login.");
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await service
+    .from("device_assignments")
+    .update({
+      status: "revoked",
+      is_primary: false,
+      updated_at: now,
+    })
+    .eq("id", assignment.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  const { count, error: countError } = await service
+    .from("device_assignments")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", requestedUserId)
+    .eq("status", "active");
+
+  if (countError) {
+    throw countError;
+  }
+
+  if (!count) {
+    await service
+      .from("admin_profiles")
+      .update({
+        standalone_state: "standalone",
+        updated_at: now,
+      })
+      .eq("user_id", requestedUserId)
+      .in("role", ["user", "operator"]);
+  }
+
+  return {
+    ok: true,
+    assignment: data,
+    selfUnlink: isSelfUnlink,
+    remainingActiveAssignments: count || 0,
   };
 }
 
@@ -1759,6 +1946,10 @@ Deno.serve(async (request) => {
 
     if (action === "linkGuestDevice") {
       return json(await linkGuestDevice(service, actor, body));
+    }
+
+    if (action === "unlinkDeviceAssignment") {
+      return json(await unlinkDeviceAssignment(service, actor, body));
     }
 
     if (action === "updateDeviceAlias") {

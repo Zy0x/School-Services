@@ -9,6 +9,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Cloud,
+  Copy,
   Download,
   Eye,
   FileText,
@@ -28,10 +29,12 @@ import {
   RotateCcw,
   Search,
   Server,
+  Share2,
   ShieldCheck,
   Sparkles,
   Square,
   Trash2,
+  Unlink,
   User,
   UserPlus,
   Users,
@@ -2508,7 +2511,7 @@ function LogOverlay({ open, logs, jobs = [], deviceId, onClose }) {
   );
 }
 
-function AccountTable({ accounts, page, onPageChange, busyAction, onAction, onDelete, isSuperAdmin }) {
+function AccountTable({ accounts, page, onPageChange, busyAction, onAction, onDelete, onUnlinkDevice, isSuperAdmin }) {
   const pageSize = 10;
   const safePage = Math.min(Math.max(1, page), Math.max(1, Math.ceil(accounts.length / pageSize)));
   const pageItems = accounts.slice((safePage - 1) * pageSize, safePage * pageSize);
@@ -2522,7 +2525,7 @@ function AccountTable({ accounts, page, onPageChange, busyAction, onAction, onDe
               <span>Role</span>
               <span>Status</span>
               <span>Dibuat</span>
-              <span>Lingkungan</span>
+              <span>Lingkungan / Device</span>
               <span>Aksi</span>
             </div>
             {pageItems.map((account) => (
@@ -2534,7 +2537,25 @@ function AccountTable({ accounts, page, onPageChange, busyAction, onAction, onDe
                 <StatusChip status={account.role} />
                 <StatusChip status={account.status} />
                 <span>{formatDate(account.created_at)}</span>
-                <span>{account.membership?.status ? getStatusLabel(account.membership.status) : "-"}</span>
+                <div className="account-device-cell">
+                  <span>{account.membership?.status ? getStatusLabel(account.membership.status) : "-"}</span>
+                  {(account.deviceAssignments || []).filter((assignment) => assignment.status === "active").slice(0, 2).map((assignment) => (
+                    <button
+                      key={assignment.id || `${assignment.device_id}:${assignment.user_id}`}
+                      type="button"
+                      className="device-assignment-chip"
+                      disabled={busyAction !== ""}
+                      onClick={() => onUnlinkDevice?.({
+                        deviceId: assignment.device_id,
+                        userId: account.user_id,
+                        label: account.display_name || account.email || assignment.device_id,
+                      })}
+                    >
+                      <Unlink size={13} aria-hidden="true" />
+                      <span>{assignment.device_id}</span>
+                    </button>
+                  ))}
+                </div>
                 <div className="fresh-actions">
                   {account.status !== "approved" ? (
                     <ActionButton className="primary-button" busy={busyAction === "account:approveAccount"} onClick={() => onAction("approveAccount", { userId: account.user_id })}>
@@ -2902,6 +2923,7 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [accounts, setAccounts] = useState([]);
   const [environments, setEnvironments] = useState([]);
+  const [deviceAssignments, setDeviceAssignments] = useState([]);
   const [authPolicy, setAuthPolicy] = useState({
     operatorAutoApproveHours: 24,
     environmentUserAutoApproveHours: 8,
@@ -2967,6 +2989,7 @@ export default function App() {
   const [pendingCommandStates, setPendingCommandStates] = useState([]);
   const [tunnelProviderDraft, setTunnelProviderDraft] = useState("cloudflare");
   const [ngrokTokenDraft, setNgrokTokenDraft] = useState("");
+  const [ngrokTokenEditing, setNgrokTokenEditing] = useState(false);
   const [updateModal, setUpdateModal] = useState({
     open: false,
     deviceId: "",
@@ -3019,6 +3042,7 @@ export default function App() {
     setProfileLoading(false);
     setAccounts([]);
     setEnvironments([]);
+    setDeviceAssignments([]);
     setServices([]);
     setLogs([]);
     setFileJobs([]);
@@ -3405,6 +3429,7 @@ export default function App() {
         setRoots(dashboard.roots || []);
         setAccounts(dashboard.accounts || []);
         setEnvironments(dashboard.environments || []);
+        setDeviceAssignments(dashboard.deviceAssignments || []);
         setDeviceAliases(dashboard.deviceAliases || []);
         if (dashboard.authPolicy) {
           setAuthPolicy((current) => ({ ...current, ...dashboard.authPolicy }));
@@ -3512,6 +3537,17 @@ export default function App() {
     const aliasMap = new Map(
       deviceAliases.map((entry) => [String(entry.device_id || ""), String(entry.alias || "").trim()])
     );
+    const assignmentMap = new Map();
+    for (const assignment of deviceAssignments) {
+      const deviceId = String(assignment.device_id || "").trim();
+      if (!deviceId) {
+        continue;
+      }
+      if (!assignmentMap.has(deviceId)) {
+        assignmentMap.set(deviceId, []);
+      }
+      assignmentMap.get(deviceId).push(assignment);
+    }
     for (const row of services) {
       const deviceRecord = Array.isArray(row.devices) ? row.devices[0] : row.devices;
       const deviceStatus = deriveDeviceStatus(deviceRecord);
@@ -3539,6 +3575,10 @@ export default function App() {
 
     return Array.from(grouped.values()).map((entry) => ({
       ...entry,
+      assignments: assignmentMap.get(entry.deviceId) || [],
+      activeAssignments: (assignmentMap.get(entry.deviceId) || []).filter(
+        (assignment) => assignment.status === "active"
+      ),
       runningCount: entry.services.filter((service) => service.serviceStatus === "running").length,
       fileJobCount: fileJobs.filter(
         (job) =>
@@ -3551,7 +3591,7 @@ export default function App() {
           ["missing", "partial"].includes(service.location_status)
       ).length,
     }));
-  }, [services, fileJobs, deviceAliases]);
+  }, [services, fileJobs, deviceAliases, deviceAssignments]);
 
   const selectedDevice =
     appRoute.section === "devices" && appRoute.deviceId
@@ -3580,6 +3620,11 @@ export default function App() {
     null;
   const selectedGuestUrl = selectedDevice ? buildGuestUrl(selectedDevice.deviceId) : "";
   const selectedDeviceBadge = getDeviceStatusBadgeModel(selectedDevice?.deviceStatus || "offline");
+  const accountByUserId = useMemo(
+    () => new Map(accounts.map((account) => [String(account.user_id || ""), account])),
+    [accounts]
+  );
+  const currentUserId = String(profile?.user_id || session?.user?.id || "");
   const activeCommandExecution =
     pendingCommandStates[0] ||
     (/:(start|stop|agent_start|agent_stop|agent_restart|update|configure_tunnel)$/.test(busyAction)
@@ -3622,6 +3667,7 @@ export default function App() {
     const preferredProvider = selectedDevice?.deviceRecord?.tunnel_preferred_provider || "cloudflare";
     setTunnelProviderDraft(preferredProvider === "ngrok" ? "ngrok" : "cloudflare");
     setNgrokTokenDraft("");
+    setNgrokTokenEditing(false);
   }, [selectedDevice?.deviceId, selectedDevice?.deviceRecord?.tunnel_preferred_provider]);
 
   useEffect(() => {
@@ -4132,6 +4178,7 @@ export default function App() {
       ngrokAuthtoken,
     });
     setNgrokTokenDraft("");
+    setNgrokTokenEditing(false);
   }
 
   async function updateDeviceStatus(deviceId, status) {
@@ -4209,6 +4256,28 @@ export default function App() {
     }
   }
 
+  async function copyReferralCode(code) {
+    try {
+      await copyTextToClipboard(code);
+      setError("");
+      setDashboardInfo("Kode referral berhasil disalin.");
+      pushToast("Kode disalin", "Kode referral siap dibagikan ke User.", "success");
+    } catch (copyError) {
+      const message = copyError?.message || "Gagal menyalin kode referral.";
+      setError(message);
+      pushToast("Salin gagal", message, "error");
+    }
+  }
+
+  function shareReferralCode(code, environmentName = "Lingkungan") {
+    if (!code) {
+      return;
+    }
+    window.open(buildWhatsAppShareUrl(code, `Kode referral ${environmentName}`), "_blank", "noopener,noreferrer");
+    setDashboardInfo("Kode referral siap dibagikan lewat WhatsApp.");
+    pushToast("Siap dibagikan", "WhatsApp dibuka dengan kode referral.", "success");
+  }
+
   async function confirmGuestDeviceLink() {
     const deviceId = String(pendingGuestLinkDeviceId || "").trim();
     if (!deviceId) {
@@ -4253,6 +4322,44 @@ export default function App() {
       await loadAll(true);
     } catch (aliasError) {
       setError(formatEdgeFunctionError(aliasError));
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function unlinkDeviceAssignment({ deviceId, userId = "", label = "" }) {
+    const targetUserId = String(userId || currentUserId || "").trim();
+    const selfUnlink = targetUserId && targetUserId === currentUserId;
+    const targetLabel = label || deviceId;
+    const confirmationMessage = selfUnlink
+      ? `Device "${targetLabel}" tertaut ke akun yang sedang login. Setelah dilepas, akun ini harus menautkan device lagi sebelum bisa mengelola layanan. Lanjutkan?`
+      : `Lepas tautan device "${targetLabel}" dari akun ini?`;
+
+    if (typeof window !== "undefined" && !window.confirm(confirmationMessage)) {
+      return;
+    }
+
+    try {
+      setBusyAction(`device-unlink:${deviceId}:${targetUserId}`);
+      setError("");
+      const result = await invokeAdmin("unlinkDeviceAssignment", {
+        deviceId,
+        userId: targetUserId,
+        confirmCurrentDevice: selfUnlink,
+      });
+      if (result.selfUnlink && !result.remainingActiveAssignments) {
+        syncGlobalDeviceSelection("all");
+        setDashboardInfo("Device dilepas dari akun ini. Tautkan device lain untuk mengelola layanan kembali.");
+        pushToast("Device dilepas", "Akun ini sekarang belum memiliki device aktif.", "info");
+      } else {
+        setDashboardInfo("Tautan device berhasil dilepas.");
+        pushToast("Device dilepas", "Device bisa ditautkan ke akun lain.", "success");
+      }
+      await loadAll(true);
+    } catch (unlinkError) {
+      const message = formatEdgeFunctionError(unlinkError);
+      setError(message);
+      pushToast("Gagal melepas device", message, "error");
     } finally {
       setBusyAction("");
     }
@@ -4900,6 +5007,16 @@ export default function App() {
       remoteUpdateSupported &&
       selectedDevice.deviceStatus === "online";
     const updateBusy = busyAction === `${selectedDevice.deviceId}:device:update`;
+    const activeAssignment = selectedDevice.activeAssignments?.[0] || null;
+    const assignmentAccount = activeAssignment
+      ? accountByUserId.get(String(activeAssignment.user_id || ""))
+      : null;
+    const assignmentLabel = activeAssignment
+      ? assignmentAccount?.display_name || assignmentAccount?.email || activeAssignment.user_id
+      : "Belum tertaut";
+    const canUnlinkSelectedDevice =
+      Boolean(activeAssignment) &&
+      (isSuperAdmin || isOperator || String(activeAssignment.user_id || "") === currentUserId);
     const updateLabel =
       update.status === "updating"
         ? "Mengupdate"
@@ -4955,6 +5072,10 @@ export default function App() {
             <span>Perlu perhatian</span>
             <strong>{selectedDevice.issueCount}</strong>
           </div>
+          <div>
+            <span>Tertaut akun</span>
+            <strong>{assignmentLabel}</strong>
+          </div>
         </div>
         {canControlAgent ? (
           <div className="fresh-actions selected-device-agent-actions">
@@ -4996,6 +5117,23 @@ export default function App() {
             </ActionButton>
           </div>
         ) : null}
+        {canUnlinkSelectedDevice ? (
+          <div className="fresh-actions selected-device-link-actions">
+            <ActionButton
+              className="danger-button"
+              icon={Unlink}
+              busy={busyAction === `device-unlink:${selectedDevice.deviceId}:${activeAssignment.user_id}`}
+              disabled={busyAction !== ""}
+              onClick={() => unlinkDeviceAssignment({
+                deviceId: selectedDevice.deviceId,
+                userId: activeAssignment.user_id,
+                label: selectedDevice.deviceName,
+              })}
+            >
+              Lepas device dari akun
+            </ActionButton>
+          </div>
+        ) : null}
         <p className={`selected-device-operation-note ${selectedDevice.deviceStatus === "offline" || selectedDevice.issueCount ? "tone-warn" : ""}`}>
           {issueText}
         </p>
@@ -5017,6 +5155,8 @@ export default function App() {
       null;
     const accessTunnelBadge = getTunnelProviderBadgeModel(accessService?.tunnel_provider || tunnelPreferredProvider);
     const tunnelBusy = busyAction === `${selectedDevice.deviceId}:device:configure_tunnel`;
+    const canManageTunnel = isSuperAdmin || isOperator;
+    const tokenLocked = tunnelProviderDraft !== "ngrok" && !ngrokTokenEditing;
     const providerOptions = [
       {
         value: "cloudflare",
@@ -5081,7 +5221,7 @@ export default function App() {
                   aria-checked={active}
                   className={`tunnel-provider-option ${active ? "is-active" : ""}`}
                   onClick={() => setTunnelProviderDraft(option.value)}
-                  disabled={tunnelBusy}
+                  disabled={tunnelBusy || !canManageTunnel}
                 >
                   <span className="tunnel-provider-icon">
                     <OptionIcon size={18} strokeWidth={2.2} aria-hidden="true" />
@@ -5099,14 +5239,30 @@ export default function App() {
               label="Auth token ngrok"
               value={ngrokTokenDraft}
               onChange={(event) => setNgrokTokenDraft(event.target.value)}
-              placeholder={ngrokConfigured ? "Isi hanya jika ingin mengganti token" : "Masukkan auth token ngrok"}
+              placeholder={
+                tokenLocked
+                  ? "Token cadangan terkunci saat Cloudflared aktif"
+                  : ngrokConfigured
+                    ? "Isi hanya jika ingin mengganti token"
+                    : "Masukkan auth token ngrok"
+              }
               autoComplete="off"
-              disabled={tunnelBusy}
+              disabled={tunnelBusy || !canManageTunnel || tokenLocked}
             />
+            {tunnelProviderDraft !== "ngrok" ? (
+              <ActionButton
+                className="secondary-button tunnel-token-edit-button"
+                icon={KeyRound}
+                disabled={tunnelBusy || !canManageTunnel}
+                onClick={() => setNgrokTokenEditing((current) => !current)}
+              >
+                {ngrokTokenEditing ? "Kunci token" : "Edit token cadangan"}
+              </ActionButton>
+            ) : null}
             <ActionButton
               className="primary-button"
               busy={tunnelBusy}
-              disabled={busyAction !== "" || !selectedDevice}
+              disabled={busyAction !== "" || !selectedDevice || !canManageTunnel}
               onClick={saveTunnelSettings}
             >
               Simpan provider
@@ -5427,6 +5583,49 @@ export default function App() {
     );
   }
 
+  function renderReferralPanel() {
+    if (!(isSuperAdmin || isOperator)) {
+      return null;
+    }
+
+    const visibleEnvironments = environments.filter((environment) => environment?.referral_code);
+    const emptyMessage = isOperator
+      ? "Kode referral lingkungan operator belum tersedia. Coba segarkan dashboard atau hubungi SuperAdmin."
+      : "Belum ada lingkungan operator dengan kode referral.";
+
+    return (
+      <article className="fresh-panel referral-code-panel">
+        <SectionHeader
+          eyebrow="Referral"
+          title="Kode penautan lingkungan"
+          description="Bagikan kode ini ke User agar pendaftaran masuk ke lingkungan yang benar."
+        />
+        {visibleEnvironments.length ? (
+          <div className="referral-code-grid">
+            {visibleEnvironments.map((environment) => (
+              <div key={environment.id} className="referral-code-card">
+                <div>
+                  <span>{environment.name || "Lingkungan operator"}</span>
+                  <strong className="mono">{environment.referral_code}</strong>
+                </div>
+                <div className="fresh-actions referral-code-actions">
+                  <ActionButton className="secondary-button" icon={Copy} onClick={() => copyReferralCode(environment.referral_code)}>
+                    Salin
+                  </ActionButton>
+                  <ActionButton className="secondary-button whatsapp-share-button" icon={Share2} onClick={() => shareReferralCode(environment.referral_code, environment.name || "Lingkungan")}>
+                    WhatsApp
+                  </ActionButton>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="fresh-inline-note">{emptyMessage}</div>
+        )}
+      </article>
+    );
+  }
+
   function renderFreshAccounts() {
     if (!(isSuperAdmin || isOperator)) {
       return <EmptyState title="Tidak tersedia" description="Manajemen akun hanya untuk Operator dan SuperAdmin." />;
@@ -5434,6 +5633,7 @@ export default function App() {
 
     return (
       <section className="fresh-section-stack">
+        {renderReferralPanel()}
         {isSuperAdmin ? (
           <article className="fresh-panel">
             <SectionHeader eyebrow="Policy" title="Aturan persetujuan" description="Nilai angka memakai field khusus dan URL reset dinormalisasi ke HTTPS." />
@@ -5484,7 +5684,9 @@ export default function App() {
                 <select value={createAssignedDeviceId} onChange={(event) => setCreateAssignedDeviceId(event.target.value)} disabled={!deviceEntries.length}>
                   <option value="">{deviceEntries.length ? "Pilih perangkat" : "Belum ada perangkat tersedia"}</option>
                   {deviceEntries.map((device) => (
-                    <option key={device.deviceId} value={device.deviceId}>{device.deviceName} ({device.deviceId})</option>
+                    <option key={device.deviceId} value={device.deviceId} disabled={Boolean(device.activeAssignments?.length)}>
+                      {device.deviceName} ({device.deviceId}){device.activeAssignments?.length ? " - sudah tertaut" : ""}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -5501,6 +5703,7 @@ export default function App() {
             busyAction={busyAction}
             onAction={handleAccountAction}
             onDelete={handleDeleteAccount}
+            onUnlinkDevice={unlinkDeviceAssignment}
             isSuperAdmin={isSuperAdmin}
           />
         </article>

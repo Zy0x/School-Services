@@ -60,11 +60,26 @@ export function getCommandProgressTarget(action) {
   return "running";
 }
 
-export const NGROK_VISIT_SITE_NOTICE =
-  'Catatan Ngrok: jika muncul halaman "You are about to visit", tekan tombol Visit Site sekali untuk membuka E-Rapor.';
+const DEFAULT_ACCESS_SERVER_NAME = "E-Rapor";
 
-export const NGROK_WHATSAPP_NOTICE =
-  'Catatan: link Ngrok gratis bisa menampilkan halaman konfirmasi. Jika muncul halaman "You are about to visit", tekan Visit Site untuk masuk ke E-Rapor.';
+function normalizeShareText(value, fallback = "") {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  return normalized || fallback;
+}
+
+function formatWhatsAppBold(value) {
+  return `*${normalizeShareText(value).replace(/\*/g, "")}*`;
+}
+
+export function buildNgrokVisitSiteNotice(serverName = DEFAULT_ACCESS_SERVER_NAME) {
+  const accessName = normalizeShareText(serverName, DEFAULT_ACCESS_SERVER_NAME);
+  return `Catatan Ngrok: jika muncul halaman "You are about to visit", tekan tombol Visit Site sekali untuk membuka ${accessName}.`;
+}
+
+export function buildNgrokWhatsAppNotice(serverName = DEFAULT_ACCESS_SERVER_NAME) {
+  const accessName = normalizeShareText(serverName, DEFAULT_ACCESS_SERVER_NAME);
+  return `*Catatan:* Jika muncul halaman "You are about to visit", tekan *Visit Site* untuk masuk ke ${accessName}.`;
+}
 
 export function isNgrokFreeTunnelUrl(url) {
   if (!url) {
@@ -85,10 +100,15 @@ export function shouldShowNgrokVisitSiteNotice(url, tunnelProvider) {
 }
 
 export function buildWhatsAppShareText(url, label = "Tautan akses", options = {}) {
-  const lines = [label, url];
+  const serverName = normalizeShareText(options.serverName, DEFAULT_ACCESS_SERVER_NAME);
+  const targetName = normalizeShareText(options.targetName);
+  const shareLabel = targetName
+    ? `Tautan akses ${serverName} untuk ${formatWhatsAppBold(targetName)}`
+    : normalizeShareText(label, "Tautan akses");
+  const lines = [shareLabel, url];
   const warningUrl = options.ngrokWarningUrl || url;
   if (shouldShowNgrokVisitSiteNotice(warningUrl, options.tunnelProvider)) {
-    lines.push("", NGROK_WHATSAPP_NOTICE);
+    lines.push("", buildNgrokWhatsAppNotice(serverName));
   }
   return lines.join("\n");
 }

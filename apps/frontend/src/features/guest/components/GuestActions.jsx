@@ -46,6 +46,8 @@ export function PublicLinkActions({
   compact = false,
   tunnelProvider = "",
   ngrokWarningUrl = "",
+  serverName = "",
+  targetName = "",
   onActionComplete = null,
   onFeedback = null,
 }) {
@@ -79,6 +81,8 @@ export function PublicLinkActions({
       buildWhatsAppShareUrl(url, label, {
         tunnelProvider,
         ngrokWarningUrl: ngrokWarningUrl || url,
+        serverName,
+        targetName,
       }),
       "_blank",
       "noopener,noreferrer"

@@ -66,7 +66,7 @@ import {
   parseAppRoute,
 } from "./lib/routes.js";
 import {
-  NGROK_VISIT_SITE_NOTICE,
+  buildNgrokVisitSiteNotice,
   shouldShowNgrokVisitSiteNotice,
 } from "./lib/guest.js";
 import {
@@ -4939,13 +4939,15 @@ export default function App() {
                     compact
                     tunnelProvider={service.tunnel_provider}
                     ngrokWarningUrl={service.public_url || ""}
+                    serverName={serviceLabel}
+                    targetName={selectedDevice.deviceName}
                     onActionComplete={setError}
                     onFeedback={handleInlineFeedback}
                   />
               </div>
               {showNgrokVisitSiteNotice ? (
                 <div className="fresh-inline-note ngrok-visit-site-note">
-                  {NGROK_VISIT_SITE_NOTICE}
+                  {buildNgrokVisitSiteNotice(serviceLabel)}
                 </div>
               ) : null}
               <details className="compact-detail-disclosure service-detail-disclosure">
@@ -5153,6 +5155,7 @@ export default function App() {
       selectedDevice.services.find((service) => service.service_name === "rapor") ||
       selectedDevice.services[0] ||
       null;
+    const accessServiceLabel = formatServiceDisplayName(accessService?.service_name || "rapor");
     const accessTunnelBadge = getTunnelProviderBadgeModel(accessService?.tunnel_provider || tunnelPreferredProvider);
     const accessNgrokWarningUrl = accessService?.public_url || "";
     const showAccessNgrokVisitSiteNotice = shouldShowNgrokVisitSiteNotice(
@@ -5204,6 +5207,8 @@ export default function App() {
                 compact
                 tunnelProvider={accessService?.tunnel_provider || tunnelPreferredProvider}
                 ngrokWarningUrl={accessNgrokWarningUrl}
+                serverName={accessServiceLabel}
+                targetName={selectedDevice.deviceName}
                 onActionComplete={setError}
                 onFeedback={handleInlineFeedback}
               />
@@ -5215,7 +5220,7 @@ export default function App() {
           </div>
           {showAccessNgrokVisitSiteNotice ? (
             <div className="fresh-inline-note ngrok-visit-site-note">
-              {NGROK_VISIT_SITE_NOTICE}
+              {buildNgrokVisitSiteNotice(accessServiceLabel)}
             </div>
           ) : null}
         </article>

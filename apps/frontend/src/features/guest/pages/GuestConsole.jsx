@@ -12,7 +12,7 @@ import {
   statusTone,
 } from "../../../app/lib/status.js";
 import {
-  NGROK_VISIT_SITE_NOTICE,
+  buildNgrokVisitSiteNotice,
   getGuestStatusModel,
   shouldShowNgrokVisitSiteNotice,
 } from "../../../app/lib/guest.js";
@@ -384,13 +384,15 @@ export function GuestConsole({ deviceId }) {
                     compact
                     tunnelProvider={service?.tunnel_provider}
                     ngrokWarningUrl={service?.public_url || ""}
+                    serverName={serviceLabel}
+                    targetName={state.device?.deviceName || deviceId}
                     onActionComplete={setError}
                     onFeedback={handleGuestFeedback}
                   />
                 </div>
                 {showNgrokVisitSiteNotice ? (
                   <div className="fresh-inline-note ngrok-visit-site-note">
-                    {NGROK_VISIT_SITE_NOTICE}
+                    {buildNgrokVisitSiteNotice(serviceLabel)}
                   </div>
                 ) : null}
               </div>

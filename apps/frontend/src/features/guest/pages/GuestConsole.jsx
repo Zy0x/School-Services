@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, CircleArrowUp, RefreshCw, Server } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import Avatar3D from "../../../components/Avatar3D.jsx";
 import { legacyDataClient } from "../../../services/legacyDataClient.js";
 import { REFRESH_INTERVAL_MS } from "../../../app/lib/constants.js";
@@ -242,41 +242,17 @@ export function GuestConsole({ deviceId }) {
     }
   }, [guestUpdate.status]);
 
-  const guestMetricItems = [
-    {
-      label: "Status layanan",
-      value: guestStatus.runtimeLabel,
-      helper: `${serviceLabel} pada perangkat ini`,
-      icon: Server,
-      tone: guestRuntimeBadge.status === "running" ? "good" : guestRuntimeBadge.status === "error" ? "warn" : "",
-    },
-    {
-      label: "Tautan akses",
-      value: guestStatus.publicLabel,
-      helper: tunnelProviderBadge.label,
-      icon: CircleArrowUp,
-      tone: guestStatus.publicStatus === "ready" ? "good" : guestStatus.publicStatus === "disabled" ? "warn" : "",
-    },
-    {
-      label: "Tunnel publik",
-      value: tunnelProviderBadge.name,
-      helper: "Provider link akses saat ini",
-      icon: CircleArrowUp,
-      tone: tunnelProviderBadge.status === "ready" ? "good" : "warn",
-    },
-    {
-      label: "Terakhir tersambung",
-      value: formatRelativeTime(state.device?.lastSeen),
-      helper: "Heartbeat agent terbaru",
-      icon: Activity,
-    },
-  ];
-
   const accessHint = guestStatus.ready
-    ? "Buka tautan publik atau gunakan kontrol layanan di bawah saat diperlukan."
+    ? "Layanan siap. Gunakan tautan utama untuk membuka E-Rapor."
     : guestStatus.publicStatus === "disabled"
       ? "Perangkat atau layanan belum siap, jadi tautan publik belum tersedia."
       : "Status akan diperbarui otomatis begitu perangkat kembali stabil.";
+  const serviceTarget =
+    service?.desired_state === "running"
+      ? "Dijalankan"
+      : service?.desired_state === "stopped"
+        ? "Dihentikan"
+        : service?.desired_state || "-";
 
   return (
     <main className={`console-shell guest-console-shell route-guest ${isDeviceOffline ? "is-device-offline" : ""}`.trim()}>
@@ -302,21 +278,6 @@ export function GuestConsole({ deviceId }) {
           </div>
         </header>
 
-        <section className="guest-hero-grid guest-hero-grid-single">
-          <article className={`guest-hero-copy guest-panel guest-status-hero tone-${statusTone(guestRuntimeStatus)}`}>
-            <div className="guest-status-hero-copy">
-              <span className="section-eyebrow">Status layanan</span>
-              <h1>{guestStatus.headline}</h1>
-              <p>{accessHint}</p>
-              <div className="guest-hero-status">
-                <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
-                <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
-                <StatusChip status={tunnelProviderBadge.status} label={tunnelProviderBadge.label} />
-              </div>
-            </div>
-          </article>
-        </section>
-
         {error ? <div className="error-banner guest-error-banner">{error}</div> : null}
 
         <section className="fresh-console-stage guest-console-stage">
@@ -332,120 +293,78 @@ export function GuestConsole({ deviceId }) {
               <article className="guest-panel guest-loading-card">
                 <Skeleton lines={3} />
               </article>
-              <article className="guest-panel guest-loading-card">
-                <Skeleton lines={3} />
-              </article>
-              <article className="guest-panel guest-loading-card">
-                <Skeleton lines={3} />
-              </article>
             </div>
           </section>
         ) : (
-          <section className="guest-main-layout">
-            <article className={`guest-panel guest-access-main tone-${statusTone(guestRuntimeStatus)}`}>
-              <div className="guest-access-main-head">
-                <div>
-                  <span className="section-eyebrow">Panel layanan</span>
-                  <strong>{serviceLabel}</strong>
-                  <p>Buka tautan publik, periksa status layanan, dan jalankan kontrol dasar dari satu panel.</p>
+          <section className="guest-main-layout guest-main-layout-streamlined">
+            <article className={`guest-panel guest-access-main guest-access-card tone-${statusTone(guestRuntimeStatus)}`}>
+              <div className="guest-access-card-head">
+                <div className="guest-access-title">
+                  <span className="section-eyebrow">Guest access</span>
+                  <h1>{guestStatus.headline}</h1>
+                  <p>{accessHint}</p>
+                </div>
+                <div className="guest-access-status-row">
+                  <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
+                  <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
+                  <StatusChip status={tunnelProviderBadge.status} label={tunnelProviderBadge.label} />
                 </div>
               </div>
 
-              <div className="guest-access-main-grid">
-                <section className="guest-access-main-primary guest-subpanel">
-                  <div className="guest-subpanel-head">
-                    <div>
-                      <span className="section-eyebrow">Tautan publik</span>
-                      <strong>Tautan E-Rapor</strong>
-                    </div>
-                    <small>{canOpenService ? "Siap dibuka" : "Menunggu layanan aktif"}</small>
+              <div className="guest-link-panel">
+                <div className="guest-link-panel-top">
+                  <div>
+                    <span className="section-eyebrow">Tautan publik</span>
+                    <strong>{canOpenService ? "Siap dibuka" : "Menunggu layanan aktif"}</strong>
                   </div>
-                  <div className="guest-link-focus-box guest-link-hero-box">
-                    <LongText
-                      value={service?.public_url || ""}
-                      href={canOpenService ? service?.public_url : ""}
-                      label="Tautan E-Rapor"
-                      className="mono"
-                      maxLength={96}
-                      empty="Belum tersedia"
-                      onCopySuccess={() => handleGuestFeedback("Tautan publik berhasil disalin.", "success", "Tautan disalin")}
-                      onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin tautan publik.", "error", "Salin gagal")}
-                    />
-                    <StatusChip status={tunnelProviderBadge.status} label={tunnelProviderBadge.label} />
-                  </div>
-                  <div className="guest-link-focus-actions guest-link-hero-actions">
-                    <ActionButton
-                      className="primary-button guest-open-button"
-                      disabled={busy}
-                      onClick={handleOpenService}
-                    >
-                      Buka E-Rapor
-                    </ActionButton>
-                    <PublicLinkActions
-                      url={service?.public_url || ""}
-                      label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
-                      compact
-                      onActionComplete={setError}
-                      onFeedback={handleGuestFeedback}
-                    />
-                  </div>
-                </section>
+                  <small>{serviceLabel}</small>
+                </div>
+                <div className="guest-link-focus-box guest-link-hero-box">
+                  <LongText
+                    value={service?.public_url || ""}
+                    href={canOpenService ? service?.public_url : ""}
+                    label="Tautan E-Rapor"
+                    className="mono"
+                    maxLength={96}
+                    empty="Belum tersedia"
+                    onCopySuccess={() => handleGuestFeedback("Tautan publik berhasil disalin.", "success", "Tautan disalin")}
+                    onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin tautan publik.", "error", "Salin gagal")}
+                  />
+                </div>
+                <div className="guest-link-focus-actions guest-link-hero-actions">
+                  <ActionButton
+                    className="primary-button guest-open-button"
+                    disabled={busy}
+                    onClick={handleOpenService}
+                  >
+                    Buka E-Rapor
+                  </ActionButton>
+                  <PublicLinkActions
+                    url={service?.public_url || ""}
+                    label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
+                    compact
+                    onActionComplete={setError}
+                    onFeedback={handleGuestFeedback}
+                  />
+                </div>
+              </div>
 
-                <section className="guest-access-main-side guest-subpanel">
-                  <div className="guest-subpanel-head">
-                    <div>
-                      <span className="section-eyebrow">Status service</span>
-                      <strong>{state.device?.deviceName || deviceId}</strong>
-                    </div>
-                    <small className="mono">{state.device?.deviceId || deviceId}</small>
-                  </div>
-                  <div className="guest-detail-grid">
-                    <div>
-                      <span>Kondisi layanan</span>
-                      <strong>{service?.desired_state === "running" ? "Siap dijalankan" : service?.desired_state || "-"}</strong>
-                    </div>
-                    <div>
-                      <span>Terakhir diperbarui</span>
-                      <strong>{formatRelativeTime(service?.last_ping)}</strong>
-                    </div>
-                    <div>
-                      <span>Terakhir tersambung</span>
-                      <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
-                    </div>
-                    <div>
-                      <span>Lokasi aplikasi</span>
-                      <div className="guest-detail-long mono">
-                        <LongText
-                          value={service?.resolved_path || ""}
-                          label="Lokasi aplikasi"
-                          maxLength={48}
-                          onCopySuccess={() => handleGuestFeedback("Lokasi aplikasi berhasil disalin.", "success", "Lokasi disalin")}
-                          onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin lokasi aplikasi.", "error", "Salin gagal")}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <span>Kesiapan aplikasi</span>
-                      <strong>{service?.location_status || "unknown"}</strong>
-                    </div>
-                    <div>
-                      <span>Provider tunnel</span>
-                      <strong>{tunnelProviderBadge.name}</strong>
-                    </div>
-                  </div>
-
-                  <div className="guest-cta-row">
-                    <ActionButton className="primary-button guest-cta-button guest-cta-start" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
-                      Mulai
-                    </ActionButton>
-                    <ActionButton className="secondary-button guest-cta-button guest-cta-stop" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
-                      Hentikan
-                    </ActionButton>
-                    <ActionButton className="secondary-button guest-cta-button guest-cta-update" busy={busy && commandModal.action === "update"} disabled={busy} onClick={() => sendCommand("update")}>
-                      Update
-                    </ActionButton>
-                  </div>
-                </section>
+              <div className="guest-service-facts" aria-label="Ringkasan perangkat dan layanan">
+                <div>
+                  <span>Perangkat</span>
+                  <strong>{state.device?.deviceName || deviceId}</strong>
+                  <small className="mono">{state.device?.deviceId || deviceId}</small>
+                </div>
+                <div>
+                  <span>Heartbeat</span>
+                  <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
+                  <small>Agent terakhir tersambung</small>
+                </div>
+                <div>
+                  <span>Update service</span>
+                  <strong>{formatRelativeTime(service?.last_ping)}</strong>
+                  <small>Sinkronisasi status E-Rapor</small>
+                </div>
               </div>
 
               {service?.location_details?.message ? (
@@ -472,26 +391,61 @@ export function GuestConsole({ deviceId }) {
               ) : null}
             </article>
 
-            <section className="guest-status-grid">
-              {guestMetricItems.map((item) => (
-                <article key={item.label} className={`guest-panel guest-metric-card ${item.tone ? `tone-${item.tone}` : ""}`}>
-                  <span className="guest-metric-icon" aria-hidden="true">
-                    <item.icon size={18} strokeWidth={2.2} />
-                  </span>
-                  <div className="guest-metric-copy">
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                    {item.helper ? <small>{item.helper}</small> : null}
+            <section className="guest-secondary-layout">
+              <article className="guest-panel guest-technical-panel">
+                <div className="guest-panel-heading">
+                  <div>
+                    <span className="section-eyebrow">Detail teknis</span>
+                    <strong>Konfigurasi layanan</strong>
                   </div>
-                </article>
-              ))}
-              <FeatureGuestUpdateCard
-                deviceRecord={state.device}
-                deviceStatus={state.device?.deviceStatus}
-                busy={busy && commandModal.action === "update"}
-                onUpdate={() => sendCommand("update")}
-                showAction
-              />
+                </div>
+                <div className="guest-technical-list">
+                  <div>
+                    <span>Target layanan</span>
+                    <strong>{serviceTarget}</strong>
+                  </div>
+                  <div>
+                    <span>Kesiapan aplikasi</span>
+                    <strong>{service?.location_status || "unknown"}</strong>
+                  </div>
+                  <div className="guest-technical-wide">
+                    <span>Lokasi aplikasi</span>
+                    <div className="guest-detail-long mono">
+                      <LongText
+                        value={service?.resolved_path || ""}
+                        label="Lokasi aplikasi"
+                        maxLength={72}
+                        onCopySuccess={() => handleGuestFeedback("Lokasi aplikasi berhasil disalin.", "success", "Lokasi disalin")}
+                        onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin lokasi aplikasi.", "error", "Salin gagal")}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <article className="guest-panel guest-control-panel">
+                <div className="guest-panel-heading">
+                  <div>
+                    <span className="section-eyebrow">Kontrol</span>
+                    <strong>Aksi cepat</strong>
+                  </div>
+                </div>
+                <div className="guest-cta-row guest-control-actions">
+                  <ActionButton className="primary-button guest-cta-button guest-cta-start" busy={busy && commandModal.action === "start"} disabled={busy} onClick={() => sendCommand("start")}>
+                    Mulai
+                  </ActionButton>
+                  <ActionButton className="secondary-button guest-cta-button guest-cta-stop" busy={busy && commandModal.action === "stop"} disabled={busy || !isRunning} onClick={() => sendCommand("stop")}>
+                    Hentikan
+                  </ActionButton>
+                </div>
+                <FeatureGuestUpdateCard
+                  deviceRecord={state.device}
+                  deviceStatus={state.device?.deviceStatus}
+                  busy={busy && commandModal.action === "update"}
+                  onUpdate={() => sendCommand("update")}
+                  showAction
+                />
+              </article>
             </section>
           </section>
         )}

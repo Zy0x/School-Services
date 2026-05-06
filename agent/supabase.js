@@ -30,19 +30,6 @@ function createSupabaseApi(config) {
       payload.release_tag = device.releaseTag || null;
       payload.build_commit = device.buildCommit || null;
       payload.built_at = device.builtAt || null;
-      if (device.tunnelSettings) {
-        payload.tunnel_preferred_provider =
-          device.tunnelSettings.preferredProvider || "cloudflare";
-        payload.tunnel_provider_order = device.tunnelSettings.providerOrder || [
-          "cloudflare",
-          "ngrok",
-        ];
-        payload.tunnel_ngrok_configured = Boolean(
-          device.tunnelSettings.ngrokConfigured
-        );
-        payload.tunnel_settings_updated_at =
-          device.tunnelSettings.updatedAt || now;
-      }
     }
 
     return payload;

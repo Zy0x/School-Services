@@ -408,10 +408,7 @@ async function main() {
   });
 
   function buildDevicePayload() {
-    return {
-      ...device,
-      tunnelSettings: tunnelManager.getSettingsSnapshot(),
-    };
+    return { ...device };
   }
 
   let shuttingDown = false;

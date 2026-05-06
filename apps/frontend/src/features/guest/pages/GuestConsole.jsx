@@ -12,7 +12,12 @@ import {
   statusTone,
 } from "../../../app/lib/status.js";
 import { getGuestStatusModel } from "../../../app/lib/guest.js";
-import { getDeviceUpdateModel } from "../../../app/lib/update.js";
+import {
+  getDeviceUpdateModel,
+  getUpdateStatusSummary,
+  REMOTE_UPDATE_MIN_VERSION,
+  supportsRemoteUpdate,
+} from "../../../app/lib/update.js";
 import {
   ActionButton,
   CommandProgressOverlay,
@@ -21,7 +26,7 @@ import {
   StatusChip,
   ToastViewport,
 } from "../../../components/ui/core.jsx";
-import { DeviceUpdateCard, UpdateProgressModal } from "../../dashboard/components/updates.jsx";
+import { UpdateProgressModal } from "../../dashboard/components/updates.jsx";
 import { PublicLinkActions, SiteFooter } from "../components/GuestActions.jsx";
 
 function getTunnelProviderBadgeModel(value) {
@@ -212,6 +217,8 @@ export function GuestConsole({ deviceId }) {
       : guestStatus.overallStatus;
   const guestRuntimeBadge = getServiceStatusBadgeModel(guestRuntimeStatus);
   const guestUpdate = getDeviceUpdateModel(state.device);
+  const guestUpdateSummary = getUpdateStatusSummary(guestUpdate);
+  const remoteUpdateSupported = supportsRemoteUpdate(state.device);
   const canOpenService = guestStatus.ready;
   const isRunning = service?.status === "running" && service?.desired_state !== "stopped";
   const isServicePendingActive =
@@ -220,6 +227,32 @@ export function GuestConsole({ deviceId }) {
   const isServiceActiveOrStarting = isRunning || isServicePendingActive;
   const startDisabled = busy || isServiceActiveOrStarting;
   const stopDisabled = busy || !isServiceActiveOrStarting;
+  const canUpdateService =
+    guestUpdate.updateAvailable &&
+    guestUpdate.status !== "updating" &&
+    remoteUpdateSupported &&
+    state.device?.deviceStatus === "online";
+  const updateButtonLabel =
+    guestUpdate.status === "updating"
+      ? "Mengupdate"
+      : canUpdateService
+        ? "Update Agent"
+        : guestUpdate.status === "current"
+          ? "Sudah terupdate"
+          : guestUpdate.updateAvailable && state.device?.deviceStatus !== "online"
+            ? "Perangkat offline"
+          : guestUpdate.updateAvailable && !remoteUpdateSupported
+            ? "Update manual"
+            : "Update belum tersedia";
+  const updateDisabled = busy || !canUpdateService;
+  const unsupportedUpdateMessage =
+    guestUpdate.updateAvailable && !remoteUpdateSupported
+      ? `Update jarak jauh tersedia mulai agent v${REMOTE_UPDATE_MIN_VERSION}. Jalankan installer terbaru langsung di komputer ini.`
+      : "";
+  const offlineUpdateMessage =
+    guestUpdate.updateAvailable && state.device?.deviceStatus !== "online"
+      ? "Perangkat harus online sebelum update jarak jauh bisa dimulai."
+      : "";
   const isDeviceOffline =
     state.device?.deviceStatus === "offline" ||
     guestStatus.overallStatus === "offline" ||
@@ -291,13 +324,7 @@ export function GuestConsole({ deviceId }) {
           <section className="guest-loading-shell" aria-busy="true" aria-label="Memuat status perangkat">
             <div className="guest-loading-layout">
               <article className="guest-panel guest-loading-card guest-loading-card-wide">
-                <Skeleton lines={3} />
-              </article>
-              <article className="guest-panel guest-loading-card">
-                <Skeleton lines={4} />
-              </article>
-              <article className="guest-panel guest-loading-card">
-                <Skeleton lines={3} />
+                <Skeleton lines={7} />
               </article>
             </div>
           </section>
@@ -371,71 +398,24 @@ export function GuestConsole({ deviceId }) {
                   <strong>{formatRelativeTime(service?.last_ping)}</strong>
                   <small>Sinkronisasi status E-Rapor</small>
                 </div>
+                <div>
+                  <span>Target layanan</span>
+                  <strong>{serviceTarget}</strong>
+                  <small>Status permintaan layanan</small>
+                </div>
+                <div>
+                  <span>Kesiapan aplikasi</span>
+                  <strong>{service?.location_status || "unknown"}</strong>
+                  <small>Validasi lokasi E-Rapor</small>
+                </div>
+                <div>
+                  <span>Update agent</span>
+                  <strong>{guestUpdate.label}</strong>
+                  <small>{guestUpdate.localVersion}</small>
+                </div>
               </div>
 
-              {service?.location_details?.message ? (
-                <div className="guest-inline-note">
-                  <LongText
-                    value={service.location_details.message}
-                    label="Detail lokasi"
-                    maxLength={72}
-                    onCopySuccess={() => handleGuestFeedback("Detail lokasi berhasil disalin.", "success", "Detail disalin")}
-                    onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin detail lokasi.", "error", "Salin gagal")}
-                  />
-                </div>
-              ) : null}
-              {service?.last_error ? (
-                <div className="guest-inline-error">
-                  <LongText
-                    value={service.last_error}
-                    label="Error layanan"
-                    maxLength={72}
-                    onCopySuccess={() => handleGuestFeedback("Pesan error layanan berhasil disalin.", "success", "Error disalin")}
-                    onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin pesan error.", "error", "Salin gagal")}
-                  />
-                </div>
-              ) : null}
-            </article>
-
-            <section className="guest-secondary-layout">
-              <article className="guest-panel guest-technical-panel">
-                <div className="guest-panel-heading">
-                  <div>
-                    <span className="section-eyebrow">Detail teknis</span>
-                    <strong>Konfigurasi layanan</strong>
-                  </div>
-                </div>
-                <div className="guest-technical-list">
-                  <div>
-                    <span>Target layanan</span>
-                    <strong>{serviceTarget}</strong>
-                  </div>
-                  <div>
-                    <span>Kesiapan aplikasi</span>
-                    <strong>{service?.location_status || "unknown"}</strong>
-                  </div>
-                  <div className="guest-technical-wide">
-                    <span>Lokasi aplikasi</span>
-                    <div className="guest-detail-long mono">
-                      <LongText
-                        value={service?.resolved_path || ""}
-                        label="Lokasi aplikasi"
-                        maxLength={72}
-                        onCopySuccess={() => handleGuestFeedback("Lokasi aplikasi berhasil disalin.", "success", "Lokasi disalin")}
-                        onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin lokasi aplikasi.", "error", "Salin gagal")}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </article>
-
-              <article className="guest-panel guest-control-panel">
-                <div className="guest-panel-heading">
-                  <div>
-                    <span className="section-eyebrow">Kontrol</span>
-                    <strong>Aksi cepat</strong>
-                  </div>
-                </div>
+              <div className="guest-control-band" aria-label="Kontrol layanan E-Rapor">
                 <div className="guest-cta-row guest-control-actions">
                   <ActionButton className="primary-button guest-cta-button guest-cta-start" busy={busy && commandModal.action === "start"} disabled={startDisabled} onClick={() => sendCommand("start")}>
                     Mulai
@@ -443,16 +423,64 @@ export function GuestConsole({ deviceId }) {
                   <ActionButton className="secondary-button guest-cta-button guest-cta-stop" busy={busy && commandModal.action === "stop"} disabled={stopDisabled} onClick={() => sendCommand("stop")}>
                     Hentikan
                   </ActionButton>
+                  <ActionButton
+                    className="secondary-button guest-cta-button guest-cta-update"
+                    busy={(busy && commandModal.action === "update") || guestUpdate.status === "updating"}
+                    disabled={updateDisabled}
+                    onClick={() => sendCommand("update")}
+                  >
+                    {updateButtonLabel}
+                  </ActionButton>
                 </div>
-                <FeatureGuestUpdateCard
-                  deviceRecord={state.device}
-                  deviceStatus={state.device?.deviceStatus}
-                  busy={busy && commandModal.action === "update"}
-                  onUpdate={() => sendCommand("update")}
-                  showAction
-                />
-              </article>
-            </section>
+                <p>{offlineUpdateMessage || unsupportedUpdateMessage || guestUpdateSummary}</p>
+              </div>
+
+              <details className="guest-detail-disclosure">
+                <summary>
+                  <span>Detail teknis</span>
+                  <strong>Lokasi aplikasi, pesan layanan, dan error</strong>
+                </summary>
+                <div className="guest-detail-disclosure-body">
+                  <div className="guest-detail-row">
+                    <span>Lokasi aplikasi</span>
+                    <div className="guest-detail-long mono">
+                      <LongText
+                        value={service?.resolved_path || ""}
+                        label="Lokasi aplikasi"
+                        maxLength={72}
+                        empty="Belum tersedia"
+                        onCopySuccess={() => handleGuestFeedback("Lokasi aplikasi berhasil disalin.", "success", "Lokasi disalin")}
+                        onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin lokasi aplikasi.", "error", "Salin gagal")}
+                      />
+                    </div>
+                  </div>
+                  {service?.location_details?.message ? (
+                    <div className="guest-detail-row guest-detail-note">
+                      <span>Detail lokasi</span>
+                      <LongText
+                        value={service.location_details.message}
+                        label="Detail lokasi"
+                        maxLength={72}
+                        onCopySuccess={() => handleGuestFeedback("Detail lokasi berhasil disalin.", "success", "Detail disalin")}
+                        onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin detail lokasi.", "error", "Salin gagal")}
+                      />
+                    </div>
+                  ) : null}
+                  {service?.last_error ? (
+                    <div className="guest-detail-row guest-detail-error">
+                      <span>Error layanan</span>
+                      <LongText
+                        value={service.last_error}
+                        label="Error layanan"
+                        maxLength={72}
+                        onCopySuccess={() => handleGuestFeedback("Pesan error layanan berhasil disalin.", "success", "Error disalin")}
+                        onCopyError={(copyError) => handleGuestFeedback(copyError?.message || "Gagal menyalin pesan error.", "error", "Salin gagal")}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            </article>
           </section>
         )}
         </section>
@@ -473,13 +501,5 @@ export function GuestConsole({ deviceId }) {
       ) : null}
       <ToastViewport items={toastItems} onDismiss={dismissToast} />
     </main>
-  );
-}
-
-function FeatureGuestUpdateCard(props) {
-  return (
-    <div className="guest-update-card-wrap">
-      <DeviceUpdateCard {...props} />
-    </div>
   );
 }

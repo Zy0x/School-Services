@@ -286,8 +286,11 @@ function sanitizeCommandAction(value: unknown) {
 
 function sanitizeTunnelProvider(value: unknown, fallback = "cloudflare") {
   const provider = String(value || fallback).trim().toLowerCase();
-  if (provider === "cloudflare" || provider === "ngrok") {
-    return provider;
+  if (provider === "cloudflare" || provider === "cloudflared") {
+    return "cloudflare";
+  }
+  if (provider === "ngrok") {
+    return "ngrok";
   }
   throw new Error("Provider tunnel tidak dikenali.");
 }

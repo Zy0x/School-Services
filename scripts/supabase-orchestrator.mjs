@@ -211,12 +211,15 @@ async function ensureAdminUser(env, options = {}) {
 function deployFunctions(env) {
   const projectRef = getProjectRef(env);
   const supabaseCli = getSupabaseCliPath();
+  const cliEnv = env.SUPABASE_ACCESS_TOKEN
+    ? { SUPABASE_ACCESS_TOKEN: env.SUPABASE_ACCESS_TOKEN }
+    : {};
   try {
     for (const fn of ["admin-ops", "cleanup", "guest-access", "account-access"]) {
       run(
         supabaseCli,
         ["functions", "deploy", fn, "--project-ref", projectRef],
-        { captureOutput: true }
+        { captureOutput: true, env: cliEnv }
       );
     }
   } catch (error) {

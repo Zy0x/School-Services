@@ -292,8 +292,12 @@ function sanitizeTunnelProvider(value: unknown, fallback = "cloudflare") {
   throw new Error("Provider tunnel tidak dikenali.");
 }
 
-function buildTunnelProviderOrder(preferredProvider: string) {
-  return preferredProvider === "ngrok" ? ["ngrok", "cloudflare"] : ["cloudflare", "ngrok"];
+function buildTunnelProviderOrder(preferredProvider: string, hasNgrokAuthtoken = false) {
+  if (preferredProvider === "ngrok") {
+    return ["ngrok", "cloudflare"];
+  }
+
+  return hasNgrokAuthtoken ? ["cloudflare", "ngrok"] : ["cloudflare"];
 }
 
 function sanitizeNgrokAuthtoken(value: unknown) {
@@ -305,6 +309,89 @@ function sanitizeNgrokAuthtoken(value: unknown) {
     throw new Error("Format auth token ngrok tidak valid.");
   }
   return token;
+}
+
+function isMissingRelationError(error: unknown) {
+  const details = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const code = String(details.code || "").trim();
+  const message = String(details.message || details.details || "").trim();
+  return code === "42P01" || (/device_tunnel_secrets/i.test(message) && /does not exist|schema cache/i.test(message));
+}
+
+async function getStoredNgrokAuthtoken(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  deviceId: string,
+  userId: string
+) {
+  const { data, error } = await service
+    .from("device_tunnel_secrets")
+    .select("secret_value")
+    .eq("device_id", deviceId)
+    .eq("user_id", userId)
+    .eq("provider", "ngrok")
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      return "";
+    }
+    throw error;
+  }
+
+  return sanitizeNgrokAuthtoken(data?.secret_value);
+}
+
+async function saveStoredNgrokAuthtoken(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  deviceId: string,
+  userId: string,
+  token: string
+) {
+  if (!token) {
+    return;
+  }
+
+  const { error } = await service.from("device_tunnel_secrets").upsert(
+    {
+      device_id: deviceId,
+      user_id: userId,
+      provider: "ngrok",
+      secret_value: token,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "device_id,user_id,provider" }
+  );
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function getActorNgrokTokenDeviceIds(
+  service: Awaited<ReturnType<typeof getRequestActor>>["service"],
+  actor: Awaited<ReturnType<typeof getRequestActor>>,
+  deviceIds: string[]
+) {
+  const cleanDeviceIds = [...new Set(deviceIds.map((deviceId) => String(deviceId || "").trim()).filter(Boolean))];
+  if (!cleanDeviceIds.length) {
+    return new Set<string>();
+  }
+
+  const { data, error } = await service
+    .from("device_tunnel_secrets")
+    .select("device_id")
+    .eq("user_id", actor.user.id)
+    .eq("provider", "ngrok")
+    .in("device_id", cleanDeviceIds);
+
+  if (error) {
+    if (isMissingRelationError(error)) {
+      return new Set<string>();
+    }
+    throw error;
+  }
+
+  return new Set((data || []).map((row) => String(row.device_id || "").trim()).filter(Boolean));
 }
 
 function isLegacyServiceCommandAction(value: unknown) {
@@ -666,7 +753,16 @@ async function getDashboardPayload(service: Awaited<ReturnType<typeof getRequest
   const devicesWithLatest = (devicesResult.data || []).map((device) =>
     applyLatestReleaseToDevice(device, latestRelease)
   );
-  const deviceMap = new Map(devicesWithLatest.map((device) => [String(device.device_id), device]));
+  const actorNgrokTokenDeviceIds = await getActorNgrokTokenDeviceIds(
+    service,
+    actor,
+    devicesWithLatest.map((device) => String(device.device_id || ""))
+  );
+  const devicesWithTunnelSecrets = devicesWithLatest.map((device) => ({
+    ...device,
+    tunnel_ngrok_account_configured: actorNgrokTokenDeviceIds.has(String(device.device_id || "")),
+  }));
+  const deviceMap = new Map(devicesWithTunnelSecrets.map((device) => [String(device.device_id), device]));
   const services = (servicesResult.data || []).map((row) => ({
     ...row,
     devices: deviceMap.get(String(row.device_id)) || null,
@@ -1279,13 +1375,23 @@ async function queueScopedCommand(
   }
   if (action === "configure_tunnel") {
     const preferredProvider = sanitizeTunnelProvider(body.provider);
-    const ngrokAuthtoken = sanitizeNgrokAuthtoken(body.ngrokAuthtoken);
-    const providerOrder = buildTunnelProviderOrder(preferredProvider);
+    const submittedNgrokAuthtoken = sanitizeNgrokAuthtoken(body.ngrokAuthtoken);
+    const storedNgrokAuthtoken = submittedNgrokAuthtoken
+      ? submittedNgrokAuthtoken
+      : await getStoredNgrokAuthtoken(service, deviceId, actor.user.id);
+    if (preferredProvider === "ngrok" && !storedNgrokAuthtoken) {
+      throw new Error("Auth token Ngrok wajib diisi atau sudah tersimpan untuk akun ini sebelum memilih Ngrok.");
+    }
+    const providerOrder = buildTunnelProviderOrder(preferredProvider, Boolean(storedNgrokAuthtoken));
+    if (submittedNgrokAuthtoken) {
+      await saveStoredNgrokAuthtoken(service, deviceId, actor.user.id, submittedNgrokAuthtoken);
+    }
     payload = {
       tunnel: {
         preferredProvider,
         providerOrder,
-        ngrokAuthtoken: ngrokAuthtoken || undefined,
+        ngrokAuthtoken: storedNgrokAuthtoken || undefined,
+        validateNgrokAuthtoken: Boolean(submittedNgrokAuthtoken || preferredProvider === "ngrok"),
       },
     };
 
@@ -1294,9 +1400,7 @@ async function queueScopedCommand(
       tunnel_provider_order: providerOrder,
       tunnel_settings_updated_at: new Date().toISOString(),
     };
-    if (ngrokAuthtoken) {
-      devicePatch.tunnel_ngrok_configured = true;
-    }
+    devicePatch.tunnel_ngrok_configured = Boolean(storedNgrokAuthtoken);
 
     const { error: updateError } = await service
       .from("devices")

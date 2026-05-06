@@ -5488,7 +5488,7 @@ textarea {
 }
 
 .tunnel-settings-panel {
-  gap: 18px;
+  gap: 20px;
 }
 
 .tunnel-settings-status {
@@ -5496,7 +5496,8 @@ textarea {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
-  padding-top: 2px;
+  padding-top: 4px;
+  margin-bottom: 2px;
 }
 
 .tunnel-settings-status small {
@@ -5565,9 +5566,24 @@ textarea {
 
 .tunnel-token-row {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto;
-  gap: 12px;
+  grid-template-columns: minmax(320px, 1fr) auto auto;
+  gap: 14px;
   align-items: end;
+  margin-top: 4px;
+}
+
+.tunnel-token-row .password-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tunnel-token-row .password-field > label {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
 }
 
 .tunnel-token-edit-button {
@@ -5849,6 +5865,11 @@ label > textarea {
   .tunnel-provider-grid,
   .tunnel-token-row {
     grid-template-columns: 1fr;
+  }
+
+  .tunnel-token-row .action-button {
+    width: 100%;
+    justify-content: center;
   }
 
   .route-overview .fresh-metric-grid,

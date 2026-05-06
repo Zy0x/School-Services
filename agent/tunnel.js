@@ -10,7 +10,9 @@ const TRY_CLOUDFLARE_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi;
 const NGROK_PATTERN = /https:\/\/[a-z0-9.-]+\.ngrok(?:-free)?\.(?:app|dev|io)/gi;
 const RATE_LIMIT_PATTERN = /rate[- ]limited|429|error code:\s*1015|too many requests/i;
 const NOT_READY_PATTERN = /not ready|failed to unmarshal quick tunnel/i;
+const NGROK_AUTH_ERROR_PATTERN = /ERR_NGROK_10\d+|authentication failed|auth(?:entication)? token|authtoken|credentials|invalid token/i;
 const PUBLIC_URL_PROBE_TIMEOUT_MS = 7000;
+const NGROK_TOKEN_PROBE_TIMEOUT_MS = 15000;
 const PROVIDERS = {
   cloudflare: {
     key: "cloudflare",
@@ -127,10 +129,31 @@ class TunnelManager {
     const preferredProvider = String(
       tunnelSettings.preferredProvider || tunnelSettings.provider || this.providerOrder[0]
     ).trim().toLowerCase();
+    const nextNgrokAuthtoken = tunnelSettings.ngrokAuthtoken
+      ? String(tunnelSettings.ngrokAuthtoken).trim()
+      : this.ngrokAuthtoken;
+    const wantsNgrok =
+      preferredProvider === "ngrok" ||
+      (Array.isArray(tunnelSettings.providerOrder) &&
+        tunnelSettings.providerOrder
+          .map((provider) => String(provider || "").trim().toLowerCase())
+          .includes("ngrok"));
 
-    if (tunnelSettings.ngrokAuthtoken) {
-      this.ngrokAuthtoken = String(tunnelSettings.ngrokAuthtoken).trim();
+    if (wantsNgrok && !nextNgrokAuthtoken) {
+      throw new Error("Ngrok requires an auth token. Cloudflared does not use an auth token.");
     }
+
+    if (tunnelSettings.validateNgrokAuthtoken && nextNgrokAuthtoken) {
+      await this.validateNgrokAuthtoken(
+        nextNgrokAuthtoken,
+        tunnelSettings.validationService || null
+      );
+    }
+
+    if (nextNgrokAuthtoken) {
+      this.ngrokAuthtoken = nextNgrokAuthtoken;
+    }
+
     this.setProviderOrder(preferredProvider);
 
     for (const serviceName of this.listTrackedServiceNames()) {
@@ -167,7 +190,7 @@ class TunnelManager {
         continue;
       }
 
-      if (provider === "ngrok" && !this.ngrokPath) {
+      if (provider === "ngrok" && (!this.ngrokPath || !this.ngrokAuthtoken)) {
         continue;
       }
 
@@ -340,16 +363,20 @@ class TunnelManager {
   }
 
   buildTunnelState(serviceName, payload = {}) {
+    const provider =
+      this.normalizeProviderOrder([payload.provider, ...(this.providerOrder || [])])[0] ||
+      "cloudflare";
+
     return {
       child: null,
       pid: payload.pid || null,
-      provider: payload.provider || this.providerOrder[0] || "cloudflare",
+      provider,
       providerFailures: Array.isArray(payload.providerFailures)
         ? payload.providerFailures
         : [],
       logPath:
         payload.logPath ||
-        this.getProviderLogPath(serviceName, payload.provider || this.providerOrder[0]),
+        this.getProviderLogPath(serviceName, provider),
       publicUrl: payload.publicUrl || null,
       lastKnownPublicUrl: payload.lastKnownPublicUrl || payload.publicUrl || null,
       hiddenAt: payload.hiddenAt || null,
@@ -438,6 +465,112 @@ class TunnelManager {
     });
   }
 
+  redactSecret(text, secret) {
+    const value = String(text || "");
+    const token = String(secret || "");
+    return token ? value.split(token).join("[redacted]") : value;
+  }
+
+  formatNgrokProbeError(output, token) {
+    const cleanOutput = this.redactSecret(String(output || "").trim(), token);
+    if (NGROK_AUTH_ERROR_PATTERN.test(cleanOutput)) {
+      return "Auth token Ngrok ditolak oleh ngrok. Periksa token dari dashboard akun Ngrok lalu simpan ulang.";
+    }
+
+    return `Auth token Ngrok belum bisa dipakai untuk membuka tunnel.${cleanOutput ? ` ${cleanOutput.slice(0, 260)}` : ""}`;
+  }
+
+  async probeNgrokAuthtoken(token, service = null) {
+    if (!this.ngrokPath) {
+      throw new Error("ngrok.exe tidak tersedia. Letakkan ngrok.exe di folder agent atau set NGROK_PATH.");
+    }
+
+    const probeService = service || {
+      serviceName: "ngrok-token-probe",
+      host: "127.0.0.1",
+      port: 1,
+    };
+    const args = this.buildNgrokArgs(probeService, token);
+
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.ngrokPath, args, {
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      let output = "";
+      let settled = false;
+      let timer = null;
+
+      const finish = (error, result = null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timer) {
+          clearTimeout(timer);
+        }
+        if (child.pid) {
+          child.kill("SIGTERM");
+        }
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(result);
+      };
+
+      const handleChunk = (chunk) => {
+        output += chunk.toString("utf8");
+        const publicUrl = this.readPublicUrlFromText(output, "ngrok");
+        if (publicUrl) {
+          finish(null, { publicUrl });
+          return;
+        }
+        if (NGROK_AUTH_ERROR_PATTERN.test(output)) {
+          finish(new Error(this.formatNgrokProbeError(output, token)));
+        }
+      };
+
+      timer = setTimeout(() => {
+        finish(new Error(this.formatNgrokProbeError(output, token)));
+      }, NGROK_TOKEN_PROBE_TIMEOUT_MS);
+
+      child.stdout.on("data", handleChunk);
+      child.stderr.on("data", handleChunk);
+      child.once("error", (error) => {
+        finish(error);
+      });
+      child.once("exit", (code) => {
+        if (!settled) {
+          finish(
+            new Error(
+              this.formatNgrokProbeError(
+                `${output}\nngrok exited before publishing a public URL${code === null ? "" : ` (code ${code})`}.`,
+                token
+              )
+            )
+          );
+        }
+      });
+    });
+  }
+
+  async validateNgrokAuthtoken(token, service = null) {
+    const cleanToken = String(token || "").trim();
+    if (!cleanToken) {
+      throw new Error("Auth token Ngrok wajib diisi untuk provider Ngrok.");
+    }
+
+    const result = await this.probeNgrokAuthtoken(cleanToken, service);
+    logger.info("Ngrok auth token validation succeeded.", {
+      serviceName: service?.serviceName || null,
+      provider: "ngrok",
+      publicUrl: result?.publicUrl || null,
+    });
+    return result;
+  }
+
   async isPidAlive(pid) {
     if (!pid) {
       return false;
@@ -458,6 +591,13 @@ class TunnelManager {
     }
   }
 
+  readPublicUrlFromText(content, providerKey = "cloudflare") {
+    const provider = PROVIDERS[providerKey] || PROVIDERS.cloudflare;
+    provider.urlPattern.lastIndex = 0;
+    const matches = String(content || "").match(provider.urlPattern);
+    return matches && matches.length > 0 ? matches[matches.length - 1] : null;
+  }
+
   readPublicUrlFromLog(logPath, providerKey = "cloudflare") {
     if (!logPath || !fs.existsSync(logPath)) {
       return null;
@@ -465,14 +605,7 @@ class TunnelManager {
 
     try {
       const content = fs.readFileSync(logPath, "utf8");
-      const provider = PROVIDERS[providerKey] || PROVIDERS.cloudflare;
-      provider.urlPattern.lastIndex = 0;
-      const matches = content.match(provider.urlPattern);
-      if (!matches || matches.length === 0) {
-        return null;
-      }
-
-      return matches[matches.length - 1];
+      return this.readPublicUrlFromText(content, providerKey);
     } catch (error) {
       logger.warn(`Failed to read tunnel log ${logPath}: ${error.message}`, {
         logPath,
@@ -562,7 +695,7 @@ class TunnelManager {
     const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
     return this.providerOrder.slice(startIndex).find((provider) => {
       if (provider === "ngrok") {
-        return Boolean(this.ngrokPath);
+        return Boolean(this.ngrokPath && this.ngrokAuthtoken);
       }
       if (provider === "cloudflare") {
         return Boolean(this.cloudflaredPath);
@@ -1035,7 +1168,11 @@ class TunnelManager {
     ];
   }
 
-  buildNgrokArgs(service) {
+  buildNgrokArgs(service, authtoken = this.ngrokAuthtoken) {
+    if (!authtoken) {
+      throw new Error("Ngrok requires an auth token before a tunnel can be started.");
+    }
+
     const args = [
       "http",
       `http://${service.host}:${service.port}`,
@@ -1048,9 +1185,7 @@ class TunnelManager {
       args.push("--url", this.ngrokUrl);
     }
 
-    if (this.ngrokAuthtoken) {
-      args.push("--authtoken", this.ngrokAuthtoken);
-    }
+    args.push("--authtoken", authtoken);
 
     return args;
   }

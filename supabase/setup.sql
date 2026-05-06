@@ -61,14 +61,26 @@ create table if not exists public.agent_logs (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.device_tunnel_secrets (
+  device_id text not null references public.devices(device_id) on delete cascade,
+  user_id uuid not null,
+  provider text not null check (provider in ('ngrok')),
+  secret_value text not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  primary key (device_id, user_id, provider)
+);
+
 create index if not exists idx_services_device_id on public.services(device_id);
 create index if not exists idx_commands_device_status on public.commands(device_id, status);
 create index if not exists idx_agent_logs_device_created_at on public.agent_logs(device_id, created_at desc);
+create index if not exists idx_device_tunnel_secrets_user_device on public.device_tunnel_secrets(user_id, device_id);
 
 alter table public.devices enable row level security;
 alter table public.services enable row level security;
 alter table public.commands enable row level security;
 alter table public.agent_logs enable row level security;
+alter table public.device_tunnel_secrets enable row level security;
 
 drop policy if exists "open_select_devices" on public.devices;
 create policy "open_select_devices" on public.devices
@@ -114,6 +126,18 @@ create policy "open_select_agent_logs" on public.agent_logs
 drop policy if exists "open_insert_agent_logs" on public.agent_logs;
 create policy "open_insert_agent_logs" on public.agent_logs
   for insert with check (true);
+
+drop policy if exists "device_tunnel_secrets_no_client_select" on public.device_tunnel_secrets;
+create policy "device_tunnel_secrets_no_client_select" on public.device_tunnel_secrets
+  for select using (false);
+
+drop policy if exists "device_tunnel_secrets_no_client_insert" on public.device_tunnel_secrets;
+create policy "device_tunnel_secrets_no_client_insert" on public.device_tunnel_secrets
+  for insert with check (false);
+
+drop policy if exists "device_tunnel_secrets_no_client_update" on public.device_tunnel_secrets;
+create policy "device_tunnel_secrets_no_client_update" on public.device_tunnel_secrets
+  for update using (false) with check (false);
 
 alter table public.services replica identity full;
 alter table public.devices replica identity full;

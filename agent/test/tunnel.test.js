@@ -81,6 +81,7 @@ test("Cloudflare rate limit switches to ngrok when fallback is configured", asyn
   const manager = new TunnelManager({
     cloudflaredPath: "cloudflared",
     ngrokPath: "ngrok",
+    ngrokAuthtoken: "test-token",
     stateDir,
     retryDelaysMs: [1],
     globalCooldownMs: 1,
@@ -98,4 +99,60 @@ test("Cloudflare rate limit switches to ngrok when fallback is configured", asyn
   assert.equal(tunnel.provider, "ngrok");
   assert.equal(tunnel.state, "idle");
   assert.match(tunnel.lastError, /switching to ngrok/i);
+});
+
+test("ngrok is not used as fallback until an auth token is configured", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "erapor-tunnel-"));
+  const manager = new TunnelManager({
+    cloudflaredPath: "cloudflared",
+    ngrokPath: "ngrok",
+    stateDir,
+    retryDelaysMs: [1],
+    globalCooldownMs: 1,
+  });
+  const service = {
+    serviceName: "rapor",
+    host: "127.0.0.1",
+    port: 8535,
+  };
+  const tunnel = manager.getOrCreateTunnel("rapor");
+  fs.writeFileSync(tunnel.logPath, 'status_code="429 Too Many Requests"\n', "utf8");
+
+  await manager.recoverTunnel(service);
+
+  assert.equal(tunnel.provider, "cloudflare");
+  assert.equal(tunnel.state, "waiting_retry");
+});
+
+test("configureSettings validates, stores, and switches to ngrok token immediately", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "erapor-tunnel-"));
+  const settingsPath = path.join(os.tmpdir(), `erapor-tunnel-settings-${Date.now()}.json`);
+  const manager = new TunnelManager({
+    cloudflaredPath: "cloudflared",
+    ngrokPath: "ngrok",
+    stateDir,
+    settingsPath,
+    retryDelaysMs: [1],
+    globalCooldownMs: 1,
+  });
+  let probedToken = "";
+  manager.probeNgrokAuthtoken = async (token) => {
+    probedToken = token;
+    return { publicUrl: "https://valid.ngrok-free.app" };
+  };
+
+  const settings = await manager.configureSettings({
+    tunnel: {
+      preferredProvider: "ngrok",
+      providerOrder: ["ngrok", "cloudflare"],
+      ngrokAuthtoken: "valid-token",
+      validateNgrokAuthtoken: true,
+    },
+  });
+
+  const stored = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  assert.equal(probedToken, "valid-token");
+  assert.equal(settings.preferredProvider, "ngrok");
+  assert.equal(settings.ngrokConfigured, true);
+  assert.equal(stored.ngrokAuthtoken, "valid-token");
 });

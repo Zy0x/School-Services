@@ -4165,7 +4165,7 @@ export default function App() {
     if (
       provider === "ngrok" &&
       !ngrokAuthtoken &&
-      !selectedDevice.deviceRecord?.tunnel_ngrok_configured
+      !selectedDevice.deviceRecord?.tunnel_ngrok_account_configured
     ) {
       const message = "Auth token ngrok wajib diisi saat ngrok belum pernah dikonfigurasi untuk device ini.";
       setError(message);
@@ -5147,7 +5147,8 @@ export default function App() {
     }
 
     const tunnelPreferredProvider = selectedDevice.deviceRecord?.tunnel_preferred_provider || "cloudflare";
-    const ngrokConfigured = Boolean(selectedDevice.deviceRecord?.tunnel_ngrok_configured);
+    const ngrokAccountConfigured = Boolean(selectedDevice.deviceRecord?.tunnel_ngrok_account_configured);
+    const ngrokDeviceConfigured = Boolean(selectedDevice.deviceRecord?.tunnel_ngrok_configured);
     const tunnelUpdatedAt = selectedDevice.deviceRecord?.tunnel_settings_updated_at;
     const accessService =
       selectedDevice.services.find((service) => service.service_name === "rapor") ||
@@ -5206,7 +5207,16 @@ export default function App() {
           </summary>
           <div className="tunnel-settings-status">
             <StatusChip status="ready" label={`Default: ${tunnelPreferredProvider === "ngrok" ? "Ngrok" : "Cloudflared"}`} />
-            <StatusChip status={ngrokConfigured ? "ready" : "idle"} label={ngrokConfigured ? "Token ngrok tersimpan" : "Token ngrok belum ada"} />
+            <StatusChip
+              status={ngrokAccountConfigured ? "ready" : "idle"}
+              label={
+                ngrokAccountConfigured
+                  ? "Token Ngrok akun ini tersimpan"
+                  : ngrokDeviceConfigured
+                    ? "Token Ngrok akun ini belum ada"
+                    : "Token Ngrok belum ada"
+              }
+            />
             {tunnelUpdatedAt ? <small>Diubah {formatRelativeTime(tunnelUpdatedAt, now)}</small> : null}
           </div>
           <div className="tunnel-provider-grid" role="radiogroup" aria-label="Provider tunnel">
@@ -5242,8 +5252,8 @@ export default function App() {
               placeholder={
                 tokenLocked
                   ? "Token cadangan terkunci saat Cloudflared aktif"
-                  : ngrokConfigured
-                    ? "Isi hanya jika ingin mengganti token"
+                    : ngrokAccountConfigured
+                      ? "Isi hanya jika ingin mengganti token"
                     : "Masukkan auth token ngrok"
               }
               autoComplete="off"

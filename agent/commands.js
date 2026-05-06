@@ -92,6 +92,34 @@ async function executeCommands({
     }
   }
 
+  function getTunnelValidationService() {
+    const services = serviceManager.list();
+    return (
+      services.find((service) => serviceManager.getDesiredState(service.serviceName) === "running") ||
+      services[0] ||
+      null
+    );
+  }
+
+  async function refreshRunningTunnels(deviceId) {
+    for (const service of serviceManager.list()) {
+      const snapshot = await serviceManager.refreshService(service.serviceName);
+      if (snapshot.status !== "running" && snapshot.desiredState !== "running") {
+        await publishServiceSnapshot(deviceId, service.serviceName, snapshot);
+        continue;
+      }
+
+      const tunnel =
+        snapshot.status === "running"
+          ? await tunnelManager.ensureTunnel(service)
+          : tunnelManager.getStatusSnapshot(service.serviceName);
+      await publishServiceSnapshot(deviceId, service.serviceName, snapshot, {
+        publicUrl: tunnel?.publicUrl || null,
+        lastError: snapshot.lastError || tunnel?.lastError || null,
+      });
+    }
+  }
+
   for (const command of commands) {
     logger.info(
       `Executing command ${command.action} for ${command.service_name || "all services"}`,
@@ -150,7 +178,12 @@ async function executeCommands({
           action: command.action,
         });
       } else if (command.action === "configure_tunnel") {
-        const settings = await tunnelManager.configureSettings(command.payload || {});
+        const configPayload = command.payload || {};
+        if (configPayload.tunnel?.validateNgrokAuthtoken) {
+          configPayload.tunnel.validationService = getTunnelValidationService();
+        }
+        const settings = await tunnelManager.configureSettings(configPayload);
+        await refreshRunningTunnels(command.device_id);
         logger.info("Command configure_tunnel completed.", {
           serviceName: null,
           action: command.action,

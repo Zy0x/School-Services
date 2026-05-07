@@ -7,6 +7,7 @@ function createSupabaseApi(config) {
   let logWriteChain = Promise.resolve();
   let supportsExtendedServiceFields = true;
   let supportsExtendedDeviceFields = true;
+  let supportsSupervisorDeviceFields = true;
   let supportsDeviceUpdateFields = true;
   let supportsExtendedFileJobFields = true;
 
@@ -149,6 +150,32 @@ function createSupabaseApi(config) {
         .from("devices")
         .update(buildDevicePayload(device, now, false, false))
         .eq("device_id", device.deviceId));
+    }
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  async function heartbeatSupervisor(device, state = {}) {
+    if (!supportsSupervisorDeviceFields) {
+      return;
+    }
+
+    const payload = {
+      supervisor_last_seen: new Date().toISOString(),
+      supervisor_pid: Number(process.pid) || null,
+      supervisor_desired_agent_state: state.desiredAgentState || null,
+    };
+
+    const { error } = await client
+      .from("devices")
+      .update(payload)
+      .eq("device_id", device.deviceId);
+
+    if (error && /column .* does not exist/i.test(error.message || "")) {
+      supportsSupervisorDeviceFields = false;
+      return;
     }
 
     if (error) {
@@ -512,6 +539,7 @@ function createSupabaseApi(config) {
     fetchSupervisorCommands,
     fetchPendingCommands,
     heartbeatDevice,
+    heartbeatSupervisor,
     insertAgentLog,
     insertFileAuditLog,
     markCommandDone,

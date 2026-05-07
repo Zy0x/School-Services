@@ -7,10 +7,13 @@ import { formatEdgeFunctionError } from "../../../app/lib/errors.js";
 import { buildAuthUrl } from "../../../app/lib/routes.js";
 import {
   deriveAgentStatus,
+  deriveDeviceConnectivityStatus,
   formatRelativeTime,
   formatServiceDisplayName,
   getAgentStatusBadgeModel,
+  getDeviceConnectivityBadgeModel,
   getServiceStatusBadgeModel,
+  isAgentControlReady,
   statusTone,
 } from "../../../app/lib/status.js";
 import {
@@ -308,7 +311,10 @@ export function GuestConsole({ deviceId }) {
     .sort((left, right) => new Date(right.updated_at || right.created_at || 0).getTime() - new Date(left.updated_at || left.created_at || 0).getTime());
   const agentStatus = deriveAgentStatus(state.device, guestCommands, state.device?.deviceStatus);
   const agentBadge = getAgentStatusBadgeModel(agentStatus);
-  const deviceWithAgentStatus = state.device ? { ...state.device, agentStatus } : state.device;
+  const connectivityStatus = deriveDeviceConnectivityStatus(state.device, state.device?.deviceStatus);
+  const connectivityBadge = getDeviceConnectivityBadgeModel(connectivityStatus);
+  const agentControlReady = isAgentControlReady(state.device, connectivityStatus);
+  const deviceWithAgentStatus = state.device ? { ...state.device, agentStatus, connectivityStatus, agentControlReady } : state.device;
   const activeCommand =
     (commandModal.commandId
       ? guestCommands.find((command) => String(command.id) === String(commandModal.commandId))
@@ -381,7 +387,9 @@ export function GuestConsole({ deviceId }) {
       : "";
   const agentControlMessage =
     agentStatus === "stopped"
-      ? "Agent sedang berhenti. Tombol layanan dinonaktifkan sampai agent dinyalakan dari panel pengelola."
+      ? agentControlReady
+        ? "Agent sedang berhenti, tetapi device masih online dan siap menerima Start Agent dari panel pengelola."
+        : "Agent sedang berhenti dan kontrol agent belum terverifikasi. Pastikan perangkat tersambung internet sebelum dinyalakan."
       : ["starting", "stopping", "restarting", "updating"].includes(agentStatus)
         ? "Agent sedang memproses perubahan. Tombol layanan akan aktif kembali setelah status stabil."
         : "";
@@ -534,6 +542,7 @@ export function GuestConsole({ deviceId }) {
                   <p>{accessHint}</p>
                 </div>
                 <div className="guest-access-status-row">
+                  <StatusChip status={connectivityBadge.status} label={connectivityBadge.label} />
                   <StatusChip status={agentBadge.status} label={agentBadge.label} />
                   <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
                   <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
@@ -603,6 +612,11 @@ export function GuestConsole({ deviceId }) {
                   <span>Status agent</span>
                   <strong>{agentBadge.label}</strong>
                   <small>{agentStatus === "stopped" ? "Kontrol layanan menunggu agent dinyalakan" : "Kondisi runtime School Services"}</small>
+                </div>
+                <div>
+                  <span>Koneksi device</span>
+                  <strong>{connectivityBadge.label}</strong>
+                  <small>{state.device?.supervisorLastSeen ? `Supervisor ${formatRelativeTime(state.device.supervisorLastSeen)}` : "Menunggu heartbeat supervisor"}</small>
                 </div>
                 <div>
                   <span>Update service</span>

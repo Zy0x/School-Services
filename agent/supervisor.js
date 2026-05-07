@@ -591,6 +591,7 @@ async function main() {
 
   while (true) {
     try {
+      await supabaseApi.heartbeatSupervisor(device, readSupervisorState());
       const commands = await supabaseApi.fetchSupervisorCommands(device.deviceId);
       for (const command of commands) {
         await processSupervisorCommand(command, supabaseApi, device);

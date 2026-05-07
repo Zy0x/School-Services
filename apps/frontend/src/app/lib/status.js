@@ -294,6 +294,71 @@ export function getAgentStatusBadgeModel(status) {
   };
 }
 
+export function deriveDeviceConnectivityStatus(deviceRecord, deviceStatus = deriveDeviceStatus(deviceRecord)) {
+  if (!deviceRecord) {
+    return "pending_setup";
+  }
+  if (deviceStatus === "blocked") {
+    return "blocked";
+  }
+
+  const supervisorLastSeen = deviceRecord?.supervisor_last_seen || deviceRecord?.supervisorLastSeen || null;
+  if (isFresh(supervisorLastSeen)) {
+    return "control_ready";
+  }
+
+  const parsedSupervisor = new Date(supervisorLastSeen || 0).getTime();
+  if (Number.isFinite(parsedSupervisor) && Date.now() - parsedSupervisor <= HEARTBEAT_UNSTABLE_MS) {
+    return "control_unstable";
+  }
+
+  if (deviceStatus === "online") {
+    return supervisorLastSeen ? "device_online" : "device_online_legacy";
+  }
+  if (deviceStatus === "unstable") {
+    return "device_unstable";
+  }
+  return "offline";
+}
+
+export function getDeviceConnectivityBadgeModel(status) {
+  const normalized = String(status || "offline").trim();
+  const labels = {
+    control_ready: "Device online, kontrol agent siap",
+    control_unstable: "Kontrol agent belum stabil",
+    device_online: "Device online",
+    device_online_legacy: "Device online, kontrol agent belum terverifikasi",
+    device_unstable: "Device belum stabil",
+    offline: "Device offline",
+    blocked: "Device dibatasi",
+    pending_setup: "Device belum setup",
+  };
+  const chipStatus = {
+    control_ready: "ready",
+    control_unstable: "unstable",
+    device_online: "ready",
+    device_online_legacy: "unstable",
+    device_unstable: "unstable",
+    offline: "offline",
+    blocked: "blocked",
+    pending_setup: "pending_setup",
+  }[normalized] || normalized;
+  return {
+    status: chipStatus,
+    label: labels[normalized] || `Device ${getStatusLabel(normalized)}`,
+  };
+}
+
+export function isAgentControlReady(deviceRecord, connectivityStatus = deriveDeviceConnectivityStatus(deviceRecord)) {
+  if (connectivityStatus === "control_ready") {
+    return true;
+  }
+  const hasSupervisorField =
+    Object.prototype.hasOwnProperty.call(deviceRecord || {}, "supervisor_last_seen") ||
+    Object.prototype.hasOwnProperty.call(deviceRecord || {}, "supervisorLastSeen");
+  return !hasSupervisorField && connectivityStatus === "device_online_legacy";
+}
+
 export function getServiceStatusBadgeModel(status) {
   const normalized = String(status || "unknown").trim();
   const labels = {

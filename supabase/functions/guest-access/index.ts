@@ -34,7 +34,7 @@ Deno.serve(async (request) => {
     const { data: device, error: deviceError } = await service
       .from("devices")
       .select(
-        "device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name",
+        "device_id, device_name, status, last_seen, supervisor_last_seen, supervisor_pid, supervisor_desired_agent_state, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name",
       )
       .eq("device_id", deviceId)
       .maybeSingle();
@@ -58,6 +58,9 @@ Deno.serve(async (request) => {
             deviceName: deviceId,
             deviceStatus: "pending_setup",
             lastSeen: null,
+            supervisorLastSeen: null,
+            supervisorPid: null,
+            supervisorDesiredAgentState: null,
             appVersion: null,
             releaseTag: null,
             buildCommit: null,
@@ -114,6 +117,10 @@ Deno.serve(async (request) => {
                 ? "online"
                 : "offline",
           lastSeen: deviceWithLatest.last_seen,
+          supervisorLastSeen: deviceWithLatest.supervisor_last_seen || null,
+          supervisorPid: deviceWithLatest.supervisor_pid || null,
+          supervisorDesiredAgentState:
+            deviceWithLatest.supervisor_desired_agent_state || null,
           appVersion: deviceWithLatest.app_version || null,
           releaseTag: deviceWithLatest.release_tag || null,
           buildCommit: deviceWithLatest.build_commit || null,

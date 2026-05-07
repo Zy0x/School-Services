@@ -903,7 +903,7 @@ async function getDashboardPayload(
       .order("service_name", { ascending: true }),
     buildQuery("devices")
       .select(
-        "device_id, device_name, status, last_seen, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name, tunnel_preferred_provider, tunnel_provider_order, tunnel_ngrok_configured, tunnel_settings_updated_at",
+        "device_id, device_name, status, last_seen, supervisor_last_seen, supervisor_pid, supervisor_desired_agent_state, app_version, release_tag, build_commit, built_at, latest_release_tag, latest_version, update_available, update_status, update_checked_at, update_started_at, update_error, update_asset_name, tunnel_preferred_provider, tunnel_provider_order, tunnel_ngrok_configured, tunnel_settings_updated_at",
       )
       .order("device_name", { ascending: true }),
     buildQuery("agent_logs")

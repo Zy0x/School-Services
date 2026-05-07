@@ -511,6 +511,71 @@ function getAgentStatusBadgeModel(status) {
   };
 }
 
+function deriveDeviceConnectivityStatus(deviceRecord, deviceStatus = deriveDeviceStatus(deviceRecord)) {
+  if (!deviceRecord) {
+    return "pending_setup";
+  }
+  if (deviceStatus === "blocked") {
+    return "blocked";
+  }
+
+  const supervisorLastSeen = deviceRecord?.supervisor_last_seen || deviceRecord?.supervisorLastSeen || null;
+  if (isFresh(supervisorLastSeen)) {
+    return "control_ready";
+  }
+
+  const parsedSupervisor = new Date(supervisorLastSeen || 0).getTime();
+  if (Number.isFinite(parsedSupervisor) && Date.now() - parsedSupervisor <= HEARTBEAT_UNSTABLE_MS) {
+    return "control_unstable";
+  }
+
+  if (deviceStatus === "online") {
+    return supervisorLastSeen ? "device_online" : "device_online_legacy";
+  }
+  if (deviceStatus === "unstable") {
+    return "device_unstable";
+  }
+  return "offline";
+}
+
+function getDeviceConnectivityBadgeModel(status) {
+  const normalized = String(status || "offline").trim();
+  const labels = {
+    control_ready: "Device online, kontrol agent siap",
+    control_unstable: "Kontrol agent belum stabil",
+    device_online: "Device online",
+    device_online_legacy: "Device online, kontrol agent belum terverifikasi",
+    device_unstable: "Device belum stabil",
+    offline: "Device offline",
+    blocked: "Device dibatasi",
+    pending_setup: "Device belum setup",
+  };
+  const chipStatus = {
+    control_ready: "ready",
+    control_unstable: "unstable",
+    device_online: "ready",
+    device_online_legacy: "unstable",
+    device_unstable: "unstable",
+    offline: "offline",
+    blocked: "blocked",
+    pending_setup: "pending_setup",
+  }[normalized] || normalized;
+  return {
+    status: chipStatus,
+    label: labels[normalized] || `Device ${getStatusLabel(normalized)}`,
+  };
+}
+
+function isAgentControlReady(deviceRecord, connectivityStatus = deriveDeviceConnectivityStatus(deviceRecord)) {
+  if (connectivityStatus === "control_ready") {
+    return true;
+  }
+  const hasSupervisorField =
+    Object.prototype.hasOwnProperty.call(deviceRecord || {}, "supervisor_last_seen") ||
+    Object.prototype.hasOwnProperty.call(deviceRecord || {}, "supervisorLastSeen");
+  return !hasSupervisorField && connectivityStatus === "device_online_legacy";
+}
+
 function getServiceStatusBadgeModel(status) {
   const normalized = String(status || "unknown").trim();
   const labels = {
@@ -1250,6 +1315,10 @@ function DeviceCombobox({
                 status={getAgentStatusBadgeModel(selectedDevice.agentStatus).status}
                 label={getAgentStatusBadgeModel(selectedDevice.agentStatus).label}
               />
+              <StatusChip
+                status={getDeviceConnectivityBadgeModel(selectedDevice.connectivityStatus).status}
+                label={getDeviceConnectivityBadgeModel(selectedDevice.connectivityStatus).label}
+              />
             </>
           ) : (
             <StatusChip status="ready" label={`${devices.length} device`} />
@@ -1287,6 +1356,7 @@ function DeviceCombobox({
             filteredDevices.map((device) => {
               const badge = getDeviceStatusBadgeModel(device.deviceStatus);
               const agentBadge = getAgentStatusBadgeModel(device.agentStatus);
+              const connectivityBadge = getDeviceConnectivityBadgeModel(device.connectivityStatus);
               return (
                 <button
                   key={device.deviceId}
@@ -1303,6 +1373,7 @@ function DeviceCombobox({
                   <span className="fresh-pill-group">
                     <StatusChip status={badge.status} label={badge.label} />
                     <StatusChip status={agentBadge.status} label={agentBadge.label} />
+                    <StatusChip status={connectivityBadge.status} label={connectivityBadge.label} />
                   </span>
                 </button>
               );
@@ -1322,7 +1393,13 @@ function DeviceWarningPanel({ device }) {
   }
 
   const update = getDeviceUpdateModel(device.deviceRecord);
+  const connectivityBadge = getDeviceConnectivityBadgeModel(device.connectivityStatus);
   const warnings = [];
+  if (device.connectivityStatus === "control_ready" && device.agentStatus === "stopped") {
+    warnings.push("Device online dan siap menerima Start Agent.");
+  } else if (!device.agentControlReady && device.agentStatus === "stopped") {
+    warnings.push("Kontrol agent belum terverifikasi; bedakan dari offline total sebelum menyalakan ulang.");
+  }
   if (device.agentStatus === "stopped") {
     warnings.push("Agent sedang berhenti dan kontrol layanan tidak akan diproses sampai dinyalakan kembali.");
   } else if (["starting", "stopping", "restarting", "updating"].includes(device.agentStatus)) {
@@ -1346,6 +1423,7 @@ function DeviceWarningPanel({ device }) {
       <AlertTriangle size={19} strokeWidth={2.2} aria-hidden="true" />
       <div>
         <strong>Perhatian untuk {device.deviceName}</strong>
+        <StatusChip status={connectivityBadge.status} label={connectivityBadge.label} />
         <p>{warnings.join(" ")}</p>
       </div>
     </article>
@@ -1397,7 +1475,7 @@ function getRemoteRootPreference(root) {
 }
 
 function getPriorityBanner({ route, profile, devices, fileJobs, accounts }) {
-  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline" && device.agentStatus !== "stopped").length;
+  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline").length;
   const stoppedAgents = devices.filter((device) => device.agentStatus === "stopped").length;
   const runningJobs = fileJobs.filter((job) => ["pending", "running"].includes(job.status)).length;
   const pendingAccounts = accounts.filter((account) => account.status === "pending").length;
@@ -1468,7 +1546,8 @@ function RouteHeader({ route, profile, breadcrumbs = [] }) {
 }
 
 function DashboardStats({ devices, fileJobs, accounts, now }) {
-  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline" && device.agentStatus !== "stopped").length;
+  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline").length;
+  const controlReadyDevices = devices.filter((device) => device.agentControlReady).length;
   const runningServices = devices.reduce((total, device) => total + device.runningCount, 0);
   const issueCount = devices.reduce((total, device) => total + device.issueCount, 0);
   const runningJobs = fileJobs.filter((job) => ["pending", "running"].includes(job.status)).length;
@@ -1478,6 +1557,7 @@ function DashboardStats({ devices, fileJobs, accounts, now }) {
     <section className="dashboard-stats-grid" aria-label="Ringkasan dashboard">
       {[
         ["Perangkat aktif", `${onlineDevices}/${devices.length}`, "Perangkat yang tersambung saat ini.", Monitor],
+        ["Kontrol agent siap", `${controlReadyDevices}/${devices.length}`, "Device yang bisa menerima Start/Stop Agent.", ShieldCheck],
         ["Layanan aktif", runningServices, "Layanan yang siap digunakan.", Server],
         ["Perlu perhatian", issueCount, "Perangkat atau layanan yang perlu dicek.", AlertTriangle],
         ["Proses berkas", runningJobs, "Aktivitas berkas yang sedang berlangsung.", FileText],
@@ -1500,6 +1580,7 @@ function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
     <section className="device-grid" aria-label="Daftar perangkat">
       {devices.map((device) => {
         const agentBadge = getAgentStatusBadgeModel(device.agentStatus);
+        const connectivityBadge = getDeviceConnectivityBadgeModel(device.connectivityStatus);
         return (
           <button
             key={device.deviceId}
@@ -1513,6 +1594,7 @@ function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
             </span>
             <span className="fresh-pill-group">
               <StatusChip status={agentBadge.status} label={agentBadge.label} />
+              <StatusChip status={connectivityBadge.status} label={connectivityBadge.label} />
             </span>
             <LongText value={device.deviceId} label="ID perangkat" className="mono" maxLength={28} />
             <span className="device-grid-meta">
@@ -1959,6 +2041,7 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
       {devices.map((device) => {
         const deviceBadge = getDeviceStatusBadgeModel(device.deviceStatus);
         const agentBadge = getAgentStatusBadgeModel(device.agentStatus);
+        const connectivityBadge = getDeviceConnectivityBadgeModel(device.connectivityStatus);
         return (
           <button
             key={device.deviceId}
@@ -1972,6 +2055,7 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
               <strong>{device.deviceName}</strong>
               <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
               <StatusChip status={agentBadge.status} label={agentBadge.label} />
+              <StatusChip status={connectivityBadge.status} label={connectivityBadge.label} />
             </div>
             {device.deviceAlias ? <div className="device-list-meta">Nama tampilan</div> : null}
             <div className="device-list-meta mono">
@@ -3727,6 +3811,7 @@ export default function App() {
       const deviceStatus = deriveDeviceStatus(deviceRecord);
       const deviceCommands = commandRows.filter((command) => command.deviceId === row.device_id);
       const agentStatus = deriveAgentStatus(deviceRecord, deviceCommands, deviceStatus);
+      const connectivityStatus = deriveDeviceConnectivityStatus(deviceRecord, deviceStatus);
       const serviceStatus = deriveServiceStatus(row, deviceStatus);
       const rawDeviceName = deviceRecord?.device_name || row.device_id;
       const deviceAlias = aliasMap.get(String(row.device_id)) || "";
@@ -3739,6 +3824,8 @@ export default function App() {
           rawDeviceName,
           deviceStatus,
           agentStatus,
+          connectivityStatus,
+          agentControlReady: isAgentControlReady(deviceRecord, connectivityStatus),
           latestAgentCommand: getLatestAgentLifecycleCommand(deviceCommands),
           deviceRecord,
           services: [],
@@ -5073,6 +5160,7 @@ export default function App() {
         {source.map((device) => {
           const badge = getDeviceStatusBadgeModel(device.deviceStatus);
           const agentBadge = getAgentStatusBadgeModel(device.agentStatus);
+          const connectivityBadge = getDeviceConnectivityBadgeModel(device.connectivityStatus);
           const update = getDeviceUpdateModel(device.deviceRecord);
           return (
             <button
@@ -5088,6 +5176,7 @@ export default function App() {
               <span className="fresh-device-meta">
                 <StatusChip status={badge.status} label={badge.label} />
                 <StatusChip status={agentBadge.status} label={agentBadge.label} />
+                <StatusChip status={connectivityBadge.status} label={connectivityBadge.label} />
                 {update.updateAvailable ? <StatusChip status="available" label="update" /> : null}
                 <small>{device.runningCount} layanan aktif</small>
               </span>
@@ -5247,6 +5336,7 @@ export default function App() {
 
     const update = getDeviceUpdateModel(selectedDevice.deviceRecord);
     const agentBadge = getAgentStatusBadgeModel(selectedDevice.agentStatus);
+    const connectivityBadge = getDeviceConnectivityBadgeModel(selectedDevice.connectivityStatus);
     const agentLifecycleInFlight = visibleCommandRows.some(
       (command) =>
         command.deviceId === selectedDevice.deviceId &&
@@ -5255,6 +5345,7 @@ export default function App() {
     );
     const agentStopped = selectedDevice.agentStatus === "stopped";
     const agentRunning = selectedDevice.agentStatus === "running";
+    const agentControlReady = selectedDevice.agentControlReady;
     const remoteUpdateSupported = supportsRemoteUpdate(selectedDevice.deviceRecord);
     const canControlAgent = isSuperAdmin || isOperator;
     const canUpdate =
@@ -5263,6 +5354,7 @@ export default function App() {
       update.status !== "updating" &&
       remoteUpdateSupported &&
       agentRunning &&
+      agentControlReady &&
       selectedDevice.deviceStatus === "online";
     const updateBusy = busyAction === `${selectedDevice.deviceId}:device:update`;
     const activeAssignment = selectedDevice.activeAssignments?.[0] || null;
@@ -5289,7 +5381,9 @@ export default function App() {
                 : "Belum ada update";
     const issueText =
       selectedDevice.agentStatus === "stopped"
-        ? "Agent sedang berhenti. Gunakan Start Agent untuk menghidupkan kembali kontrol dan sinkronisasi layanan."
+        ? agentControlReady
+          ? "Agent sedang berhenti, tetapi device masih online dan kontrol agent siap. Gunakan Start Agent untuk menghidupkan kembali sinkronisasi layanan."
+          : "Agent sedang berhenti dan kontrol agent belum terverifikasi. Pastikan perangkat tersambung internet sebelum menyalakan agent."
         : selectedDevice.deviceStatus === "offline"
         ? "Perangkat offline. Command akan masuk antrean, tetapi eksekusi menunggu agent tersambung."
         : selectedDevice.issueCount > 0
@@ -5309,6 +5403,7 @@ export default function App() {
           </div>
           <div className="selected-device-status">
             <StatusChip status={selectedDeviceBadge.status} label={selectedDeviceBadge.label} />
+            <StatusChip status={connectivityBadge.status} label={connectivityBadge.label} />
             <StatusChip status={agentBadge.status} label={agentBadge.label} />
             <StatusChip status={update.toneStatus} label={update.label} />
             <ActionButton className="secondary-button action-view selected-device-alias-button" onClick={() => openAliasModal(selectedDevice)}>
@@ -5325,6 +5420,11 @@ export default function App() {
             <span>Agent</span>
             <strong>{agentBadge.label}</strong>
             <small>{update.localVersion}</small>
+          </div>
+          <div>
+            <span>Koneksi device</span>
+            <strong>{connectivityBadge.label}</strong>
+            <small>{selectedDevice.deviceRecord?.supervisor_last_seen ? `Supervisor: ${formatRelativeTime(selectedDevice.deviceRecord.supervisor_last_seen, now)}` : "Menunggu heartbeat supervisor"}</small>
           </div>
           <div>
             <span>Layanan aktif</span>
@@ -5345,7 +5445,7 @@ export default function App() {
               className="primary-button action-start"
               icon={Play}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_start`}
-              disabled={busyAction !== "" || agentLifecycleInFlight || !agentStopped}
+              disabled={busyAction !== "" || agentLifecycleInFlight || !agentStopped || !agentControlReady}
               onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_start")}
             >
               Start Agent
@@ -5354,7 +5454,7 @@ export default function App() {
               className="danger-button action-stop"
               icon={Square}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_stop`}
-              disabled={busyAction !== "" || agentLifecycleInFlight || !agentRunning}
+              disabled={busyAction !== "" || agentLifecycleInFlight || !agentRunning || !agentControlReady}
               onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_stop")}
             >
               Stop Agent
@@ -5363,7 +5463,7 @@ export default function App() {
               className="secondary-button action-restart"
               icon={RotateCcw}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_restart`}
-              disabled={busyAction !== "" || agentLifecycleInFlight || !agentRunning}
+              disabled={busyAction !== "" || agentLifecycleInFlight || !agentRunning || !agentControlReady}
               onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_restart")}
             >
               Restart Agent
@@ -5593,12 +5693,14 @@ export default function App() {
   }
 
   function renderFreshOverview() {
-    const onlineDevices = deviceEntries.filter((device) => device.deviceStatus !== "offline" && device.agentStatus !== "stopped").length;
+    const onlineDevices = deviceEntries.filter((device) => device.deviceStatus !== "offline").length;
+    const controlReadyDevices = deviceEntries.filter((device) => device.agentControlReady).length;
     const runningServices = deviceEntries.reduce((total, device) => total + device.runningCount, 0);
     return (
       <section className="fresh-section-stack">
         <section className="fresh-metric-grid">
           {renderFreshMetric("Perangkat aktif", `${onlineDevices}/${deviceEntries.length}`, "Status koneksi agent", Monitor, "good")}
+          {renderFreshMetric("Kontrol agent siap", `${controlReadyDevices}/${deviceEntries.length}`, "Siap Start/Stop Agent", ShieldCheck, controlReadyDevices ? "good" : "warn")}
           {renderFreshMetric("Layanan berjalan", runningServices, "Service siap dipakai", Server)}
           {renderFreshMetric("Akun pending", pendingAccountCount, "Menunggu approval", Users, pendingAccountCount ? "warn" : "")}
           {renderFreshMetric("Job berkas", activeRunningJobs, "Transfer berjalan", FileText)}

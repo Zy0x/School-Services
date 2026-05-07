@@ -87,6 +87,9 @@ export function statusTone(status) {
       "stopped",
       "idle",
       "degraded",
+      "stopping",
+      "restarting",
+      "updating",
     ].includes(status)
   ) {
     return "warn";
@@ -136,6 +139,9 @@ export function getStatusLabel(status) {
     deleted: "Dihapus",
     reconnecting: "Menyambung ulang",
     stopped: "Berhenti",
+    stopping: "Menghentikan",
+    restarting: "Restart",
+    updating: "Update",
     idle: "Siaga",
     degraded: "Belum stabil",
     error: "Gangguan",
@@ -183,6 +189,108 @@ export function getDeviceStatusBadgeModel(status) {
   return {
     status: normalized,
     label: labels[normalized] || `Perangkat ${getStatusLabel(normalized)}`,
+  };
+}
+
+const AGENT_LIFECYCLE_ACTIONS = new Set([
+  "agent_start",
+  "agent_stop",
+  "agent_restart",
+  "update",
+]);
+
+function getCommandTimestamp(command) {
+  const parsed = new Date(
+    command?.completed_at ||
+      command?.completedAt ||
+      command?.updated_at ||
+      command?.updatedAt ||
+      command?.started_at ||
+      command?.startedAt ||
+      command?.created_at ||
+      command?.createdAt ||
+      0
+  ).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function getLatestAgentLifecycleCommand(commands = []) {
+  return [...commands]
+    .filter((command) => AGENT_LIFECYCLE_ACTIONS.has(String(command?.action || "").toLowerCase()))
+    .sort((left, right) => getCommandTimestamp(right) - getCommandTimestamp(left))[0] || null;
+}
+
+export function deriveAgentStatus(deviceRecord, commands = [], deviceStatus = deriveDeviceStatus(deviceRecord)) {
+  if (!deviceRecord) {
+    return "pending_setup";
+  }
+  if (deviceStatus === "blocked") {
+    return "blocked";
+  }
+
+  const latest = getLatestAgentLifecycleCommand(commands);
+  const action = String(latest?.action || "").toLowerCase();
+  const status = String(latest?.status || "").toLowerCase();
+  if (["pending", "running"].includes(status)) {
+    if (action === "agent_stop") {
+      return "stopping";
+    }
+    if (action === "agent_restart") {
+      return "restarting";
+    }
+    if (action === "update") {
+      return "updating";
+    }
+    if (action === "agent_start") {
+      return "starting";
+    }
+  }
+
+  const lastSeenMs = new Date(deviceRecord?.last_seen || deviceRecord?.lastSeen || 0).getTime();
+  const latestCommandMs = getCommandTimestamp(latest);
+  if (
+    action === "agent_stop" &&
+    status === "done" &&
+    (!Number.isFinite(lastSeenMs) || latestCommandMs >= lastSeenMs)
+  ) {
+    return "stopped";
+  }
+
+  if (deviceStatus === "online") {
+    return "running";
+  }
+  if (deviceStatus === "unstable") {
+    return "unstable";
+  }
+  if (deviceStatus === "offline") {
+    return "offline";
+  }
+  return deviceStatus || "unknown";
+}
+
+export function getAgentStatusBadgeModel(status) {
+  const normalized = String(status || "unknown").trim();
+  const labels = {
+    running: "Agent hidup",
+    starting: "Agent menyala",
+    stopping: "Agent dihentikan",
+    restarting: "Agent restart",
+    updating: "Agent update",
+    stopped: "Agent berhenti",
+    unstable: "Agent belum stabil",
+    offline: "Agent tidak tersambung",
+    blocked: "Agent dibatasi",
+    pending_setup: "Agent belum setup",
+    unknown: "Agent belum diketahui",
+  };
+  return {
+    status:
+      normalized === "running"
+        ? "ready"
+        : normalized === "stopped"
+          ? "stopped"
+          : normalized,
+    label: labels[normalized] || `Agent ${getStatusLabel(normalized)}`,
   };
 }
 

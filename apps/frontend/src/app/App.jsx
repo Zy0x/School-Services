@@ -409,6 +409,108 @@ function getDeviceStatusBadgeModel(status) {
   };
 }
 
+const AGENT_LIFECYCLE_ACTIONS = new Set([
+  "agent_start",
+  "agent_stop",
+  "agent_restart",
+  "update",
+]);
+
+function getCommandTimestamp(command) {
+  const parsed = new Date(
+    command?.completed_at ||
+      command?.completedAt ||
+      command?.updated_at ||
+      command?.updatedAt ||
+      command?.started_at ||
+      command?.startedAt ||
+      command?.created_at ||
+      command?.createdAt ||
+      0
+  ).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getLatestAgentLifecycleCommand(commands = []) {
+  return [...commands]
+    .filter((command) => AGENT_LIFECYCLE_ACTIONS.has(String(command?.action || "").toLowerCase()))
+    .sort((left, right) => getCommandTimestamp(right) - getCommandTimestamp(left))[0] || null;
+}
+
+function deriveAgentStatus(deviceRecord, commands = [], deviceStatus = deriveDeviceStatus(deviceRecord)) {
+  if (!deviceRecord) {
+    return "pending_setup";
+  }
+  if (deviceStatus === "blocked") {
+    return "blocked";
+  }
+
+  const latest = getLatestAgentLifecycleCommand(commands);
+  const action = String(latest?.action || "").toLowerCase();
+  const status = String(latest?.status || "").toLowerCase();
+  if (["pending", "running"].includes(status)) {
+    if (action === "agent_stop") {
+      return "stopping";
+    }
+    if (action === "agent_restart") {
+      return "restarting";
+    }
+    if (action === "update") {
+      return "updating";
+    }
+    if (action === "agent_start") {
+      return "starting";
+    }
+  }
+
+  const lastSeenMs = new Date(deviceRecord?.last_seen || deviceRecord?.lastSeen || 0).getTime();
+  const latestCommandMs = getCommandTimestamp(latest);
+  if (
+    action === "agent_stop" &&
+    status === "done" &&
+    (!Number.isFinite(lastSeenMs) || latestCommandMs >= lastSeenMs)
+  ) {
+    return "stopped";
+  }
+
+  if (deviceStatus === "online") {
+    return "running";
+  }
+  if (deviceStatus === "unstable") {
+    return "unstable";
+  }
+  if (deviceStatus === "offline") {
+    return "offline";
+  }
+  return deviceStatus || "unknown";
+}
+
+function getAgentStatusBadgeModel(status) {
+  const normalized = String(status || "unknown").trim();
+  const labels = {
+    running: "Agent hidup",
+    starting: "Agent menyala",
+    stopping: "Agent dihentikan",
+    restarting: "Agent restart",
+    updating: "Agent update",
+    stopped: "Agent berhenti",
+    unstable: "Agent belum stabil",
+    offline: "Agent tidak tersambung",
+    blocked: "Agent dibatasi",
+    pending_setup: "Agent belum setup",
+    unknown: "Agent belum diketahui",
+  };
+  return {
+    status:
+      normalized === "running"
+        ? "ready"
+        : normalized === "stopped"
+          ? "stopped"
+          : normalized,
+    label: labels[normalized] || `Agent ${getStatusLabel(normalized)}`,
+  };
+}
+
 function getServiceStatusBadgeModel(status) {
   const normalized = String(status || "unknown").trim();
   const labels = {
@@ -660,6 +762,9 @@ function statusTone(status) {
       "stopped",
       "idle",
       "degraded",
+      "stopping",
+      "restarting",
+      "updating",
     ].includes(status)
   ) {
     return "warn";
@@ -709,6 +814,9 @@ function getStatusLabel(status) {
     deleted: "Dihapus",
     reconnecting: "Menyambung ulang",
     stopped: "Berhenti",
+    stopping: "Menghentikan",
+    restarting: "Restart",
+    updating: "Update",
     idle: "Siaga",
     degraded: "Belum stabil",
     error: "Gangguan",
@@ -1133,10 +1241,16 @@ function DeviceCombobox({
         </span>
         <span className="device-combobox-current-meta">
           {selectedDevice ? (
-            <StatusChip
-              status={getDeviceStatusBadgeModel(selectedDevice.deviceStatus).status}
-              label={getDeviceStatusBadgeModel(selectedDevice.deviceStatus).label}
-            />
+            <>
+              <StatusChip
+                status={getDeviceStatusBadgeModel(selectedDevice.deviceStatus).status}
+                label={getDeviceStatusBadgeModel(selectedDevice.deviceStatus).label}
+              />
+              <StatusChip
+                status={getAgentStatusBadgeModel(selectedDevice.agentStatus).status}
+                label={getAgentStatusBadgeModel(selectedDevice.agentStatus).label}
+              />
+            </>
           ) : (
             <StatusChip status="ready" label={`${devices.length} device`} />
           )}
@@ -1172,6 +1286,7 @@ function DeviceCombobox({
           {filteredDevices.length ? (
             filteredDevices.map((device) => {
               const badge = getDeviceStatusBadgeModel(device.deviceStatus);
+              const agentBadge = getAgentStatusBadgeModel(device.agentStatus);
               return (
                 <button
                   key={device.deviceId}
@@ -1185,7 +1300,10 @@ function DeviceCombobox({
                     <small>{device.deviceId}</small>
                     {device.deviceAlias ? <small>Alias: {device.deviceAlias}</small> : null}
                   </span>
-                  <StatusChip status={badge.status} label={badge.label} />
+                  <span className="fresh-pill-group">
+                    <StatusChip status={badge.status} label={badge.label} />
+                    <StatusChip status={agentBadge.status} label={agentBadge.label} />
+                  </span>
                 </button>
               );
             })
@@ -1205,6 +1323,11 @@ function DeviceWarningPanel({ device }) {
 
   const update = getDeviceUpdateModel(device.deviceRecord);
   const warnings = [];
+  if (device.agentStatus === "stopped") {
+    warnings.push("Agent sedang berhenti dan kontrol layanan tidak akan diproses sampai dinyalakan kembali.");
+  } else if (["starting", "stopping", "restarting", "updating"].includes(device.agentStatus)) {
+    warnings.push("Agent sedang memproses perubahan runtime.");
+  }
   if (device.deviceStatus === "offline") {
     warnings.push("Perangkat sedang offline.");
   }
@@ -1274,7 +1397,8 @@ function getRemoteRootPreference(root) {
 }
 
 function getPriorityBanner({ route, profile, devices, fileJobs, accounts }) {
-  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline").length;
+  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline" && device.agentStatus !== "stopped").length;
+  const stoppedAgents = devices.filter((device) => device.agentStatus === "stopped").length;
   const runningJobs = fileJobs.filter((job) => ["pending", "running"].includes(job.status)).length;
   const pendingAccounts = accounts.filter((account) => account.status === "pending").length;
 
@@ -1344,7 +1468,7 @@ function RouteHeader({ route, profile, breadcrumbs = [] }) {
 }
 
 function DashboardStats({ devices, fileJobs, accounts, now }) {
-  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline").length;
+  const onlineDevices = devices.filter((device) => device.deviceStatus !== "offline" && device.agentStatus !== "stopped").length;
   const runningServices = devices.reduce((total, device) => total + device.runningCount, 0);
   const issueCount = devices.reduce((total, device) => total + device.issueCount, 0);
   const runningJobs = fileJobs.filter((job) => ["pending", "running"].includes(job.status)).length;
@@ -1374,24 +1498,30 @@ function DashboardStats({ devices, fileJobs, accounts, now }) {
 function DeviceGrid({ devices, selectedDeviceId, onOpen, now }) {
   return (
     <section className="device-grid" aria-label="Daftar perangkat">
-      {devices.map((device) => (
-        <button
-          key={device.deviceId}
-          type="button"
-          className={`device-grid-card ${selectedDeviceId === device.deviceId ? "device-grid-card-active" : ""}`}
-          onClick={() => onOpen(device.deviceId)}
-        >
-          <span className="device-grid-top">
-            <strong>{device.deviceName}</strong>
-            <StatusChip status={device.deviceStatus} />
-          </span>
-          <LongText value={device.deviceId} label="ID perangkat" className="mono" maxLength={28} />
-          <span className="device-grid-meta">
-            {device.runningCount} layanan aktif | {device.issueCount} perlu perhatian |{" "}
-            {formatRelativeTime(device.deviceRecord?.last_seen, now)}
-          </span>
-        </button>
-      ))}
+      {devices.map((device) => {
+        const agentBadge = getAgentStatusBadgeModel(device.agentStatus);
+        return (
+          <button
+            key={device.deviceId}
+            type="button"
+            className={`device-grid-card ${selectedDeviceId === device.deviceId ? "device-grid-card-active" : ""}`}
+            onClick={() => onOpen(device.deviceId)}
+          >
+            <span className="device-grid-top">
+              <strong>{device.deviceName}</strong>
+              <StatusChip status={device.deviceStatus} />
+            </span>
+            <span className="fresh-pill-group">
+              <StatusChip status={agentBadge.status} label={agentBadge.label} />
+            </span>
+            <LongText value={device.deviceId} label="ID perangkat" className="mono" maxLength={28} />
+            <span className="device-grid-meta">
+              {device.runningCount} layanan aktif | {device.issueCount} perlu perhatian |{" "}
+              {formatRelativeTime(device.deviceRecord?.last_seen, now)}
+            </span>
+          </button>
+        );
+      })}
     </section>
   );
 }
@@ -1485,6 +1615,14 @@ function getCommandCopy(action, serviceName, versionLabel = "") {
     return {
       pending: "Preferensi tunnel dikirim. Agent akan membuat tunnel baru dan memperbarui link akses.",
       success: "Preferensi tunnel aktif dan link akses diperbarui.",
+    };
+  }
+  if (stoppedAgents) {
+    return {
+      icon: AlertTriangle,
+      tone: "warn",
+      title: `${stoppedAgents} agent sedang berhenti.`,
+      description: "Tombol layanan dinonaktifkan pada perangkat tersebut. Gunakan Start Agent untuk memulihkan kontrol dan sinkronisasi.",
     };
   }
   return {
@@ -1820,6 +1958,7 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
     <div className="device-list">
       {devices.map((device) => {
         const deviceBadge = getDeviceStatusBadgeModel(device.deviceStatus);
+        const agentBadge = getAgentStatusBadgeModel(device.agentStatus);
         return (
           <button
             key={device.deviceId}
@@ -1832,6 +1971,7 @@ function DeviceList({ devices, selectedDeviceId, onSelect, now }) {
             <div className="device-list-title">
               <strong>{device.deviceName}</strong>
               <StatusChip status={deviceBadge.status} label={deviceBadge.label} />
+              <StatusChip status={agentBadge.status} label={agentBadge.label} />
             </div>
             {device.deviceAlias ? <div className="device-list-meta">Nama tampilan</div> : null}
             <div className="device-list-meta mono">
@@ -3544,6 +3684,28 @@ export default function App() {
     return () => window.clearTimeout(timeoutId);
   }, [dashboardInfo]);
 
+  const commandRows = useMemo(
+    () =>
+      commands
+        .map((command) => ({
+          ...command,
+          id: command.id,
+          deviceId: command.device_id || command.deviceId || "",
+          serviceName: command.service_name || command.serviceName || "",
+          progressPercent: Number(command.progress_percent ?? command.progressPercent ?? 0) || 0,
+          status: String(command.status || "pending"),
+          phase: command.phase || "",
+          message: command.message || "",
+          error: command.error || "",
+        }))
+        .sort((left, right) => {
+          const leftTime = new Date(left.updated_at || left.created_at || 0).getTime();
+          const rightTime = new Date(right.updated_at || right.created_at || 0).getTime();
+          return rightTime - leftTime;
+        }),
+    [commands]
+  );
+
   const deviceEntries = useMemo(() => {
     const grouped = new Map();
     const aliasMap = new Map(
@@ -3563,6 +3725,8 @@ export default function App() {
     for (const row of services) {
       const deviceRecord = Array.isArray(row.devices) ? row.devices[0] : row.devices;
       const deviceStatus = deriveDeviceStatus(deviceRecord);
+      const deviceCommands = commandRows.filter((command) => command.deviceId === row.device_id);
+      const agentStatus = deriveAgentStatus(deviceRecord, deviceCommands, deviceStatus);
       const serviceStatus = deriveServiceStatus(row, deviceStatus);
       const rawDeviceName = deviceRecord?.device_name || row.device_id;
       const deviceAlias = aliasMap.get(String(row.device_id)) || "";
@@ -3574,6 +3738,8 @@ export default function App() {
           deviceAlias,
           rawDeviceName,
           deviceStatus,
+          agentStatus,
+          latestAgentCommand: getLatestAgentLifecycleCommand(deviceCommands),
           deviceRecord,
           services: [],
         });
@@ -3603,7 +3769,7 @@ export default function App() {
           ["missing", "partial"].includes(service.location_status)
       ).length,
     }));
-  }, [services, fileJobs, deviceAliases, deviceAssignments]);
+  }, [services, fileJobs, deviceAliases, deviceAssignments, commandRows]);
 
   const selectedDevice =
     appRoute.section === "devices" && appRoute.deviceId
@@ -3637,27 +3803,6 @@ export default function App() {
     [accounts]
   );
   const currentUserId = String(profile?.user_id || session?.user?.id || "");
-  const commandRows = useMemo(
-    () =>
-      commands
-        .map((command) => ({
-          ...command,
-          id: command.id,
-          deviceId: command.device_id || command.deviceId || "",
-          serviceName: command.service_name || command.serviceName || "",
-          progressPercent: Number(command.progress_percent ?? command.progressPercent ?? 0) || 0,
-          status: String(command.status || "pending"),
-          phase: command.phase || "",
-          message: command.message || "",
-          error: command.error || "",
-        }))
-        .sort((left, right) => {
-          const leftTime = new Date(left.updated_at || left.created_at || 0).getTime();
-          const rightTime = new Date(right.updated_at || right.created_at || 0).getTime();
-          return rightTime - leftTime;
-        }),
-    [commands]
-  );
   const visibleCommandRows = useMemo(() => {
     if (!selectedDevice?.deviceId) {
       return commandRows;
@@ -3923,7 +4068,7 @@ export default function App() {
   );
   const deviceScopedOffline =
     Boolean(selectedDevice) &&
-    selectedDevice.deviceStatus === "offline" &&
+    (selectedDevice.deviceStatus === "offline" || selectedDevice.agentStatus === "stopped") &&
     ["devices", "files", "activity"].includes(selectedTab);
 
   useEffect(() => {
@@ -4845,7 +4990,11 @@ export default function App() {
     safeFleetPage * fleetPageSize
   );
   const updateAvailableCount = deviceEntries.filter((device) => getDeviceUpdateModel(device.deviceRecord).updateAvailable).length;
-  const deviceWarningCount = deviceEntries.reduce((total, device) => total + (device.issueCount > 0 || device.deviceStatus === "offline" ? 1 : 0), 0);
+  const deviceWarningCount = deviceEntries.reduce(
+    (total, device) =>
+      total + (device.issueCount > 0 || device.deviceStatus === "offline" || device.agentStatus === "stopped" ? 1 : 0),
+    0
+  );
   const latestErrorLogs = logs.filter((log) => ["error", "warn"].includes(log.level)).slice(0, 3);
   const notificationItems = [
     ...(pendingAccountCount
@@ -4863,7 +5012,7 @@ export default function App() {
           icon: AlertTriangle,
           tone: "warn",
           title: `${deviceWarningCount} perangkat perlu dicek`,
-          description: "Ada perangkat offline atau service yang perlu perhatian.",
+          description: "Ada perangkat offline, agent berhenti, atau service yang perlu perhatian.",
         }]
       : []),
     ...(updateAvailableCount
@@ -4923,6 +5072,7 @@ export default function App() {
       <div className="fresh-device-list">
         {source.map((device) => {
           const badge = getDeviceStatusBadgeModel(device.deviceStatus);
+          const agentBadge = getAgentStatusBadgeModel(device.agentStatus);
           const update = getDeviceUpdateModel(device.deviceRecord);
           return (
             <button
@@ -4937,6 +5087,7 @@ export default function App() {
               </span>
               <span className="fresh-device-meta">
                 <StatusChip status={badge.status} label={badge.label} />
+                <StatusChip status={agentBadge.status} label={agentBadge.label} />
                 {update.updateAvailable ? <StatusChip status="available" label="update" /> : null}
                 <small>{device.runningCount} layanan aktif</small>
               </span>
@@ -4980,9 +5131,9 @@ export default function App() {
               command.serviceName === service.service_name &&
               isCommandInProgress(command)
           );
-          const deviceOnline = selectedDevice.deviceStatus === "online";
-          const canStartService = deviceOnline && !runningNow && !serviceStarting && !serviceCommandInFlight;
-          const canStopService = deviceOnline && (runningNow || serviceStarting || serviceStopping) && !serviceCommandInFlight;
+          const agentRunning = selectedDevice.agentStatus === "running";
+          const canStartService = agentRunning && !runningNow && !serviceStarting && !serviceCommandInFlight;
+          const canStopService = agentRunning && (runningNow || serviceStarting || serviceStopping) && !serviceCommandInFlight;
           return (
             <article
               key={service.id}
@@ -5095,6 +5246,15 @@ export default function App() {
     }
 
     const update = getDeviceUpdateModel(selectedDevice.deviceRecord);
+    const agentBadge = getAgentStatusBadgeModel(selectedDevice.agentStatus);
+    const agentLifecycleInFlight = visibleCommandRows.some(
+      (command) =>
+        command.deviceId === selectedDevice.deviceId &&
+        AGENT_LIFECYCLE_ACTIONS.has(String(command.action || "").toLowerCase()) &&
+        isCommandInProgress(command)
+    );
+    const agentStopped = selectedDevice.agentStatus === "stopped";
+    const agentRunning = selectedDevice.agentStatus === "running";
     const remoteUpdateSupported = supportsRemoteUpdate(selectedDevice.deviceRecord);
     const canControlAgent = isSuperAdmin || isOperator;
     const canUpdate =
@@ -5102,6 +5262,7 @@ export default function App() {
       update.updateAvailable &&
       update.status !== "updating" &&
       remoteUpdateSupported &&
+      agentRunning &&
       selectedDevice.deviceStatus === "online";
     const updateBusy = busyAction === `${selectedDevice.deviceId}:device:update`;
     const activeAssignment = selectedDevice.activeAssignments?.[0] || null;
@@ -5127,7 +5288,9 @@ export default function App() {
                 ? "Update manual"
                 : "Belum ada update";
     const issueText =
-      selectedDevice.deviceStatus === "offline"
+      selectedDevice.agentStatus === "stopped"
+        ? "Agent sedang berhenti. Gunakan Start Agent untuk menghidupkan kembali kontrol dan sinkronisasi layanan."
+        : selectedDevice.deviceStatus === "offline"
         ? "Perangkat offline. Command akan masuk antrean, tetapi eksekusi menunggu agent tersambung."
         : selectedDevice.issueCount > 0
           ? `${selectedDevice.issueCount} layanan perlu perhatian.`
@@ -5146,6 +5309,7 @@ export default function App() {
           </div>
           <div className="selected-device-status">
             <StatusChip status={selectedDeviceBadge.status} label={selectedDeviceBadge.label} />
+            <StatusChip status={agentBadge.status} label={agentBadge.label} />
             <StatusChip status={update.toneStatus} label={update.label} />
             <ActionButton className="secondary-button action-view selected-device-alias-button" onClick={() => openAliasModal(selectedDevice)}>
               Edit alias
@@ -5159,7 +5323,8 @@ export default function App() {
           </div>
           <div>
             <span>Agent</span>
-            <strong>{update.localVersion}</strong>
+            <strong>{agentBadge.label}</strong>
+            <small>{update.localVersion}</small>
           </div>
           <div>
             <span>Layanan aktif</span>
@@ -5180,7 +5345,7 @@ export default function App() {
               className="primary-button action-start"
               icon={Play}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_start`}
-              disabled={busyAction !== ""}
+              disabled={busyAction !== "" || agentLifecycleInFlight || !agentStopped}
               onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_start")}
             >
               Start Agent
@@ -5189,7 +5354,7 @@ export default function App() {
               className="danger-button action-stop"
               icon={Square}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_stop`}
-              disabled={busyAction !== ""}
+              disabled={busyAction !== "" || agentLifecycleInFlight || !agentRunning}
               onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_stop")}
             >
               Stop Agent
@@ -5198,7 +5363,7 @@ export default function App() {
               className="secondary-button action-restart"
               icon={RotateCcw}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_restart`}
-              disabled={busyAction !== ""}
+              disabled={busyAction !== "" || agentLifecycleInFlight || !agentRunning}
               onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_restart")}
             >
               Restart Agent
@@ -5231,7 +5396,7 @@ export default function App() {
             </ActionButton>
           </div>
         ) : null}
-        <p className={`selected-device-operation-note ${selectedDevice.deviceStatus === "offline" || selectedDevice.issueCount ? "tone-warn" : ""}`}>
+        <p className={`selected-device-operation-note ${selectedDevice.deviceStatus === "offline" || selectedDevice.agentStatus === "stopped" || selectedDevice.issueCount ? "tone-warn" : ""}`}>
           {issueText}
         </p>
       </article>
@@ -5428,7 +5593,7 @@ export default function App() {
   }
 
   function renderFreshOverview() {
-    const onlineDevices = deviceEntries.filter((device) => device.deviceStatus !== "offline").length;
+    const onlineDevices = deviceEntries.filter((device) => device.deviceStatus !== "offline" && device.agentStatus !== "stopped").length;
     const runningServices = deviceEntries.reduce((total, device) => total + device.runningCount, 0);
     return (
       <section className="fresh-section-stack">

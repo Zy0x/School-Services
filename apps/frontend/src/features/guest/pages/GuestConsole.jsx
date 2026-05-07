@@ -6,8 +6,10 @@ import { REFRESH_INTERVAL_MS } from "../../../app/lib/constants.js";
 import { formatEdgeFunctionError } from "../../../app/lib/errors.js";
 import { buildAuthUrl } from "../../../app/lib/routes.js";
 import {
+  deriveAgentStatus,
   formatRelativeTime,
   formatServiceDisplayName,
+  getAgentStatusBadgeModel,
   getServiceStatusBadgeModel,
   statusTone,
 } from "../../../app/lib/status.js";
@@ -304,6 +306,9 @@ export function GuestConsole({ deviceId }) {
       error: command.error || "",
     }))
     .sort((left, right) => new Date(right.updated_at || right.created_at || 0).getTime() - new Date(left.updated_at || left.created_at || 0).getTime());
+  const agentStatus = deriveAgentStatus(state.device, guestCommands, state.device?.deviceStatus);
+  const agentBadge = getAgentStatusBadgeModel(agentStatus);
+  const deviceWithAgentStatus = state.device ? { ...state.device, agentStatus } : state.device;
   const activeCommand =
     (commandModal.commandId
       ? guestCommands.find((command) => String(command.id) === String(commandModal.commandId))
@@ -317,7 +322,7 @@ export function GuestConsole({ deviceId }) {
   const commandInFlight =
     (Boolean(activeCommand) && ["pending", "running"].includes(activeCommandStatus)) ||
     (commandModal.open && ["pending", "running"].includes(String(commandModal.status || "")));
-  const guestStatus = getGuestStatusModel(state.device, service);
+  const guestStatus = getGuestStatusModel(deviceWithAgentStatus, service);
   const guestRuntimeStatus =
     guestStatus.overallStatus === "ready" || guestStatus.overallStatus === "degraded"
       ? "running"
@@ -329,9 +334,10 @@ export function GuestConsole({ deviceId }) {
   const canOpenService = guestStatus.ready;
   const isDeviceOffline =
     state.device?.deviceStatus === "offline" ||
+    agentStatus === "stopped" ||
     guestStatus.overallStatus === "offline" ||
     guestStatus.overallStatus === "blocked";
-  const isDeviceOnline = state.device?.deviceStatus === "online";
+  const isDeviceOnline = state.device?.deviceStatus === "online" && agentStatus === "running";
   const normalizedServiceStatus = String(service?.status || "").toLowerCase();
   const desiredServiceState = String(service?.desired_state || "").toLowerCase();
   const isRunning = normalizedServiceStatus === "running" && desiredServiceState !== "stopped";
@@ -343,12 +349,14 @@ export function GuestConsole({ deviceId }) {
   const activeServiceCommandInFlight = guestCommands.some(
     (command) => ["start", "stop"].includes(String(command.action || "")) && isCommandInProgress(command)
   );
-  const startDisabled = busy || commandInFlight || activeServiceCommandInFlight || !isDeviceOnline || isServiceActiveOrStarting;
-  const stopDisabled = busy || commandInFlight || activeServiceCommandInFlight || !isDeviceOnline || (!isServiceActiveOrStarting && !isServiceStopping);
+  const serviceCommandAvailable = agentStatus === "running";
+  const startDisabled = busy || commandInFlight || activeServiceCommandInFlight || !serviceCommandAvailable || isServiceActiveOrStarting;
+  const stopDisabled = busy || commandInFlight || activeServiceCommandInFlight || !serviceCommandAvailable || (!isServiceActiveOrStarting && !isServiceStopping);
   const canUpdateService =
     guestUpdate.updateAvailable &&
     guestUpdate.status !== "updating" &&
     remoteUpdateSupported &&
+    serviceCommandAvailable &&
     state.device?.deviceStatus === "online";
   const updateButtonLabel =
     guestUpdate.status === "updating"
@@ -371,6 +379,12 @@ export function GuestConsole({ deviceId }) {
     guestUpdate.updateAvailable && state.device?.deviceStatus !== "online"
       ? "Perangkat harus online sebelum update jarak jauh bisa dimulai."
       : "";
+  const agentControlMessage =
+    agentStatus === "stopped"
+      ? "Agent sedang berhenti. Tombol layanan dinonaktifkan sampai agent dinyalakan dari panel pengelola."
+      : ["starting", "stopping", "restarting", "updating"].includes(agentStatus)
+        ? "Agent sedang memproses perubahan. Tombol layanan akan aktif kembali setelah status stabil."
+        : "";
   const serviceLabel = formatServiceDisplayName(service?.service_name || "rapor");
   const tunnelProviderBadge = getTunnelProviderBadgeModel(service?.tunnel_provider);
   const showNgrokVisitSiteNotice =
@@ -520,6 +534,7 @@ export function GuestConsole({ deviceId }) {
                   <p>{accessHint}</p>
                 </div>
                 <div className="guest-access-status-row">
+                  <StatusChip status={agentBadge.status} label={agentBadge.label} />
                   <StatusChip status={guestRuntimeBadge.status} label={guestStatus.runtimeChipLabel} />
                   <StatusChip status={guestStatus.publicStatus} label={guestStatus.publicLabel} />
                   <StatusChip status={tunnelProviderBadge.status} label={tunnelProviderBadge.label} />
@@ -555,7 +570,7 @@ export function GuestConsole({ deviceId }) {
                     Buka E-Rapor
                   </ActionButton>
                   <PublicLinkActions
-                    url={service?.public_url || ""}
+                    url={canOpenService ? service?.public_url || "" : ""}
                     label={`Tautan ${serviceLabel} untuk ${state.device?.deviceName || deviceId}`}
                     compact
                     tunnelProvider={service?.tunnel_provider}
@@ -583,6 +598,11 @@ export function GuestConsole({ deviceId }) {
                   <span>Heartbeat</span>
                   <strong>{formatRelativeTime(state.device?.lastSeen)}</strong>
                   <small>Agent terakhir tersambung</small>
+                </div>
+                <div>
+                  <span>Status agent</span>
+                  <strong>{agentBadge.label}</strong>
+                  <small>{agentStatus === "stopped" ? "Kontrol layanan menunggu agent dinyalakan" : "Kondisi runtime School Services"}</small>
                 </div>
                 <div>
                   <span>Update service</span>
@@ -623,7 +643,7 @@ export function GuestConsole({ deviceId }) {
                     {updateButtonLabel}
                   </ActionButton>
                 </div>
-                <p>{offlineUpdateMessage || unsupportedUpdateMessage || guestUpdateSummary}</p>
+                <p>{agentControlMessage || offlineUpdateMessage || unsupportedUpdateMessage || guestUpdateSummary}</p>
               </div>
 
               <details className="guest-detail-disclosure">

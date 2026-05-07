@@ -160,6 +160,7 @@ export function buildWhatsAppShareUrl(url, label = "Tautan akses", options = {})
 
 export function getGuestStatusModel(device, service) {
   const deviceStatus = device?.deviceStatus || "offline";
+  const agentStatus = device?.agentStatus || (deviceStatus === "online" ? "running" : deviceStatus);
   const serviceStatus =
     deviceStatus === "blocked"
       ? "blocked"
@@ -172,6 +173,7 @@ export function getGuestStatusModel(device, service) {
   const hasPublicUrl = Boolean(service?.public_url);
   const ready =
     deviceStatus === "online" &&
+    agentStatus === "running" &&
     serviceStatus === "running" &&
     desiredState !== "stopped" &&
     hasPublicUrl;
@@ -214,6 +216,34 @@ export function getGuestStatusModel(device, service) {
       runtimeLabel: "Belum tersambung",
       runtimeChipLabel: "offline",
       ready,
+    };
+  }
+
+  if (agentStatus === "stopped" || agentStatus === "stopping") {
+    return {
+      overallStatus: "stopped",
+      headline: "Agent School Services berhenti",
+      description:
+        "Perangkat masih tercatat, tetapi agent sedang berhenti sehingga status dan kontrol layanan tidak bisa diproses.",
+      publicStatus: hasPublicUrl ? "unavailable" : "disabled",
+      publicLabel: hasPublicUrl ? "Tautan terakhir tersedia" : "Tautan belum tersedia",
+      runtimeLabel: "Agent berhenti",
+      runtimeChipLabel: agentStatus === "stopping" ? "menghentikan agent" : "agent berhenti",
+      ready: false,
+    };
+  }
+
+  if (["starting", "restarting", "updating"].includes(agentStatus)) {
+    return {
+      overallStatus: "reconnecting",
+      headline: agentStatus === "updating" ? "Agent sedang update" : "Agent sedang dipulihkan",
+      description:
+        "Agent sedang menyala kembali. Status layanan dan tautan publik akan aktif setelah heartbeat baru diterima.",
+      publicStatus: "reconnecting",
+      publicLabel: "Menunggu agent siap",
+      runtimeLabel: "Agent dipulihkan",
+      runtimeChipLabel: agentStatus === "updating" ? "update" : "menyala",
+      ready: false,
     };
   }
 

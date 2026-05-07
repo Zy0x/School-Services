@@ -4,6 +4,7 @@ import {
   FileText,
   Gauge,
   KeyRound,
+  Monitor,
   Play,
   RefreshCw,
   Rocket,

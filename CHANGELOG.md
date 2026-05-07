@@ -4,19 +4,31 @@ Semua perubahan penting pada project ini dicatat di file ini.
 
 Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) dengan versi rilis project.
 
-## [2.0.7] - 2026-05-06
+## [2.0.7] - 2026-05-07
+
+### Added
+
+- Progress realtime untuk Start, Stop, Restart, Update Agent, serta Mulai/Hentikan layanan dengan status fase, persen, error, dan panel yang bisa diminimize.
+- Supervisor Agent untuk menjaga progress lifecycle tetap berjalan saat proses Agent utama dihentikan, direstart, atau diupdate.
+- Catatan Ngrok gratis yang dinamis sesuai layanan, termasuk format WhatsApp untuk E-Rapor, Dapodik, atau layanan lain yang dibagikan.
+- Notifikasi salin tautan dan salin detail yang tampil konsisten di Dashboard, Guest, dan halaman semua role.
 
 ### Changed
 
 - Dashboard Guest dan role admin diberi spacing compact-relaxed agar card, modal, disclosure, dan form tunnel tidak saling menempel.
 - Preferensi tunnel Cloudflared/Ngrok menampilkan token Ngrok cadangan yang terkunci saat Cloudflared aktif, dengan mode edit eksplisit.
 - Startup agent menjaga service lokal yang sudah sehat tetap berjalan dan mengurangi antrean tunnel antar-service.
+- Restart Agent menunggu layanan dan public URL stabil sebelum dianggap selesai, kecuali layanan memang tidak tersedia pada perangkat.
+- Kontrol layanan Guest dan Dashboard mengikuti status aktif/nonaktif agar tombol Start/Stop tidak terkunci setelah progress selesai.
 
 ### Fixed
 
 - Kode referral lingkungan ditampilkan untuk SuperAdmin dan Operator dengan aksi salin dan bagikan.
 - Device aktif hanya dapat tertaut ke satu akun dan bisa dilepas secara aman lewat aksi unlink.
 - Public URL terakhir tetap dipertahankan selama reconnect tunnel singkat, dan log tunnel baru memakai file per launch untuk menghindari `EPERM`.
+- Progress lama tidak lagi langsung muncul saat login ke perangkat offline.
+- Modal progress otomatis selesai/tertutup setelah command benar-benar selesai dan tidak menahan klik halaman saat tidak ada command aktif.
+- Tunnel Ngrok memakai proxy lokal untuk mengirim header bypass warning pada akses publik bila provider Ngrok gratis dipakai.
 
 ## [2.0.6] - 2026-05-03
 

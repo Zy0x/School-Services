@@ -122,79 +122,35 @@ class ServiceManager {
   }
 
   normalizeCommand(commandConfig) {
-    if (!commandConfig) {
-      return null;
-    }
-
-    if (typeof commandConfig === "string") {
-      return {
-        command: this.getCmdPath(),
-        args: ["/c", commandConfig],
-      };
-    }
-
-    return {
-      command: this.resolveSystemCommandPath(commandConfig.command),
-      args: commandConfig.args || [],
-      cwd: commandConfig.cwd,
-      env: commandConfig.env,
-      shell: Boolean(commandConfig.shell),
-    };
+    return normalizeCommand(commandConfig);
   }
 
   formatCommand(command) {
-    const parts = [command.command].concat(command.args || []);
-    return parts.join(" ");
+    return formatCommand(command);
   }
 
   getPowerShellPath() {
-    const systemRoot = process.env.SystemRoot || "C:\\Windows";
-    return path.join(
-      systemRoot,
-      "System32",
-      "WindowsPowerShell",
-      "v1.0",
-      "powershell.exe"
-    );
+    return getPowerShellPath();
   }
 
   getSystem32Path() {
-    const systemRoot = process.env.SystemRoot || "C:\\Windows";
-    return path.join(systemRoot, "System32");
+    return getSystem32Path();
   }
 
   getCmdPath() {
-    return path.join(this.getSystem32Path(), "cmd.exe");
+    return getCmdPath();
   }
 
   getScPath() {
-    return path.join(this.getSystem32Path(), "sc.exe");
+    return getScPath();
   }
 
   getTaskkillPath() {
-    return path.join(this.getSystem32Path(), "taskkill.exe");
+    return getTaskkillPath();
   }
 
   resolveSystemCommandPath(command) {
-    const normalized = String(command || "").trim().toLowerCase();
-
-    if (normalized === "cmd.exe" || normalized === "cmd") {
-      return this.getCmdPath();
-    }
-
-    if (normalized === "sc.exe" || normalized === "sc") {
-      return this.getScPath();
-    }
-
-    if (normalized === "taskkill.exe" || normalized === "taskkill") {
-      return this.getTaskkillPath();
-    }
-
-    if (normalized === "powershell.exe" || normalized === "powershell") {
-      return this.getPowerShellPath();
-    }
-
-    return command;
+    return resolveSystemCommandPath(command);
   }
 
   getWindowsServices(definition) {
@@ -672,59 +628,19 @@ class ServiceManager {
   }
 
   extractExecutablePath(pathName) {
-    const value = String(pathName || "").trim();
-
-    if (!value) {
-      return null;
-    }
-
-    if (value.startsWith('"')) {
-      const closingIndex = value.indexOf('"', 1);
-      return closingIndex > 1 ? value.slice(1, closingIndex) : null;
-    }
-
-    const exeIndex = value.toLowerCase().indexOf(".exe");
-    if (exeIndex === -1) {
-      return value;
-    }
-
-    return value.slice(0, exeIndex + 4);
+    return extractExecutablePath(pathName);
   }
 
   getConfigTargets(definition) {
-    return getConfigTargetsForService(definition).filter(Boolean);
+    return getConfigTargets(definition);
   }
 
   isUsableConfigTargetCandidatePath(candidatePath) {
-    const normalized = String(candidatePath || "").trim();
-
-    if (!normalized) {
-      return false;
-    }
-
-    // Ignore drive-relative Windows paths such as "\.env" that can appear
-    // when environment placeholders expand to an empty string.
-    if (/^[\\/](?![\\/])/.test(normalized)) {
-      return false;
-    }
-
-    return true;
+    return isUsableConfigTargetCandidatePath(candidatePath);
   }
 
   getConfigTargetCandidatePaths(target) {
-    const candidates = [];
-
-    if (target?.path) {
-      candidates.push(target.path);
-    }
-
-    if (Array.isArray(target?.pathCandidates)) {
-      candidates.push(...target.pathCandidates);
-    }
-
-    return Array.from(
-      new Set(candidates.filter((candidate) => this.isUsableConfigTargetCandidatePath(candidate)))
-    );
+    return getConfigTargetCandidatePaths(target);
   }
 
   discoverConfigPathFromExecutable(target, executablePath, options = {}) {
@@ -786,18 +702,7 @@ class ServiceManager {
   }
 
   isSameConfigTarget(left, right) {
-    if (!left || !right) {
-      return false;
-    }
-
-    const leftId = left.targetId || null;
-    const rightId = right.targetId || null;
-
-    if (leftId || rightId) {
-      return leftId === rightId;
-    }
-
-    return left.key === right.key && left.type === right.type;
+    return isSameConfigTarget(left, right);
   }
 
   async getLocationDiagnostics(serviceName, options = {}) {

@@ -6,27 +6,24 @@ const logger = require("./logger");
 const { getStateDir } = require("./paths");
 const RetryManager = require("./retryManager");
 
-const TRY_CLOUDFLARE_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi;
-const NGROK_PATTERN = /https:\/\/[a-z0-9.-]+\.ngrok(?:-free)?\.(?:app|dev|io)/gi;
-const RATE_LIMIT_PATTERN = /rate[- ]limited|429|error code:\s*1015|too many requests/i;
-const NOT_READY_PATTERN = /not ready|failed to unmarshal quick tunnel/i;
-const NGROK_AUTH_ERROR_PATTERN = /ERR_NGROK_10\d+|authentication failed|auth(?:entication)? token|authtoken|credentials|invalid token/i;
-const PUBLIC_URL_PROBE_TIMEOUT_MS = 7000;
-const NGROK_TOKEN_PROBE_TIMEOUT_MS = 15000;
-const PROVIDERS = {
-  cloudflare: {
-    key: "cloudflare",
-    label: "Cloudflare",
-    logSuffix: "cloudflared",
-    urlPattern: TRY_CLOUDFLARE_PATTERN,
-  },
-  ngrok: {
-    key: "ngrok",
-    label: "ngrok",
-    logSuffix: "ngrok",
-    urlPattern: NGROK_PATTERN,
-  },
-};
+const {
+  NGROK_AUTH_ERROR_PATTERN,
+  NGROK_TOKEN_PROBE_TIMEOUT_MS,
+  PROVIDERS,
+  PUBLIC_URL_PROBE_TIMEOUT_MS,
+} = require("./tunnelProviders");
+const {
+  extractTunnelIssue,
+  formatNgrokProbeError,
+  readPublicUrlFromText,
+  redactSecret,
+} = require("./tunnelText");
+const {
+  buildCloudflaredArgs,
+  buildNgrokArgs,
+  buildProviderArgs,
+  getProviderCommand,
+} = require("./tunnelProcess");
 
 class TunnelManager {
   constructor(options) {
@@ -466,18 +463,11 @@ class TunnelManager {
   }
 
   redactSecret(text, secret) {
-    const value = String(text || "");
-    const token = String(secret || "");
-    return token ? value.split(token).join("[redacted]") : value;
+    return redactSecret(text, secret);
   }
 
   formatNgrokProbeError(output, token) {
-    const cleanOutput = this.redactSecret(String(output || "").trim(), token);
-    if (NGROK_AUTH_ERROR_PATTERN.test(cleanOutput)) {
-      return "Auth token Ngrok ditolak oleh ngrok. Periksa token dari dashboard akun Ngrok lalu simpan ulang.";
-    }
-
-    return `Auth token Ngrok belum bisa dipakai untuk membuka tunnel.${cleanOutput ? ` ${cleanOutput.slice(0, 260)}` : ""}`;
+    return formatNgrokProbeError(output, token);
   }
 
   async probeNgrokAuthtoken(token, service = null) {
@@ -592,10 +582,7 @@ class TunnelManager {
   }
 
   readPublicUrlFromText(content, providerKey = "cloudflare") {
-    const provider = PROVIDERS[providerKey] || PROVIDERS.cloudflare;
-    provider.urlPattern.lastIndex = 0;
-    const matches = String(content || "").match(provider.urlPattern);
-    return matches && matches.length > 0 ? matches[matches.length - 1] : null;
+    return readPublicUrlFromText(content, providerKey);
   }
 
   readPublicUrlFromLog(logPath, providerKey = "cloudflare") {
@@ -630,29 +617,8 @@ class TunnelManager {
   }
 
   extractTunnelIssue(logContent) {
-    const content = String(logContent || "");
-    if (!content) {
-      return null;
-    }
-
-    if (RATE_LIMIT_PATTERN.test(content)) {
-      return {
-        category: "rate_limit",
-        message:
-          "Cloudflare quick tunnel request was throttled. The agent will clear the stale tunnel log and retry after cooldown.",
-      };
-    }
-
-    if (NOT_READY_PATTERN.test(content)) {
-      return {
-        category: "transient",
-        message: "Cloudflare tunnel is not ready yet. The agent will retry automatically.",
-      };
-    }
-
-    return null;
+    return extractTunnelIssue(logContent);
   }
-
   getOrCreateTunnel(serviceName) {
     if (!this.tunnels.has(serviceName)) {
       const meta = this.readMeta(serviceName);
@@ -1159,52 +1125,25 @@ class TunnelManager {
   }
 
   buildCloudflaredArgs(service) {
-    return [
-      "tunnel",
-      "--url",
-      `http://${service.host}:${service.port}`,
-      "--http-host-header",
-      "localhost",
-      "--no-autoupdate",
-    ];
+    return buildCloudflaredArgs(service);
   }
 
   buildNgrokArgs(service, authtoken = this.ngrokAuthtoken) {
-    if (!authtoken) {
-      throw new Error("Ngrok requires an auth token before a tunnel can be started.");
-    }
-
-    const args = [
-      "http",
-      `http://${service.host}:${service.port}`,
-      "--log=stdout",
-      "--log-format=logfmt",
-      "--host-header=localhost",
-    ];
-
-    if (this.ngrokUrl) {
-      args.push("--url", this.ngrokUrl);
-    }
-
-    args.push("--authtoken", authtoken);
-
-    return args;
+    return buildNgrokArgs(service, authtoken, this.ngrokUrl);
   }
 
   buildProviderArgs(service, providerKey) {
-    if (providerKey === "ngrok") {
-      return this.buildNgrokArgs(service);
-    }
-
-    return this.buildCloudflaredArgs(service);
+    return buildProviderArgs(service, providerKey, {
+      ngrokAuthtoken: this.ngrokAuthtoken,
+      ngrokUrl: this.ngrokUrl,
+    });
   }
 
   getProviderCommand(providerKey) {
-    if (providerKey === "ngrok") {
-      return this.ngrokPath;
-    }
-
-    return this.cloudflaredPath;
+    return getProviderCommand(providerKey, {
+      cloudflaredPath: this.cloudflaredPath,
+      ngrokPath: this.ngrokPath,
+    });
   }
 
   async startTunnelProcess(service, tunnel) {

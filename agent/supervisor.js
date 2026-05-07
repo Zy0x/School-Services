@@ -21,6 +21,7 @@ const SelfUpdater = require("./selfUpdater");
 const {
   getDesiredAgentState,
   normalizeTime,
+  readSupervisorState,
   shouldClaimCommand,
   writeSupervisorState,
 } = require("./supervisorState");

@@ -1,0 +1,188 @@
+
+.supabase-file-row,
+.account-table-row {
+  display: grid;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: #fbf9f3;
+}
+
+.supabase-file-row {
+  grid-template-columns: minmax(170px, 1fr) minmax(190px, 1.2fr) minmax(118px, 0.7fr) minmax(120px, 0.7fr) 76px 96px minmax(230px, 1fr);
+}
+
+.account-table-row {
+  grid-template-columns: minmax(190px, 1.2fr) 94px 104px 128px 120px minmax(260px, 1.3fr);
+}
+
+.supabase-file-head,
+.account-table-head {
+  background: var(--card-muted);
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.supabase-file-row > *,
+.account-table-row > * {
+  min-width: 0;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.pagination-bar > div {
+  display: flex;
+  gap: 6px;
+}
+
+.fresh-file-list-shell {
+  position: relative;
+}
+
+.floating-selection-actions {
+  position: sticky;
+  top: 12px;
+  z-index: 8;
+  display: none;
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  pointer-events: none;
+}
+
+.floating-selection-actions.is-visible {
+  display: flex;
+}
+
+.floating-selection-actions > * {
+  pointer-events: auto;
+}
+
+.floating-file-activity {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 70;
+  width: min(420px, calc(100vw - 32px));
+}
+
+.floating-file-activity.is-expanded {
+  width: min(520px, 25vw);
+  min-width: 360px;
+}
+
+.floating-file-activity-tab,
+.floating-file-activity-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: #fdfbf6;
+  box-shadow: var(--shadow-enterprise);
+}
+
+.floating-file-activity-tab {
+  min-height: 44px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 0 12px;
+  float: right;
+}
+
+.floating-file-activity-panel {
+  clear: both;
+  display: grid;
+  gap: 10px;
+  max-height: 25vh;
+  margin-top: 8px;
+  padding: 12px;
+}
+
+.floating-file-activity.is-expanded .floating-file-activity-panel {
+  max-height: 50vh;
+}
+
+.floating-file-activity-head,
+.floating-file-job {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.floating-file-activity-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+}
+
+.floating-file-job {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: #fbf9f3;
+}
+
+.log-overlay-card {
+  width: min(94vw, 980px);
+  max-height: 86vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: #fdfbf6;
+  box-shadow: var(--shadow-enterprise);
+}
+
+.log-overlay-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+}
+
+.log-overlay-section {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fresh-section-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.fresh-two-column {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.4fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.fresh-panel,
+.fresh-hero-card,
+.fresh-service-card,
+.fresh-account-row,
+.fresh-timeline-row,
+.fresh-device-row,
+.fresh-preview {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: rgba(253, 251, 246, 0.9);
+  box-shadow: var(--shadow-card);
+}

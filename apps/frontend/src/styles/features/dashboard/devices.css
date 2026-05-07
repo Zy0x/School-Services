@@ -1,0 +1,328 @@
+
+/* Fresh dashboard rebuild: the authenticated app no longer uses the legacy workspace grid at runtime. */
+.fresh-console-stage {
+  display: grid;
+  gap: 18px;
+}
+
+.collapsible-sidebar {
+  width: 76px;
+  overflow: hidden;
+  transition: width 180ms ease, box-shadow 180ms ease;
+}
+
+.collapsible-sidebar.is-expanded,
+.collapsible-sidebar.is-pinned {
+  width: 286px;
+}
+
+.app-shell {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.collapsible-sidebar .app-sidebar-copy,
+.collapsible-sidebar .app-nav-copy,
+.collapsible-sidebar .sidebar-pin-button,
+.collapsible-sidebar .app-nav-badge {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.collapsible-sidebar.is-expanded .app-sidebar-copy,
+.collapsible-sidebar.is-expanded .app-nav-copy,
+.collapsible-sidebar.is-expanded .sidebar-pin-button,
+.collapsible-sidebar.is-expanded .app-nav-badge,
+.collapsible-sidebar.is-pinned .app-sidebar-copy,
+.collapsible-sidebar.is-pinned .app-nav-copy,
+.collapsible-sidebar.is-pinned .sidebar-pin-button,
+.collapsible-sidebar.is-pinned .app-nav-badge {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.collapsible-sidebar .app-sidebar-brand {
+  grid-template-columns: 38px minmax(0, 1fr) 32px;
+}
+
+.collapsible-sidebar:not(.is-expanded):not(.is-pinned) .app-sidebar-brand {
+  grid-template-columns: 38px;
+  justify-content: center;
+}
+
+.collapsible-sidebar:not(.is-expanded):not(.is-pinned) .app-nav-item {
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.top-command-bar .workspace-switcher {
+  min-width: min(360px, 42vw);
+}
+
+.notification-anchor {
+  position: relative;
+}
+
+.notification-button {
+  overflow: visible;
+}
+
+.notification-count {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--red);
+  color: var(--accent-contrast);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.notification-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 50;
+  width: min(380px, calc(100vw - 28px));
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: #fdfbf6;
+  box-shadow: var(--shadow-enterprise);
+}
+
+.notification-popover-head,
+.notification-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notification-popover-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.notification-item {
+  justify-content: flex-start;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: rgba(241, 237, 249, 0.48);
+}
+
+.notification-item p {
+  margin: 3px 0 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.fleet-search-field,
+.device-combobox-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fleet-search-field {
+  min-width: min(360px, 100%);
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: #fbf9f3;
+}
+
+.fleet-search-field input {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.fleet-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 10px;
+  scroll-snap-type: x proximity;
+}
+
+.fleet-strip-card {
+  flex: 0 0 260px;
+  min-height: 118px;
+  display: grid;
+  gap: 8px;
+  align-content: space-between;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: #fbf9f3;
+  text-align: left;
+  scroll-snap-align: start;
+}
+
+.fleet-strip-card.is-active {
+  border-color: var(--purple);
+  box-shadow: inset 4px 0 0 var(--purple);
+}
+
+.fleet-strip-card .fresh-pill-group {
+  justify-content: flex-start;
+}
+
+.fleet-strip-card .fresh-pill-group span:not(.status-chip) {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.device-combobox {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  max-width: 680px;
+}
+
+.device-combobox-control {
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: #fbf9f3;
+}
+
+.device-combobox-control input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.device-combobox-current,
+.device-combobox-option {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: #fbf9f3;
+  text-align: left;
+}
+
+.device-combobox-current strong,
+.device-combobox-option strong {
+  display: block;
+  color: var(--ink);
+}
+
+.device-combobox-current small,
+.device-combobox-option small {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.device-combobox-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 35;
+  display: grid;
+  gap: 6px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: #fdfbf6;
+  box-shadow: var(--shadow-enterprise);
+}
+
+.device-combobox.is-open {
+  z-index: 230;
+}
+
+.device-combobox-option.is-selected {
+  border-color: var(--purple);
+  background: var(--purple-soft);
+}
+
+.device-combobox-empty {
+  padding: 12px;
+  color: var(--ink-muted);
+}
+
+.device-warning-panel {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  border: 1px solid rgba(217, 138, 24, 0.24);
+  border-radius: var(--radius-card);
+  background: rgba(217, 138, 24, 0.11);
+  color: #715016;
+}
+
+.device-warning-panel p {
+  margin: 4px 0 0;
+}
+
+.fresh-metric strong,
+.fresh-metric small,
+.device-update-lines span,
+.device-update-status-row,
+.device-update-status-row .status-chip,
+.device-update-status-row .action-button,
+.service-status-group .status-chip {
+  white-space: nowrap;
+}
+
+.fresh-metric strong {
+  font-size: 22px;
+}
+
+.device-update-card {
+  min-width: 0;
+}
+
+.device-update-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.device-update-version {
+  font-size: 20px;
+}
+
+.device-update-lines {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.device-update-status-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 7px;
+  overflow-x: auto;
+}
+
+.supabase-file-table,
+.account-table {
+  display: grid;
+  gap: 8px;
+}

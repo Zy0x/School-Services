@@ -1,12 +1,23 @@
 const { spawn } = require("child_process");
 const path = require("path");
 const logger = require("./logger");
-const { getConfigTargetsForService } = require("./serviceConfigs");
 const { fileExists, isPortOpen, sleep, waitForPort } = require("./utils");
-
-function escapePowerShellSingleQuotedString(value) {
-  return String(value || "").replace(/'/g, "''");
-}
+const {
+  escapePowerShellSingleQuotedString,
+  extractExecutablePath,
+  formatCommand,
+  getCmdPath,
+  getConfigTargetCandidatePaths,
+  getConfigTargets,
+  getPowerShellPath,
+  getScPath,
+  getSystem32Path,
+  getTaskkillPath,
+  isSameConfigTarget,
+  isUsableConfigTargetCandidatePath,
+  normalizeCommand,
+  resolveSystemCommandPath,
+} = require("./serviceManagerHelpers");
 
 class ServiceManager {
   constructor(services) {

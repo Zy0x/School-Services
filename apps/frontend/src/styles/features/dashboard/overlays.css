@@ -1,0 +1,323 @@
+.toast-viewport {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  display: grid;
+  gap: 10px;
+  width: min(340px, calc(100vw - 28px));
+}
+
+@keyframes toast-card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes command-card-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes command-progress-sheen {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(240%);
+  }
+}
+
+.toast-card {
+  position: relative;
+  padding: 15px 44px 15px 15px;
+  border-radius: 16px;
+  border: 1px solid rgba(40, 50, 84, 0.18);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 48px rgba(23, 30, 58, 0.2);
+  backdrop-filter: blur(18px) saturate(1.18);
+  animation: toast-card-enter 260ms cubic-bezier(0.2, 0.9, 0.28, 1.18);
+}
+
+.toast-card strong {
+  display: block;
+  font-size: 13px;
+}
+
+.toast-card p {
+  margin: 4px 0 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.toast-card.tone-success {
+  border-color: rgba(45, 157, 88, 0.34);
+  background:
+    linear-gradient(135deg, rgba(226, 255, 235, 0.98), rgba(255, 255, 255, 0.99)),
+    rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 48px rgba(34, 121, 70, 0.2);
+}
+
+.toast-card.tone-error {
+  border-color: rgba(217, 63, 76, 0.36);
+  background:
+    linear-gradient(135deg, rgba(255, 229, 232, 0.99), rgba(255, 255, 255, 0.99)),
+    rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 48px rgba(176, 45, 58, 0.22);
+}
+
+.toast-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-muted);
+}
+
+.command-progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: rgba(18, 23, 45, 0.42);
+  backdrop-filter: blur(16px) saturate(1.18);
+  color: var(--purple);
+}
+
+.command-progress-overlay.is-minimized {
+  inset: auto 18px 18px auto;
+  display: block;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.command-progress-card {
+  width: min(420px, calc(100vw - 28px));
+  padding: 22px;
+  border: 1px solid rgba(96, 55, 246, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 249, 255, 0.99)),
+    rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 80px rgba(18, 23, 45, 0.34);
+  display: grid;
+  gap: 10px;
+  animation: command-card-enter 260ms cubic-bezier(0.2, 0.9, 0.28, 1.12);
+}
+
+.command-progress-overlay.is-minimized .command-progress-card {
+  width: min(360px, calc(100vw - 24px));
+  padding: 14px;
+  box-shadow: 0 16px 42px rgba(18, 23, 45, 0.28);
+}
+
+.command-progress-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.command-progress-toolbar > span {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.command-progress-toolbar > div {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.command-progress-orb {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(96, 55, 246, 0.18), rgba(72, 166, 217, 0.16));
+  color: var(--purple);
+}
+
+.command-progress-card strong {
+  font-size: 18px;
+}
+
+.command-progress-card p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.command-progress-card small {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.command-progress-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.command-progress-cancel {
+  min-height: 34px;
+  padding: 8px 12px;
+  color: #b42318;
+  border-color: rgba(180, 35, 24, 0.24);
+  background: rgba(180, 35, 24, 0.06);
+}
+
+.command-progress-cancel:hover {
+  border-color: rgba(180, 35, 24, 0.42);
+  background: rgba(180, 35, 24, 0.1);
+}
+
+.command-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(96, 55, 246, 0.1);
+  overflow: hidden;
+}
+
+.command-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, #6037f6, #26b66f, #8fb5ff);
+  transition: width 220ms ease;
+}
+
+.command-progress-track span::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.56), transparent);
+  animation: command-progress-sheen 1.25s ease-in-out infinite;
+}
+
+.command-progress-overlay.tone-success .command-progress-orb {
+  background: rgba(38, 182, 111, 0.14);
+  color: #168553;
+}
+
+.command-progress-overlay.tone-success {
+  color: #168553;
+}
+
+.command-progress-overlay.tone-error .command-progress-orb {
+  background: rgba(217, 48, 37, 0.12);
+  color: #b42318;
+}
+
+.command-progress-overlay.tone-error {
+  color: #b42318;
+}
+
+.command-progress-overlay.tone-success .command-progress-track span,
+.command-progress-overlay.tone-error .command-progress-track span {
+  background: currentColor;
+}
+
+@media (max-width: 920px) {
+  .agent-command-actions,
+  .selected-device-agent-actions,
+  .tunnel-provider-grid,
+  .tunnel-token-row,
+  .tunnel-token-note-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tunnel-token-row .action-button,
+  .tunnel-token-note-row .action-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .route-overview .fresh-metric-grid,
+  .route-devices .fresh-metric-grid,
+  .selected-device-operation-strip,
+  .compact-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .selected-device-operations-head {
+    grid-template-columns: 1fr;
+  }
+
+  .selected-device-status {
+    justify-content: flex-start;
+  }
+
+  .fresh-service-card .fresh-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .toast-viewport {
+    right: 12px;
+    left: 12px;
+    bottom: 92px;
+    width: auto;
+  }
+
+  .password-input-shell input {
+    padding-right: 120px;
+  }
+}
+
+@media (max-width: 640px) {
+  .route-overview .fresh-metric-grid,
+  .route-devices .fresh-metric-grid,
+  .selected-device-operation-strip,
+  .compact-detail-grid,
+  .fresh-service-card .fresh-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .selected-device-operations,
+  .route-overview .fresh-panel,
+  .route-devices .fresh-panel,
+  .route-overview .fresh-service-card,
+  .route-devices .fresh-service-card {
+    padding: 12px;
+  }
+
+  .compact-detail-disclosure summary {
+    align-items: flex-start;
+  }
+
+  .compact-detail-disclosure summary strong {
+    text-align: left;
+  }
+}

@@ -110,7 +110,6 @@ export function createDashboardRenderers(ctx) {
     refreshStorageArtifacts,
     requestDeleteStorageArtifact,
     rootDiscoveryJobId,
-    runningServices,
     safeFleetPage,
     selectedDevice,
     selectedDeviceBadge,

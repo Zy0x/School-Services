@@ -2275,7 +2275,6 @@ export default function App() {
     refreshStorageArtifacts,
     requestDeleteStorageArtifact,
     rootDiscoveryJobId,
-    runningServices,
     safeFleetPage,
     selectedDevice,
     selectedDeviceBadge,

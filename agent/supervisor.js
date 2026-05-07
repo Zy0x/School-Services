@@ -577,6 +577,13 @@ async function main() {
     pid: process.pid,
   });
 
+  if (getDesiredAgentState() === "stopped") {
+    logger.warn("Supervisor startup found desiredAgentState=stopped; resetting to running so startup can recover the agent.", {
+      serviceName: null,
+    });
+    writeSupervisorState({ desiredAgentState: "running" });
+  }
+
   logger.addSink((entry) =>
     supabaseApi.insertAgentLog({
       deviceId: device.deviceId,

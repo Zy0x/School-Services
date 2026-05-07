@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Copy } from "lucide-react";
 import githubIcon from "../../../assets/icons/github.png";
 import paypalIcon from "../../../assets/icons/paypal.png";
@@ -10,6 +10,32 @@ import { ActionButton } from "../../../components/ui/core.jsx";
 const PAYPAL_URL = "https://paypal.me/theamagenta";
 const TRAKTEER_URL = "https://trakteer.id/zy0x";
 const GITHUB_PROFILE_URL = "https://github.com/Zy0x";
+
+function useTransientMessage(duration = 2600) {
+  const [message, setMessage] = useState("");
+  const timerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+    }
+  }, []);
+
+  function showMessage(nextMessage) {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+    }
+    setMessage(nextMessage);
+    if (nextMessage) {
+      timerRef.current = window.setTimeout(() => {
+        setMessage("");
+        timerRef.current = null;
+      }, duration);
+    }
+  }
+
+  return [message, showMessage];
+}
 
 function WhatsAppIcon({ size = 16, ...props }) {
   return (
@@ -51,7 +77,7 @@ export function PublicLinkActions({
   onActionComplete = null,
   onFeedback = null,
 }) {
-  const [feedback, setFeedback] = useState("");
+  const [feedback, showFeedback] = useTransientMessage();
   const disabled = !url;
 
   async function handleCopy() {
@@ -61,14 +87,14 @@ export function PublicLinkActions({
 
     try {
       await copyTextToClipboard(url);
-      setFeedback(onFeedback ? "" : "Tautan berhasil disalin.");
+      showFeedback("Tautan berhasil disalin.");
       onActionComplete?.("");
-      onFeedback?.("Tautan berhasil disalin.", "success");
+      onFeedback?.("Tautan berhasil disalin.", "success", "Tautan disalin");
     } catch (error) {
       const message = error?.message || "Gagal menyalin tautan.";
-      setFeedback("");
+      showFeedback(message);
       onActionComplete?.(message);
-      onFeedback?.(message, "error");
+      onFeedback?.(message, "error", "Salin gagal");
     }
   }
 
@@ -87,9 +113,9 @@ export function PublicLinkActions({
       "_blank",
       "noopener,noreferrer"
     );
-    setFeedback(onFeedback ? "" : "Tautan siap dibagikan lewat WhatsApp.");
+    showFeedback("Tautan siap dibagikan lewat WhatsApp.");
     onActionComplete?.("");
-    onFeedback?.("Tautan siap dibagikan lewat WhatsApp.", "success");
+    onFeedback?.("Tautan siap dibagikan lewat WhatsApp.", "success", "Siap dibagikan");
   }
 
   return (
@@ -102,7 +128,7 @@ export function PublicLinkActions({
           Bagikan WhatsApp
         </ActionButton>
       </div>
-      {feedback ? <div className="micro-feedback">{feedback}</div> : null}
+      {feedback ? <div className="micro-feedback" role="status" aria-live="polite">{feedback}</div> : null}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Copy, Eye, Info, Loader2, Maximize2, Minimize2, MoreHorizontal, X } from "lucide-react";
 import {
@@ -35,6 +35,32 @@ export function IconButton({ label, icon: Icon = MoreHorizontal, className = "",
       <Icon size={17} strokeWidth={2.2} aria-hidden="true" />
     </button>
   );
+}
+
+function useTransientMessage(duration = 2600) {
+  const [message, setMessage] = useState("");
+  const timerRef = useRef(null);
+
+  useEffect(() => () => {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+    }
+  }, []);
+
+  function showMessage(nextMessage) {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current);
+    }
+    setMessage(nextMessage);
+    if (nextMessage) {
+      timerRef.current = window.setTimeout(() => {
+        setMessage("");
+        timerRef.current = null;
+      }, duration);
+    }
+  }
+
+  return [message, showMessage];
 }
 
 export function InfoHint({ text }) {
@@ -271,8 +297,19 @@ export function MaskedTextField({
 }
 
 export function DetailDrawer({ title = "Detail", value, onClose }) {
+  const [copyFeedback, showCopyFeedback] = useTransientMessage();
+
   if (!value) {
     return null;
+  }
+
+  async function handleCopy() {
+    try {
+      await copyTextToClipboard(value);
+      showCopyFeedback(`${title} berhasil disalin.`);
+    } catch (error) {
+      showCopyFeedback(error?.message || "Gagal menyalin detail.");
+    }
   }
 
   const drawer = (
@@ -293,7 +330,7 @@ export function DetailDrawer({ title = "Detail", value, onClose }) {
         </div>
         <pre className="detail-drawer-content">{String(value)}</pre>
         <div className="panel-actions">
-          <ActionButton className="secondary-button" onClick={() => copyTextToClipboard(value).catch(() => {})}>
+          <ActionButton className="secondary-button" onClick={handleCopy}>
             <Copy size={16} aria-hidden="true" />
             Salin
           </ActionButton>
@@ -301,6 +338,7 @@ export function DetailDrawer({ title = "Detail", value, onClose }) {
             Tutup
           </ActionButton>
         </div>
+        {copyFeedback ? <div className="micro-feedback" role="status" aria-live="polite">{copyFeedback}</div> : null}
       </section>
     </div>
   );
@@ -366,12 +404,26 @@ export function LongText({
   onCopyError = null,
 }) {
   const [open, setOpen] = useState(false);
+  const [copyFeedback, showCopyFeedback] = useTransientMessage();
   const text = String(value || "");
   if (!text) {
     return <span className={`long-text long-text-empty ${className}`.trim()}>{empty}</span>;
   }
 
   const display = truncateText(text, maxLength);
+
+  async function handleCopy() {
+    try {
+      await copyTextToClipboard(text);
+      const message = `${label} berhasil disalin.`;
+      showCopyFeedback(message);
+      onCopySuccess?.(text, label);
+    } catch (error) {
+      const message = error?.message || `Gagal menyalin ${String(label || "teks").toLowerCase()}.`;
+      showCopyFeedback(message);
+      onCopyError?.(error, label);
+    }
+  }
 
   return (
     <span className={`long-text ${className}`.trim()}>
@@ -386,14 +438,11 @@ export function LongText({
         <IconButton
           label={`Salin ${label}`}
           icon={Copy}
-          onClick={() =>
-            copyTextToClipboard(text)
-              .then(() => onCopySuccess?.(text, label))
-              .catch((error) => onCopyError?.(error, label))
-          }
+          onClick={handleCopy}
         />
         <IconButton label={`Lihat ${label}`} icon={Eye} onClick={() => setOpen(true)} />
       </span>
+      {copyFeedback ? <span className="inline-copy-feedback" role="status" aria-live="polite">{copyFeedback}</span> : null}
       {open ? <DetailDrawer title={label} value={text} onClose={() => setOpen(false)} /> : null}
     </span>
   );
@@ -451,7 +500,18 @@ export function PasswordField({
 }
 
 export function ProfileInfoField({ label, value, mono = false }) {
+  const [copyFeedback, showCopyFeedback] = useTransientMessage();
   const text = String(value || "").trim();
+
+  async function handleCopy() {
+    try {
+      await copyTextToClipboard(text);
+      showCopyFeedback(`${label} berhasil disalin.`);
+    } catch (error) {
+      showCopyFeedback(error?.message || `Gagal menyalin ${String(label || "data").toLowerCase()}.`);
+    }
+  }
+
   return (
     <div className={`profile-info-card ${mono ? "mono" : ""}`.trim()}>
       <span>{label}</span>
@@ -461,9 +521,10 @@ export function ProfileInfoField({ label, value, mono = false }) {
           label={`Salin ${label}`}
           icon={Copy}
           className="profile-copy-button"
-          onClick={() => copyTextToClipboard(text).catch(() => {})}
+          onClick={handleCopy}
         />
       ) : null}
+      {copyFeedback ? <small className="micro-feedback" role="status" aria-live="polite">{copyFeedback}</small> : null}
     </div>
   );
 }

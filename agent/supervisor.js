@@ -9,11 +9,16 @@ const { loadConfig } = require("./config");
 const { createDeviceMetadata } = require("./device");
 const logger = require("./logger");
 const {
+  getCacheDir,
   getAgentExePath,
   getInstallDir,
   getStateDir,
 } = require("./paths");
+const ServiceManager = require("./serviceManager");
+const ShortcutManager = require("./shortcutManager");
 const { createSupabaseApi } = require("./supabase");
+const TunnelManager = require("./tunnel");
+const UrlCache = require("./urlCache");
 const { getPowerShellPath } = require("./windows");
 const { sleep } = require("./utils");
 const SelfUpdater = require("./selfUpdater");
@@ -415,7 +420,165 @@ async function runUpdateScript() {
   child.unref();
 }
 
-async function processSupervisorCommand(command, supabaseApi, device) {
+async function runInstalledStopCleanup() {
+  const stopScriptPath = path.join(getInstallDir(), "stop-agent.ps1");
+  if (!fs.existsSync(stopScriptPath)) {
+    return;
+  }
+
+  await runPowerShellCapture(
+    `& '${stopScriptPath.replace(/'/g, "''")}'`
+  );
+}
+
+function createTunnelManager(config) {
+  return new TunnelManager({
+    cloudflaredPath: config.cloudflaredPath,
+    ngrokPath: config.tunnel.ngrokPath,
+    ngrokAuthtoken: config.tunnel.ngrokAuthtoken,
+    ngrokUrl: config.tunnel.ngrokUrl,
+    mode: config.tunnel.mode,
+    providerOrder: config.tunnel.providerOrder,
+    startSpacingMs: config.tunnel.startSpacingMs,
+    startupTimeoutMs: config.tunnel.startupTimeoutMs,
+    retryDelaysMs: config.tunnel.retryDelaysMs,
+    globalCooldownMs: config.tunnel.globalCooldownMs,
+    onUrl: () => {},
+  });
+}
+
+async function buildServiceLocationPayload(serviceManager, serviceName) {
+  try {
+    const diagnostics = await serviceManager.getLocationDiagnostics(serviceName, {
+      forceRefresh: true,
+    });
+    return {
+      locationStatus: diagnostics.status,
+      resolvedPath: diagnostics.resolvedPath,
+      locationDetails: {
+        message: diagnostics.message,
+        ...(diagnostics.details || {}),
+      },
+    };
+  } catch (error) {
+    logger.warn(`Supervisor failed to resolve location diagnostics for ${serviceName}: ${error.message}`, {
+      serviceName,
+    });
+    return {
+      locationStatus: "unknown",
+      resolvedPath: null,
+      locationDetails: { message: error.message },
+    };
+  }
+}
+
+async function stopManagedResourcesForAgentStop(config, supabaseApi, device, progress) {
+  const serviceManager = new ServiceManager(config.services);
+  const tunnelManager = createTunnelManager(config);
+  const urlCache = new UrlCache();
+  const shortcutManager = new ShortcutManager({
+    cachePath: path.join(getCacheDir(), "public-urls.json"),
+    shortcuts: config.shortcuts,
+    guestPortal: config.guestPortal,
+    baseDir: getStateDir(),
+  });
+  const services = serviceManager.list();
+  let stoppedCount = 0;
+  let failedCount = 0;
+
+  await progress.step("stopping_tunnels", 44, "Membersihkan tunnel publik Rapor/Dapodik.");
+  try {
+    await tunnelManager.stopAll();
+  } catch (error) {
+    logger.warn(`Supervisor tunnel cleanup reported an error: ${error.message}`, {
+      serviceName: null,
+    });
+  }
+
+  try {
+    await runInstalledStopCleanup();
+  } catch (error) {
+    logger.warn(`Installed stop cleanup reported an error: ${error.message}`, {
+      serviceName: null,
+    });
+  }
+
+  for (const [index, service] of services.entries()) {
+    const serviceName = service.serviceName;
+    const percent = Math.min(92, 52 + Math.round((index / Math.max(services.length, 1)) * 36));
+    await progress.step(
+      "stopping_services",
+      percent,
+      `Menghentikan layanan ${serviceName} dan menonaktifkan link publik.`
+    );
+
+    serviceManager.setDesiredState(serviceName, "stopped", "agent-stop");
+    let snapshot = null;
+    let stopError = null;
+    try {
+      snapshot = await serviceManager.stopService(serviceName);
+    } catch (error) {
+      stopError = error;
+      logger.warn(`Supervisor failed to stop service ${serviceName}: ${error.message}`, {
+        serviceName,
+      });
+      snapshot = await serviceManager.refreshService(serviceName).catch(() => ({
+        serviceName,
+        port: service.port,
+        status: "error",
+        desiredState: "stopped",
+        lastError: error.message,
+      }));
+    }
+
+    try {
+      await tunnelManager.stopTunnel(serviceName);
+    } catch (error) {
+      logger.warn(`Supervisor failed to stop tunnel for ${serviceName}: ${error.message}`, {
+        serviceName,
+      });
+    }
+
+    urlCache.clear(serviceName);
+    shortcutManager.syncServiceUrl(serviceName, null);
+
+    const stopped = snapshot.status !== "running" && !stopError;
+    if (stopped) {
+      stoppedCount += 1;
+    } else {
+      failedCount += 1;
+    }
+
+    const locationPayload = await buildServiceLocationPayload(serviceManager, serviceName);
+    await supabaseApi.upsertServiceStatus({
+      deviceId: device.deviceId,
+      serviceName,
+      port: snapshot.port || service.port,
+      status: stopped ? "stopped" : "error",
+      publicUrl: null,
+      desiredState: "stopped",
+      lastError: stopped
+        ? null
+        : stopError?.message || snapshot.lastError || "Service masih berjalan setelah agent dihentikan.",
+      tunnelState: "stopped",
+      tunnelProvider: null,
+      lastPublicUrl: null,
+      tunnelLastError: null,
+      ...locationPayload,
+    });
+  }
+
+  await progress.step(
+    failedCount > 0 ? "services_stopped_with_warnings" : "services_stopped",
+    96,
+    failedCount > 0
+      ? `${stoppedCount}/${services.length} layanan berhenti. ${failedCount} layanan perlu dicek. Link publik sudah dinonaktifkan.`
+      : "Semua layanan dan tunnel publik sudah berhenti.",
+    { stopped: stoppedCount, failed: failedCount }
+  );
+}
+
+async function processSupervisorCommand(command, supabaseApi, device, config) {
   if (!SUPERVISOR_ACTIONS.has(command.action) || !shouldClaimCommand(command)) {
     return;
   }
@@ -440,7 +603,8 @@ async function processSupervisorCommand(command, supabaseApi, device) {
       if (!stopped) {
         throw new Error("Timeout menghentikan proses School Services Agent.");
       }
-      await progress.done("School Services Agent sudah berhenti. Layanan E-Rapor/Dapodik tidak ikut dimatikan.");
+      await stopManagedResourcesForAgentStop(config, supabaseApi, device, progress);
+      await progress.done("School Services Agent, layanan Rapor/Dapodik, dan tunnel publik sudah berhenti.");
       return;
     }
 
@@ -601,7 +765,7 @@ async function main() {
       await supabaseApi.heartbeatSupervisor(device, readSupervisorState());
       const commands = await supabaseApi.fetchSupervisorCommands(device.deviceId);
       for (const command of commands) {
-        await processSupervisorCommand(command, supabaseApi, device);
+        await processSupervisorCommand(command, supabaseApi, device, config);
       }
 
       if (getDesiredAgentState() === "running" && !(await isAgentRunning())) {

@@ -199,8 +199,39 @@ async function stopAgentProcess() {
   if (!pids.size) {
     return;
   }
-  const args = Array.from(pids).map((pid) => `/PID ${pid} /T /F`).join(" ");
-  await runPowerShellCapture(`cmd.exe /c taskkill ${args} *> $null; exit 0`);
+  const pidList = Array.from(pids)
+    .filter((pid) => Number.isFinite(pid) && pid > 0)
+    .join(",");
+  const script = [
+    `$pids = @(${pidList})`,
+    "$taskkill = Join-Path $env:SystemRoot 'System32\\taskkill.exe'",
+    "$errors = New-Object System.Collections.Generic.List[string]",
+    "foreach ($targetPid in $pids) {",
+    "  try {",
+    "    Stop-Process -Id $targetPid -Force -ErrorAction Stop",
+    "  } catch {",
+    "    $errors.Add(\"Stop-Process PID ${targetPid}: $($_.Exception.Message)\") | Out-Null",
+    "  }",
+    "}",
+    "Start-Sleep -Milliseconds 900",
+    "$remaining = @($pids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })",
+    "foreach ($targetPid in $remaining) {",
+    "  try {",
+    "    & $taskkill /PID $targetPid /T /F | Out-Null",
+    "    if ($LASTEXITCODE -ne 0) { $errors.Add(\"taskkill PID $targetPid exited with code $LASTEXITCODE\") | Out-Null }",
+    "  } catch {",
+    "    $errors.Add(\"taskkill PID ${targetPid}: $($_.Exception.Message)\") | Out-Null",
+    "  }",
+    "}",
+    "Start-Sleep -Milliseconds 900",
+    "$stillRunning = @($pids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })",
+    "if ($stillRunning.Count -gt 0) {",
+    "  $detail = if ($errors.Count -gt 0) { $errors -join '; ' } else { 'no process termination error was reported' }",
+    "  throw \"Agent PID(s) still running after stop attempts: $($stillRunning -join ', '). $detail\"",
+    "}",
+  ].join("\n");
+
+  await runPowerShellCapture(script);
 }
 
 async function waitForAgentStopped(timeoutMs = PROCESS_TIMEOUT_MS) {

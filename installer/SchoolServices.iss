@@ -57,6 +57,7 @@ var
   PreviousInstallDir: string;
   PreviousDataDir: string;
   PreviousStopScriptPath: string;
+  PreviousSupervisorStopScriptPath: string;
   PreviousUninstallerPath: string;
 
 function GetPreviousInstallDir(): string;
@@ -74,6 +75,7 @@ begin
   PreviousInstallDir := GetPreviousInstallDir();
   PreviousDataDir := GetPreviousDataDir();
   PreviousStopScriptPath := AddBackslash(PreviousInstallDir) + 'stop-agent.ps1';
+  PreviousSupervisorStopScriptPath := AddBackslash(PreviousInstallDir) + 'stop-supervisor.ps1';
   PreviousUninstallerPath := AddBackslash(PreviousInstallDir) + 'unins000.exe';
   PreviousInstallDetected :=
     DirExists(PreviousInstallDir) and
@@ -93,6 +95,16 @@ var
 begin
   Log('Stopping previous School Services processes.');
 
+  if FileExists(PreviousSupervisorStopScriptPath) then
+  begin
+    PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+    Params := '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + PreviousSupervisorStopScriptPath + '"';
+    if Exec(PowerShellPath, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Log(Format('Previous supervisor stop script exited with code %d.', [ResultCode]))
+    else
+      Log('Previous supervisor stop script could not be started. Continuing with fallback stop.');
+  end;
+
   if FileExists(PreviousStopScriptPath) then
   begin
     PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
@@ -104,6 +116,7 @@ begin
   end;
 
   Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM "School Services Agent.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM "School Services Supervisor.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM "School Services.exe" /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM cloudflared.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\cmd.exe'), '/C taskkill /F /IM ngrok.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

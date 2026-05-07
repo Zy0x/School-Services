@@ -83,6 +83,25 @@ export function GuestConsole({ deviceId }) {
     pushToast(title || (tone === "error" ? "Aksi belum berhasil" : "Aksi berhasil"), message, tone);
   }
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    function handleCopyFeedback(event) {
+      const detail = event.detail || {};
+      const tone = detail.tone || "success";
+      pushToast(
+        detail.title || (tone === "error" ? "Salin gagal" : "Berhasil disalin"),
+        detail.message || "Teks berhasil disalin.",
+        tone
+      );
+    }
+
+    window.addEventListener("school-services:copy-feedback", handleCopyFeedback);
+    return () => window.removeEventListener("school-services:copy-feedback", handleCopyFeedback);
+  });
+
   async function loadGuest(options = {}) {
     const silent = Boolean(options.silent);
     try {

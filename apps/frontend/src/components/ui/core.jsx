@@ -63,6 +63,17 @@ function useTransientMessage(duration = 2600) {
   return [message, showMessage];
 }
 
+function emitCopyFeedback({ title = "Berhasil disalin", message = "", tone = "success" }) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent("school-services:copy-feedback", {
+      detail: { title, message, tone },
+    })
+  );
+}
+
 export function InfoHint({ text }) {
   return (
     <span className="info-hint" tabIndex={0} aria-label={text}>
@@ -306,9 +317,13 @@ export function DetailDrawer({ title = "Detail", value, onClose }) {
   async function handleCopy() {
     try {
       await copyTextToClipboard(value);
-      showCopyFeedback(`${title} berhasil disalin.`);
+      const message = `${title} berhasil disalin.`;
+      showCopyFeedback(message);
+      emitCopyFeedback({ title: "Detail disalin", message });
     } catch (error) {
-      showCopyFeedback(error?.message || "Gagal menyalin detail.");
+      const message = error?.message || "Gagal menyalin detail.";
+      showCopyFeedback(message);
+      emitCopyFeedback({ title: "Salin gagal", message, tone: "error" });
     }
   }
 
@@ -417,10 +432,16 @@ export function LongText({
       await copyTextToClipboard(text);
       const message = `${label} berhasil disalin.`;
       showCopyFeedback(message);
+      if (!onCopySuccess) {
+        emitCopyFeedback({ title: "Berhasil disalin", message });
+      }
       onCopySuccess?.(text, label);
     } catch (error) {
       const message = error?.message || `Gagal menyalin ${String(label || "teks").toLowerCase()}.`;
       showCopyFeedback(message);
+      if (!onCopyError) {
+        emitCopyFeedback({ title: "Salin gagal", message, tone: "error" });
+      }
       onCopyError?.(error, label);
     }
   }
@@ -506,9 +527,13 @@ export function ProfileInfoField({ label, value, mono = false }) {
   async function handleCopy() {
     try {
       await copyTextToClipboard(text);
-      showCopyFeedback(`${label} berhasil disalin.`);
+      const message = `${label} berhasil disalin.`;
+      showCopyFeedback(message);
+      emitCopyFeedback({ title: "Berhasil disalin", message });
     } catch (error) {
-      showCopyFeedback(error?.message || `Gagal menyalin ${String(label || "data").toLowerCase()}.`);
+      const message = error?.message || `Gagal menyalin ${String(label || "data").toLowerCase()}.`;
+      showCopyFeedback(message);
+      emitCopyFeedback({ title: "Salin gagal", message, tone: "error" });
     }
   }
 

@@ -3029,6 +3029,28 @@ export default function App() {
     pushToast("Aksi berhasil", message, "success");
   }
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    function handleCopyFeedback(event) {
+      const detail = event.detail || {};
+      const message = detail.message || "Teks berhasil disalin.";
+      const tone = detail.tone || "success";
+      pushToast(detail.title || (tone === "error" ? "Salin gagal" : "Berhasil disalin"), message, tone);
+      if (tone === "error") {
+        setError(message);
+        return;
+      }
+      setError("");
+      setDashboardInfo(message);
+    }
+
+    window.addEventListener("school-services:copy-feedback", handleCopyFeedback);
+    return () => window.removeEventListener("school-services:copy-feedback", handleCopyFeedback);
+  });
+
   function resetAuthFormState(nextMode = "login") {
     setAuthMode(nextMode);
     setLoginEmail("");

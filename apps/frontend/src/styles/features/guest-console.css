@@ -879,18 +879,18 @@
 }
 
 .guest-cta-stop {
-  border-color: rgba(227, 150, 26, 0.2);
+  border-color: rgba(180, 35, 24, 0.34);
   background:
-    linear-gradient(180deg, rgba(255, 248, 233, 0.98), rgba(255, 238, 204, 0.98)),
-    linear-gradient(135deg, rgba(255, 190, 64, 0.18), transparent 70%);
-  color: #8e5a00;
+    linear-gradient(180deg, rgba(255, 242, 242, 0.99), rgba(255, 224, 224, 0.98)),
+    linear-gradient(135deg, rgba(225, 72, 72, 0.16), transparent 70%);
+  color: #8f1d14;
 }
 
 .guest-cta-stop:hover:not(:disabled),
 .guest-cta-stop:focus-visible:not(:disabled) {
   background:
-    linear-gradient(180deg, rgba(255, 245, 221, 1), rgba(255, 230, 185, 1)),
-    linear-gradient(135deg, rgba(255, 190, 64, 0.24), transparent 70%);
+    linear-gradient(180deg, rgba(255, 235, 235, 1), rgba(255, 213, 213, 1)),
+    linear-gradient(135deg, rgba(225, 72, 72, 0.22), transparent 70%);
 }
 
 .guest-cta-update {

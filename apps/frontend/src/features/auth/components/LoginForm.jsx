@@ -24,7 +24,7 @@ export function LoginForm({ onSuccess }) {
         <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
       </label>
       {message ? <p>{message}</p> : null}
-      <button className="primary-button" type="submit">Masuk</button>
+      <button className="primary-button action-confirm action-button" type="submit">Masuk</button>
     </form>
   );
 }

@@ -487,13 +487,13 @@ export function GuestConsole({ deviceId }) {
             </div>
           </div>
           <div className="guest-top-command-actions">
-            <ActionButton className="secondary-button guest-refresh-button" busy={refreshing} icon={RefreshCw} onClick={() => loadGuest({ silent: true, announce: true })}>
+            <ActionButton className="secondary-button action-refresh guest-refresh-button" busy={refreshing} icon={RefreshCw} onClick={() => loadGuest({ silent: true, announce: true })}>
               Segarkan
             </ActionButton>
-            <a className="secondary-button footer-link-button action-button" href={loginUrl}>
+            <a className="secondary-button action-session footer-link-button action-button" href={loginUrl}>
               <span>Login</span>
             </a>
-            <a className="primary-button footer-link-button action-button" href={registerUrl}>
+            <a className="primary-button action-create footer-link-button action-button" href={registerUrl}>
               <span>Daftar</span>
             </a>
           </div>
@@ -548,7 +548,7 @@ export function GuestConsole({ deviceId }) {
                 </div>
                 <div className="guest-link-focus-actions guest-link-hero-actions">
                   <ActionButton
-                    className="primary-button guest-open-button"
+                    className="primary-button action-open guest-open-button"
                     disabled={busy || !canOpenService}
                     onClick={handleOpenService}
                   >
@@ -608,14 +608,14 @@ export function GuestConsole({ deviceId }) {
 
               <div className="guest-control-band" aria-label="Kontrol layanan E-Rapor">
                 <div className="guest-cta-row guest-control-actions">
-                  <ActionButton className="primary-button guest-cta-button guest-cta-start" busy={busy && commandModal.action === "start"} disabled={startDisabled} onClick={() => sendCommand("start")}>
+                  <ActionButton className="primary-button action-start guest-cta-button guest-cta-start" busy={busy && commandModal.action === "start"} disabled={startDisabled} onClick={() => sendCommand("start")}>
                     Mulai
                   </ActionButton>
-                  <ActionButton className="secondary-button guest-cta-button guest-cta-stop" busy={busy && commandModal.action === "stop"} disabled={stopDisabled} onClick={() => sendCommand("stop")}>
+                  <ActionButton className="danger-button action-stop guest-cta-button guest-cta-stop" busy={busy && commandModal.action === "stop"} disabled={stopDisabled} onClick={() => sendCommand("stop")}>
                     Hentikan
                   </ActionButton>
                   <ActionButton
-                    className="secondary-button guest-cta-button guest-cta-update"
+                    className="secondary-button action-update guest-cta-button guest-cta-update"
                     busy={(busy && commandModal.action === "update") || guestUpdate.status === "updating"}
                     disabled={updateDisabled}
                     onClick={() => sendCommand("update")}

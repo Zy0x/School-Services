@@ -1032,10 +1032,10 @@ function TopCommandBar({
         </button>
         <NotificationPopover open={notificationOpen} items={notifications} onClose={onNotificationClose} />
       </div>
-      <ActionButton className="secondary-button" busy={loading} icon={RefreshCw} onClick={onRefresh}>
+      <ActionButton className="secondary-button action-refresh" busy={loading} icon={RefreshCw} onClick={onRefresh}>
         Refresh
       </ActionButton>
-      <ActionButton className="secondary-button" busy={authBusy} icon={LogOut} onClick={onSignOut}>
+      <ActionButton className="secondary-button action-session" busy={authBusy} icon={LogOut} onClick={onSignOut}>
         Log Out
       </ActionButton>
     </header>
@@ -1796,13 +1796,13 @@ function ProfilePanel({ profile, session, onSignOut }) {
         <div className="profile-password-actions">
           <button
             type="button"
-            className="primary-button"
+            className="primary-button action-save action-button"
             disabled={busy || !currentPassword || !nextPassword || !confirmPassword}
             onClick={submitPasswordChange}
           >
             {busy ? "Menyimpan..." : "Simpan password"}
           </button>
-          <button type="button" className="secondary-button" disabled={busy} onClick={onSignOut}>
+          <button type="button" className="secondary-button action-session action-button" disabled={busy} onClick={onSignOut}>
             Log Out
           </button>
         </div>
@@ -2110,7 +2110,7 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
           ) : null}
           <div className="job-actions">
             {job.status === "completed" && job.artifact_bucket && job.artifact_object_key ? (
-              <button type="button" className="primary-button" onClick={() => onDownload(job)}>
+              <button type="button" className="primary-button action-download action-button" onClick={() => onDownload(job)}>
                 {Array.isArray(job.result?.parts) && job.result.parts.length > 1
                   ? "Unduh bagian"
                   : "Unduh"}
@@ -2120,12 +2120,12 @@ function JobList({ jobs, onDownload, onPromote, onCancel }) {
             job.delivery_mode === "temp" &&
             job.artifact_bucket &&
             !Array.isArray(job.result?.parts) ? (
-              <button type="button" className="secondary-button" onClick={() => onPromote(job)}>
+              <button type="button" className="secondary-button action-save action-button" onClick={() => onPromote(job)}>
                 Simpan permanen
               </button>
             ) : null}
             {["pending", "running"].includes(job.status) ? (
-              <button type="button" className="secondary-button" onClick={() => onCancel(job)}>
+              <button type="button" className="secondary-button action-cancel action-button" onClick={() => onCancel(job)}>
                 Batalkan
               </button>
             ) : null}
@@ -2176,7 +2176,7 @@ function ArtifactInventory({
         description="Berkas dikelompokkan berdasarkan bucket storage. Aktivitas proses tetap tersedia di bagian riwayat."
         actions={
           <ActionButton
-            className="secondary-button"
+            className="secondary-button action-refresh"
             busy={busyAction === "artifacts:refresh"}
             icon={RefreshCw}
             onClick={onRefresh}
@@ -2280,14 +2280,14 @@ function ArtifactInventory({
                         </div>
                         <div className="artifact-actions">
                           <StatusChip status={artifact.status || "unknown"} />
-          {canDownload ? (
-                            <ActionButton className="primary-button" icon={Download} onClick={() => onDownload(downloadJob)}>
+                          {canDownload ? (
+                            <ActionButton className="primary-button action-download" icon={Download} onClick={() => onDownload(downloadJob)}>
                               Unduh
                             </ActionButton>
                           ) : null}
                           {canDownload ? (
                             <ActionButton
-                              className="danger-button"
+                              className="danger-button action-delete"
                               icon={Trash2}
                               busy={busyAction === `artifact-delete:${artifact.id || artifact.objectKey}`}
                               onClick={() => onDelete(artifact)}
@@ -2369,17 +2369,17 @@ function SupabaseFileTable({
                   <span>{formatBytes(Number(artifact.size || 0))}</span>
                   <StatusChip status={artifact.status || "unknown"} />
                   <div className="fresh-actions">
-                    <ActionButton className="secondary-button" icon={Eye} onClick={() => setDetailArtifact(artifact)}>
+                    <ActionButton className="secondary-button action-view" icon={Eye} onClick={() => setDetailArtifact(artifact)}>
                       Detail
                     </ActionButton>
                     {canDownload ? (
-                      <ActionButton className="primary-button" icon={Download} onClick={() => onDownload(downloadJob)}>
+                      <ActionButton className="primary-button action-download" icon={Download} onClick={() => onDownload(downloadJob)}>
                         Unduh
                       </ActionButton>
                     ) : null}
                     {canDelete ? (
                       <ActionButton
-                        className="danger-button"
+                        className="danger-button action-delete"
                         icon={Trash2}
                         busy={busyAction === `artifact-delete:${artifact.id || artifact.objectKey}`}
                         onClick={() => onDelete(artifact)}
@@ -2557,25 +2557,25 @@ function AccountTable({ accounts, page, onPageChange, busyAction, onAction, onDe
                 </div>
                 <div className="fresh-actions">
                   {account.status !== "approved" ? (
-                    <ActionButton className="primary-button" busy={busyAction === "account:approveAccount"} onClick={() => onAction("approveAccount", { userId: account.user_id })}>
+                    <ActionButton className="primary-button action-approve" busy={busyAction === "account:approveAccount"} onClick={() => onAction("approveAccount", { userId: account.user_id })}>
                       Setujui
                     </ActionButton>
                   ) : null}
                   {account.status === "pending" ? (
-                    <ActionButton className="danger-button" busy={busyAction === "account:rejectAccount"} onClick={() => onAction("rejectAccount", { userId: account.user_id, reason: "Permintaan akun belum dapat disetujui." })}>
+                    <ActionButton className="danger-button action-reject" busy={busyAction === "account:rejectAccount"} onClick={() => onAction("rejectAccount", { userId: account.user_id, reason: "Permintaan akun belum dapat disetujui." })}>
                       Tolak
                     </ActionButton>
                   ) : null}
                   {account.status !== "disabled" ? (
-                    <ActionButton className="secondary-button" busy={busyAction === "account:disableAccount"} onClick={() => onAction("disableAccount", { userId: account.user_id })}>
+                    <ActionButton className="secondary-button action-disable" busy={busyAction === "account:disableAccount"} onClick={() => onAction("disableAccount", { userId: account.user_id })}>
                       Nonaktifkan
                     </ActionButton>
                   ) : null}
-                  <ActionButton className="secondary-button" busy={busyAction === "account:resetPassword"} onClick={() => onAction("resetPassword", { email: account.email })}>
+                  <ActionButton className="secondary-button action-reset" busy={busyAction === "account:resetPassword"} onClick={() => onAction("resetPassword", { email: account.email })}>
                     Reset password
                   </ActionButton>
                   {isSuperAdmin && ["operator", "user"].includes(account.role) ? (
-                    <ActionButton className="danger-button" busy={busyAction === "account:deleteAccount"} onClick={() => onDelete(account)}>
+                    <ActionButton className="danger-button action-delete" busy={busyAction === "account:deleteAccount"} onClick={() => onDelete(account)}>
                       Hapus akun
                     </ActionButton>
                   ) : null}
@@ -2617,7 +2617,7 @@ function LegacyArtifactInventory({
         </div>
         <div className="panel-actions">
           <ActionButton
-            className="secondary-button"
+            className="secondary-button action-refresh"
             busy={busyAction === "artifacts:refresh"}
             onClick={onRefresh}
           >
@@ -2690,13 +2690,13 @@ function LegacyArtifactInventory({
                 <div className="artifact-actions">
                   <StatusChip status={artifact.status || "unknown"} />
                   {canDownload ? (
-                    <ActionButton className="primary-button" onClick={() => onDownload(downloadJob)}>
+                    <ActionButton className="primary-button action-download" onClick={() => onDownload(downloadJob)}>
                       Unduh
                     </ActionButton>
                   ) : null}
                   {canDownload ? (
                     <ActionButton
-                      className="danger-button"
+                      className="danger-button action-delete"
                       busy={busyAction === `artifact-delete:${artifact.id || artifact.objectKey}`}
                       onClick={() => onDelete(artifact)}
                     >
@@ -2748,10 +2748,10 @@ function DeviceAliasModal({
           mask="alias"
         />
         <div className="guest-modal-actions">
-          <ActionButton className="secondary-button" disabled={busy} onClick={onClose}>
+          <ActionButton className="secondary-button action-cancel" disabled={busy} onClick={onClose}>
             Batal
           </ActionButton>
-          <ActionButton className="primary-button" busy={busy} onClick={onSave}>
+          <ActionButton className="primary-button action-save" busy={busy} onClick={onSave}>
             Simpan
           </ActionButton>
         </div>
@@ -2788,7 +2788,7 @@ function TransferHistoryModal({
               <LongText value={contextLabel} label="Konteks riwayat" className="mono" maxLength={32} />.
             </p>
           </div>
-          <ActionButton className="secondary-button" onClick={onClose}>
+          <ActionButton className="secondary-button action-session" onClick={onClose}>
             Tutup
           </ActionButton>
         </div>
@@ -2828,7 +2828,7 @@ function TransferHistoryModal({
                     </div>
                     {job.artifact_bucket && job.artifact_object_key ? (
                       <div className="job-actions">
-                        <ActionButton className="primary-button" onClick={() => onDownload(job)}>
+                        <ActionButton className="primary-button action-download" onClick={() => onDownload(job)}>
                           Unduh berkas
                         </ActionButton>
                       </div>
@@ -5014,7 +5014,7 @@ export default function App() {
               </div>
               <div className="fresh-actions">
                 <ActionButton
-                  className="primary-button"
+                  className="primary-button action-start"
                   busy={busyAction === `${selectedDevice.deviceId}:${service.service_name}:start`}
                   disabled={busyAction !== "" || !canStartService}
                   onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "start")}
@@ -5022,7 +5022,7 @@ export default function App() {
                   Mulai
                 </ActionButton>
                 <ActionButton
-                  className="secondary-button"
+                  className="danger-button action-stop"
                   busy={busyAction === `${selectedDevice.deviceId}:${service.service_name}:stop`}
                   disabled={busyAction !== "" || !canStopService}
                   onClick={() => queueCommand(selectedDevice.deviceId, service.service_name, "stop")}
@@ -5147,7 +5147,7 @@ export default function App() {
           <div className="selected-device-status">
             <StatusChip status={selectedDeviceBadge.status} label={selectedDeviceBadge.label} />
             <StatusChip status={update.toneStatus} label={update.label} />
-            <ActionButton className="secondary-button selected-device-alias-button" onClick={() => openAliasModal(selectedDevice)}>
+            <ActionButton className="secondary-button action-view selected-device-alias-button" onClick={() => openAliasModal(selectedDevice)}>
               Edit alias
             </ActionButton>
           </div>
@@ -5177,7 +5177,7 @@ export default function App() {
         {canControlAgent ? (
           <div className="fresh-actions selected-device-agent-actions">
             <ActionButton
-              className="primary-button"
+              className="primary-button action-start"
               icon={Play}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_start`}
               disabled={busyAction !== ""}
@@ -5186,7 +5186,7 @@ export default function App() {
               Start Agent
             </ActionButton>
             <ActionButton
-              className="secondary-button"
+              className="danger-button action-stop"
               icon={Square}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_stop`}
               disabled={busyAction !== ""}
@@ -5195,7 +5195,7 @@ export default function App() {
               Stop Agent
             </ActionButton>
             <ActionButton
-              className="secondary-button"
+              className="secondary-button action-restart"
               icon={RotateCcw}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_restart`}
               disabled={busyAction !== ""}
@@ -5204,7 +5204,7 @@ export default function App() {
               Restart Agent
             </ActionButton>
             <ActionButton
-              className="secondary-button"
+              className="secondary-button action-update"
               icon={Rocket}
               busy={updateBusy}
               disabled={busyAction !== "" || !canUpdate}
@@ -5217,7 +5217,7 @@ export default function App() {
         {canUnlinkSelectedDevice ? (
           <div className="fresh-actions selected-device-link-actions">
             <ActionButton
-              className="danger-button"
+              className="danger-button action-unlink"
               icon={Unlink}
               busy={busyAction === `device-unlink:${selectedDevice.deviceId}:${activeAssignment.user_id}`}
               disabled={busyAction !== ""}
@@ -5380,7 +5380,7 @@ export default function App() {
               />
               {tunnelProviderDraft !== "ngrok" ? (
                 <ActionButton
-                  className="secondary-button tunnel-token-edit-button"
+                  className="secondary-button action-config tunnel-token-edit-button"
                   icon={KeyRound}
                   disabled={tunnelBusy || !canManageTunnel}
                   onClick={() => setNgrokTokenEditing(false)}
@@ -5389,7 +5389,7 @@ export default function App() {
                 </ActionButton>
               ) : null}
               <ActionButton
-                className="primary-button"
+                className="primary-button action-save"
                 busy={tunnelBusy}
                 disabled={busyAction !== "" || !selectedDevice || !canManageTunnel}
                 onClick={saveTunnelSettings}
@@ -5401,7 +5401,7 @@ export default function App() {
             <div className="tunnel-token-note-row">
               <p>Cloudflared tidak memakai auth token. Token hanya diperlukan untuk fallback Ngrok.</p>
               <ActionButton
-                className="secondary-button tunnel-token-edit-button"
+                className="secondary-button action-config tunnel-token-edit-button"
                 icon={KeyRound}
                 disabled={tunnelBusy || !canManageTunnel}
                 onClick={() => setNgrokTokenEditing(true)}
@@ -5409,7 +5409,7 @@ export default function App() {
                 Atur fallback Ngrok
               </ActionButton>
               <ActionButton
-                className="primary-button"
+                className="primary-button action-save"
                 busy={tunnelBusy}
                 disabled={busyAction !== "" || !selectedDevice || !canManageTunnel}
                 onClick={saveTunnelSettings}
@@ -5564,7 +5564,7 @@ export default function App() {
                 eyebrow="Storage"
                 title="Pustaka berkas"
                 description="Daftar arsip utama dibatasi 10 item per halaman."
-                actions={<ActionButton className="secondary-button" busy={busyAction === "artifacts:refresh"} icon={RefreshCw} onClick={refreshStorageArtifacts}>Segarkan storage</ActionButton>}
+                actions={<ActionButton className="secondary-button action-refresh" busy={busyAction === "artifacts:refresh"} icon={RefreshCw} onClick={refreshStorageArtifacts}>Segarkan storage</ActionButton>}
               />
               <div className="artifact-filter-bar file-library-filters">
                 <label>
@@ -5609,8 +5609,8 @@ export default function App() {
               description="Pilih perangkat, buka This PC, lalu unggah atau unduh file yang dipilih."
               actions={
                 <>
-                  <ActionButton className="secondary-button" onClick={() => setLogOverlayOpen(true)}>Log</ActionButton>
-                  <ActionButton className="secondary-button" onClick={refreshCurrentPath}>Refresh list</ActionButton>
+                  <ActionButton className="secondary-button action-view" onClick={() => setLogOverlayOpen(true)}>Log</ActionButton>
+                  <ActionButton className="secondary-button action-refresh" onClick={refreshCurrentPath}>Refresh list</ActionButton>
                 </>
               }
             />
@@ -5641,10 +5641,10 @@ export default function App() {
                   <strong>{selectedPaths.length ? `${selectedPaths.length} item dipilih` : "Belum ada file dipilih"}</strong>
                   <small>Unggah ke folder aktif atau unduh file yang sudah dipilih.</small>
                 </div>
-                <ActionButton className="secondary-button" disabled={!currentPath} onClick={() => fileInputRef.current?.click()}>
+                <ActionButton className="secondary-button action-upload" disabled={!currentPath} onClick={() => fileInputRef.current?.click()}>
                   Unggah ke folder ini
                 </ActionButton>
-                <ActionButton className="primary-button" disabled={!selectedPaths.length} onClick={queueDownloadSelection}>
+                <ActionButton className="primary-button action-download" disabled={!selectedPaths.length} onClick={queueDownloadSelection}>
                   {selectedPaths.length ? `Unduh pilihan (${selectedPaths.length})` : "Unduh pilihan"}
                 </ActionButton>
               </div>
@@ -5759,10 +5759,10 @@ export default function App() {
                   <strong className="mono">{environment.referral_code}</strong>
                 </div>
                 <div className="fresh-actions referral-code-actions">
-                  <ActionButton className="secondary-button" icon={Copy} onClick={() => copyReferralCode(environment.referral_code)}>
+                  <ActionButton className="secondary-button action-copy" icon={Copy} onClick={() => copyReferralCode(environment.referral_code)}>
                     Salin
                   </ActionButton>
-                  <ActionButton className="secondary-button whatsapp-share-button" icon={Share2} onClick={() => shareReferralCode(environment.referral_code, environment.name || "Lingkungan")}>
+                  <ActionButton className="secondary-button action-share whatsapp-share-button" icon={Share2} onClick={() => shareReferralCode(environment.referral_code, environment.name || "Lingkungan")}>
                     WhatsApp
                   </ActionButton>
                 </div>
@@ -5800,7 +5800,7 @@ export default function App() {
               <MaskedTextField label="Waktu persetujuan mandiri (jam)" mask="number" inputMode="numeric" value={authPolicy.standaloneUserAutoApproveHours} onChange={(value) => setAuthPolicy((current) => ({ ...current, standaloneUserAutoApproveHours: Number(value || 24) }))} />
               <MaskedTextField label="Interval pemeriksaan (menit)" mask="number" inputMode="numeric" value={authPolicy.maintenanceIntervalMinutes} onChange={(value) => setAuthPolicy((current) => ({ ...current, maintenanceIntervalMinutes: Number(value || 15) }))} />
               <MaskedTextField label="Halaman reset password" mask="url" value={authPolicy.passwordResetRedirectUrl} onChange={(value) => setAuthPolicy((current) => ({ ...current, passwordResetRedirectUrl: value }))} placeholder="https://example.com/auth/reset-password" />
-              <ActionButton className="primary-button" busy={busyAction === "account:updateAuthPolicy"} onClick={() => handleAccountAction("updateAuthPolicy", authPolicy)}>Simpan aturan</ActionButton>
+              <ActionButton className="primary-button action-save" busy={busyAction === "account:updateAuthPolicy"} onClick={() => handleAccountAction("updateAuthPolicy", authPolicy)}>Simpan aturan</ActionButton>
             </div>
           </article>
         ) : null}
@@ -5841,7 +5841,7 @@ export default function App() {
                 </select>
               </label>
             ) : null}
-            <ActionButton className="primary-button" busy={busyAction === "account:createAccount"} onClick={createManagedAccount}>Buat akun</ActionButton>
+            <ActionButton className="primary-button action-create" busy={busyAction === "account:createAccount"} onClick={createManagedAccount}>Buat akun</ActionButton>
           </div>
         </article>
         <article className="fresh-panel">
@@ -5934,7 +5934,7 @@ export default function App() {
             <div className="guest-modal-actions">
               <button
                 type="button"
-                className="secondary-button"
+                className="secondary-button action-cancel action-button"
                 disabled={linkingGuestDevice}
                 onClick={dismissGuestDeviceLink}
               >
@@ -5942,7 +5942,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className="primary-button"
+                className="primary-button action-link action-button"
                 disabled={linkingGuestDevice}
                 onClick={confirmGuestDeviceLink}
               >

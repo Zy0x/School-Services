@@ -168,7 +168,7 @@ export function CommandProgressOverlay({
         <div className="command-progress-footer">
           <small>{safePercent}%</small>
           {canCancel && !minimized ? (
-            <button type="button" className="secondary-button command-progress-cancel" onClick={onCancel}>
+            <button type="button" className="secondary-button action-stop action-button command-progress-cancel" onClick={onCancel}>
               {cancelLabel}
             </button>
           ) : null}
@@ -345,11 +345,11 @@ export function DetailDrawer({ title = "Detail", value, onClose }) {
         </div>
         <pre className="detail-drawer-content">{String(value)}</pre>
         <div className="panel-actions">
-          <ActionButton className="secondary-button" onClick={handleCopy}>
+          <ActionButton className="secondary-button action-copy" onClick={handleCopy}>
             <Copy size={16} aria-hidden="true" />
             Salin
           </ActionButton>
-          <ActionButton className="primary-button" onClick={onClose}>
+          <ActionButton className="primary-button action-session" onClick={onClose}>
             Tutup
           </ActionButton>
         </div>
@@ -391,10 +391,10 @@ export function ConfirmDialog({
         <strong id="confirm-dialog-title">{title}</strong>
         <p>{message}</p>
         <div className="guest-modal-actions">
-          <ActionButton className="secondary-button" disabled={busy} onClick={onClose}>
+          <ActionButton className="secondary-button action-cancel" disabled={busy} onClick={onClose}>
             {cancelLabel}
           </ActionButton>
-          <ActionButton className={destructive ? "danger-button" : "primary-button"} busy={busy} onClick={onConfirm}>
+          <ActionButton className={destructive ? "danger-button action-delete" : "primary-button action-confirm"} busy={busy} onClick={onConfirm}>
             {confirmLabel}
           </ActionButton>
         </div>

@@ -126,12 +126,12 @@ export function LoginScreen({
             />
             {error ? <div className="error-banner">{error}</div> : null}
             {info ? <div className="explorer-warning">{info}</div> : null}
-            <button className="primary-button login-button" disabled={loading} type="submit">
+            <button className="primary-button action-confirm action-button login-button" disabled={loading} type="submit">
               {loading ? (mode === "register" ? "Mengirim..." : "Masuk...") : mode === "register" ? "Ajukan akun" : "Masuk"}
             </button>
             <button
               type="button"
-              className="secondary-button"
+              className="secondary-button action-session action-button"
               onClick={() => setMode(mode === "register" ? "login" : "register")}
             >
               {mode === "register" ? "Kembali ke masuk" : "Ajukan akun"}
@@ -139,7 +139,7 @@ export function LoginScreen({
             {mode === "login" ? (
               <button
                 type="button"
-                className="secondary-button"
+                className="secondary-button action-reset action-button"
                 onClick={onForgotPassword}
                 disabled={loading || !email}
               >
@@ -179,7 +179,7 @@ export function AccountStatusScreen({ profile, onSignOut }) {
           {profile?.role ? <StatusChip status={profile.role} /> : null}
         </div>
         <div className="panel-actions" style={{ marginTop: 20 }}>
-          <ActionButton className="secondary-button" onClick={onSignOut}>
+          <ActionButton className="secondary-button action-session" onClick={onSignOut}>
             Log Out
           </ActionButton>
         </div>
@@ -313,7 +313,7 @@ export function PasswordResetScreen() {
           {info ? <div className="explorer-warning">{info}</div> : null}
           <button
             type="button"
-            className="primary-button"
+            className="primary-button action-save action-button"
             disabled={busy || !password || !confirmPassword || !ready}
             onClick={submit}
           >

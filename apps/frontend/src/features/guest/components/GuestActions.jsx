@@ -121,10 +121,10 @@ export function PublicLinkActions({
   return (
     <div className={`link-action-stack ${compact ? "link-action-stack-compact" : ""}`}>
       <div className="panel-actions public-link-actions">
-        <ActionButton className="secondary-button" disabled={disabled} icon={Copy} onClick={handleCopy}>
+        <ActionButton className="secondary-button action-copy" disabled={disabled} icon={Copy} onClick={handleCopy}>
           Salin tautan
         </ActionButton>
-        <ActionButton className="secondary-button whatsapp-share-button" disabled={disabled} icon={WhatsAppIcon} onClick={handleWhatsAppShare}>
+        <ActionButton className="secondary-button action-share whatsapp-share-button" disabled={disabled} icon={WhatsAppIcon} onClick={handleWhatsAppShare}>
           Bagikan WhatsApp
         </ActionButton>
       </div>
@@ -146,15 +146,15 @@ export function SiteFooter() {
           <strong>Dukung School Services</strong>
         </div>
         <div className="site-footer-actions guest-site-footer-actions">
-          <a className="secondary-button footer-link-button support-link-button" href={GITHUB_PROFILE_URL} target="_blank" rel="noreferrer">
+          <a className="secondary-button action-session footer-link-button support-link-button" href={GITHUB_PROFILE_URL} target="_blank" rel="noreferrer">
             <SupportIcon kind="github" />
             GitHub
           </a>
-          <a className="secondary-button footer-link-button support-link-button" href={PAYPAL_URL} target="_blank" rel="noreferrer">
+          <a className="secondary-button action-session footer-link-button support-link-button" href={PAYPAL_URL} target="_blank" rel="noreferrer">
             <SupportIcon kind="paypal" />
             PayPal
           </a>
-          <a className="secondary-button footer-link-button support-link-button" href={TRAKTEER_URL} target="_blank" rel="noreferrer">
+          <a className="secondary-button action-session footer-link-button support-link-button" href={TRAKTEER_URL} target="_blank" rel="noreferrer">
             <SupportIcon kind="trakteer" />
             Trakteer
           </a>

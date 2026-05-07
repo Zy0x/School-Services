@@ -86,7 +86,7 @@ export function DeviceUpdateCard({
       </div>
       {showAction && canUpdate ? (
         <ActionButton
-          className="primary-button device-update-action"
+          className="primary-button action-update device-update-action"
           busy={busy}
           disabled={busy}
           onClick={onUpdate}
@@ -95,7 +95,7 @@ export function DeviceUpdateCard({
         </ActionButton>
       ) : null}
       {showCurrentAction ? (
-        <ActionButton className="secondary-button device-update-action device-update-action-current" disabled>
+        <ActionButton className="secondary-button action-current device-update-action device-update-action-current" disabled>
           Sudah terupdate
         </ActionButton>
       ) : null}
@@ -172,7 +172,7 @@ export function UpdateProgressModal({
         {model.error ? <div className="job-error">{model.error}</div> : null}
         {canClose && typeof onClose === "function" ? (
           <div className="guest-modal-actions">
-            <button type="button" className="primary-button" onClick={onClose}>
+            <button type="button" className="primary-button action-session action-button" onClick={onClose}>
               Tutup
             </button>
           </div>

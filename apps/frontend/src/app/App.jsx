@@ -3,7 +3,6 @@ import {
   Activity,
   AlertTriangle,
   Bell,
-  CheckCircle2,
   CircleArrowUp,
   ChevronDown,
   ChevronsLeft,
@@ -15,10 +14,8 @@ import {
   FileText,
   FolderOpen,
   Gauge,
-  Info,
   KeyRound,
   LayoutDashboard,
-  Loader2,
   LogOut,
   Monitor,
   PanelLeftClose,
@@ -39,7 +36,6 @@ import {
   UserPlus,
   Users,
   X,
-  XCircle,
 } from "lucide-react";
 import { legacyDataClient } from "../services/legacyDataClient.js";
 import { supabase } from "../services/providers/supabase/supabaseClient.js";
@@ -48,8 +44,6 @@ import {
   AUTH_PATH,
   DASHBOARD_SECTIONS,
   GUEST_BRAND_ICON,
-  HEARTBEAT_STALE_MS,
-  HEARTBEAT_UNSTABLE_MS,
   REFRESH_INTERVAL_MS,
   RESET_PASSWORD_PATH,
 } from "./lib/constants.js";
@@ -67,10 +61,38 @@ import {
 } from "./lib/routes.js";
 import {
   buildNgrokVisitSiteNotice,
+  buildWhatsAppShareUrl,
+  getCommandCopy,
+  getGuestStatusModel,
   isCommandInProgress,
   shouldAutoShowCommandProgress,
   shouldShowNgrokVisitSiteNotice,
 } from "./lib/guest.js";
+import {
+  deriveAgentStatus,
+  deriveDeviceConnectivityStatus,
+  deriveDeviceStatus,
+  deriveServiceStatus,
+  formatRelativeTime,
+  formatServiceDisplayName,
+  getAgentStatusBadgeModel,
+  getDeviceConnectivityBadgeModel,
+  getDeviceStatusBadgeModel,
+  getLatestAgentLifecycleCommand,
+  getPublicLinkBadgeModel,
+  getPublicUrlLabel,
+  getServiceStatusBadgeModel,
+  getStatusIcon,
+  getStatusLabel,
+  getTunnelProviderBadgeModel,
+  isAgentControlReady,
+  statusTone,
+} from "./lib/status.js";
+import {
+  getDeviceUpdateModel,
+  getUpdateStatusSummary,
+  supportsRemoteUpdate,
+} from "./lib/update.js";
 import {
   clearStoredAuthArtifacts,
   formatEdgeFunctionError,
@@ -192,34 +214,6 @@ function getJobStatusDetail(job) {
   }
 
   return "";
-}
-
-function formatRelativeTime(value, now = Date.now()) {
-  if (!value) {
-    return "never";
-  }
-
-  const deltaMs = new Date(value).getTime() - now;
-  if (Number.isNaN(deltaMs)) {
-    return "-";
-  }
-
-  const absoluteMs = Math.abs(deltaMs);
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-
-  if (absoluteMs < 60000) {
-    return rtf.format(Math.round(deltaMs / 1000), "second");
-  }
-
-  if (absoluteMs < 3600000) {
-    return rtf.format(Math.round(deltaMs / 60000), "minute");
-  }
-
-  if (absoluteMs < 86400000) {
-    return rtf.format(Math.round(deltaMs / 3600000), "hour");
-  }
-
-  return rtf.format(Math.round(deltaMs / 86400000), "day");
 }
 
 function getFileKindLabel(item) {
@@ -359,545 +353,12 @@ function getRouteBreadcrumbs(route, profile, options = {}) {
   return items;
 }
 
-function isFresh(timestamp) {
-  if (!timestamp) {
-    return false;
-  }
-  const parsed = new Date(timestamp).getTime();
-  return Number.isFinite(parsed) && Date.now() - parsed <= HEARTBEAT_STALE_MS;
-}
-
-function deriveDeviceStatus(deviceRecord) {
-  if (!deviceRecord) {
-    return "offline";
-  }
-  if (deviceRecord.status === "blocked") {
-    return "blocked";
-  }
-  if (isFresh(deviceRecord.last_seen)) {
-    return "online";
-  }
-  const parsed = new Date(deviceRecord.last_seen).getTime();
-  if (Number.isFinite(parsed) && Date.now() - parsed <= HEARTBEAT_UNSTABLE_MS) {
-    return "unstable";
-  }
-  return "offline";
-}
-
-function deriveServiceStatus(row, deviceStatus) {
-  if (deviceStatus === "offline") {
-    return "offline";
-  }
-  if (deviceStatus === "blocked") {
-    return "blocked";
-  }
-  return row.status || "unknown";
-}
-
-function getDeviceStatusBadgeModel(status) {
-  const normalized = String(status || "offline").trim();
-  const labels = {
-    online: "Perangkat terhubung",
-    unstable: "Perangkat belum stabil",
-    offline: "Perangkat terputus",
-    blocked: "Perangkat dibatasi",
-    pending_setup: "Perangkat setup awal",
-  };
-  return {
-    status: normalized,
-    label: labels[normalized] || `Perangkat ${getStatusLabel(normalized)}`,
-  };
-}
-
-const AGENT_LIFECYCLE_ACTIONS = new Set([
-  "agent_start",
-  "agent_stop",
-  "agent_restart",
-  "update",
-]);
-
-function getCommandTimestamp(command) {
-  const parsed = new Date(
-    command?.completed_at ||
-      command?.completedAt ||
-      command?.updated_at ||
-      command?.updatedAt ||
-      command?.started_at ||
-      command?.startedAt ||
-      command?.created_at ||
-      command?.createdAt ||
-      0
-  ).getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getLatestAgentLifecycleCommand(commands = []) {
-  return [...commands]
-    .filter((command) => AGENT_LIFECYCLE_ACTIONS.has(String(command?.action || "").toLowerCase()))
-    .sort((left, right) => getCommandTimestamp(right) - getCommandTimestamp(left))[0] || null;
-}
-
-function deriveAgentStatus(deviceRecord, commands = [], deviceStatus = deriveDeviceStatus(deviceRecord)) {
-  if (!deviceRecord) {
-    return "pending_setup";
-  }
-  if (deviceStatus === "blocked") {
-    return "blocked";
-  }
-
-  const latest = getLatestAgentLifecycleCommand(commands);
-  const action = String(latest?.action || "").toLowerCase();
-  const status = String(latest?.status || "").toLowerCase();
-  if (["pending", "running"].includes(status)) {
-    if (action === "agent_stop") {
-      return "stopping";
-    }
-    if (action === "agent_restart") {
-      return "restarting";
-    }
-    if (action === "update") {
-      return "updating";
-    }
-    if (action === "agent_start") {
-      return "starting";
-    }
-  }
-
-  const lastSeenMs = new Date(deviceRecord?.last_seen || deviceRecord?.lastSeen || 0).getTime();
-  const latestCommandMs = getCommandTimestamp(latest);
-  if (
-    action === "agent_stop" &&
-    status === "done" &&
-    (!Number.isFinite(lastSeenMs) || latestCommandMs >= lastSeenMs)
-  ) {
-    return "stopped";
-  }
-
-  if (deviceStatus === "online") {
-    return "running";
-  }
-  if (deviceStatus === "unstable") {
-    return "unstable";
-  }
-  if (deviceStatus === "offline") {
-    return "offline";
-  }
-  return deviceStatus || "unknown";
-}
-
-function getAgentStatusBadgeModel(status) {
-  const normalized = String(status || "unknown").trim();
-  const labels = {
-    running: "Agent hidup",
-    starting: "Agent menyala",
-    stopping: "Agent dihentikan",
-    restarting: "Agent restart",
-    updating: "Agent update",
-    stopped: "Agent berhenti",
-    unstable: "Agent belum stabil",
-    offline: "Agent tidak tersambung",
-    blocked: "Agent dibatasi",
-    pending_setup: "Agent belum setup",
-    unknown: "Agent belum diketahui",
-  };
-  return {
-    status:
-      normalized === "running"
-        ? "ready"
-        : normalized === "stopped"
-          ? "stopped"
-          : normalized,
-    label: labels[normalized] || `Agent ${getStatusLabel(normalized)}`,
-  };
-}
-
-function deriveDeviceConnectivityStatus(deviceRecord, deviceStatus = deriveDeviceStatus(deviceRecord)) {
-  if (!deviceRecord) {
-    return "pending_setup";
-  }
-  if (deviceStatus === "blocked") {
-    return "blocked";
-  }
-
-  const supervisorLastSeen = deviceRecord?.supervisor_last_seen || deviceRecord?.supervisorLastSeen || null;
-  if (isFresh(supervisorLastSeen)) {
-    return "control_ready";
-  }
-
-  const parsedSupervisor = new Date(supervisorLastSeen || 0).getTime();
-  if (Number.isFinite(parsedSupervisor) && Date.now() - parsedSupervisor <= HEARTBEAT_UNSTABLE_MS) {
-    return "control_unstable";
-  }
-
-  if (deviceStatus === "online") {
-    return supervisorLastSeen ? "device_online" : "device_online_legacy";
-  }
-  if (deviceStatus === "unstable") {
-    return "device_unstable";
-  }
-  return "offline";
-}
-
-function getDeviceConnectivityBadgeModel(status) {
-  const normalized = String(status || "offline").trim();
-  const labels = {
-    control_ready: "Device online, kontrol agent siap",
-    control_unstable: "Kontrol agent belum stabil",
-    device_online: "Device online",
-    device_online_legacy: "Device online, kontrol agent belum terverifikasi",
-    device_unstable: "Device belum stabil",
-    offline: "Device offline",
-    blocked: "Device dibatasi",
-    pending_setup: "Device belum setup",
-  };
-  const chipStatus = {
-    control_ready: "ready",
-    control_unstable: "unstable",
-    device_online: "ready",
-    device_online_legacy: "unstable",
-    device_unstable: "unstable",
-    offline: "offline",
-    blocked: "blocked",
-    pending_setup: "pending_setup",
-  }[normalized] || normalized;
-  return {
-    status: chipStatus,
-    label: labels[normalized] || `Device ${getStatusLabel(normalized)}`,
-  };
-}
-
-function isAgentControlReady(deviceRecord, connectivityStatus = deriveDeviceConnectivityStatus(deviceRecord)) {
-  if (connectivityStatus === "control_ready") {
-    return true;
-  }
-  const hasSupervisorField =
-    Object.prototype.hasOwnProperty.call(deviceRecord || {}, "supervisor_last_seen") ||
-    Object.prototype.hasOwnProperty.call(deviceRecord || {}, "supervisorLastSeen");
-  return !hasSupervisorField && connectivityStatus === "device_online_legacy";
-}
-
-function getServiceStatusBadgeModel(status) {
-  const normalized = String(status || "unknown").trim();
-  const labels = {
-    running: "Layanan aktif",
-    starting: "Layanan menyiapkan",
-    waiting_retry: "Layanan menunggu koneksi",
-    reconnecting: "Layanan menyambung ulang",
-    stopped: "Layanan berhenti",
-    offline: "Layanan terputus",
-    blocked: "Layanan dibatasi",
-    error: "Layanan terganggu",
-    pending_setup: "Layanan menunggu",
-    degraded: "Layanan belum stabil",
-  };
-  return {
-    status: normalized,
-    label: labels[normalized] || `Layanan ${getStatusLabel(normalized)}`,
-  };
-}
-
-function getPublicLinkBadgeModel(service) {
-  const serviceStatus = String(service?.serviceStatus || service?.status || "unknown").trim();
-  const desiredState = String(service?.desired_state || "").trim();
-  const hasPublicUrl = Boolean(service?.public_url);
-
-  if (serviceStatus === "blocked") {
-    return { status: "disabled", label: "Tautan dibatasi" };
-  }
-
-  if (serviceStatus === "offline") {
-    return { status: "disabled", label: "Perangkat offline" };
-  }
-
-  if (serviceStatus === "reconnecting") {
-    return { status: "reconnecting", label: "Menunggu jaringan stabil" };
-  }
-
-  if (serviceStatus === "waiting_retry") {
-    return { status: "waiting_retry", label: "Menunggu tunnel baru" };
-  }
-
-  if (serviceStatus === "starting") {
-    return { status: "starting", label: "Menyiapkan tautan" };
-  }
-
-  if (serviceStatus === "error") {
-    return {
-      status: hasPublicUrl ? "unavailable" : "disabled",
-      label: hasPublicUrl ? "Tautan belum stabil" : "Tautan belum tersedia",
-    };
-  }
-
-  if (serviceStatus === "running" && hasPublicUrl) {
-    return { status: "ready", label: "Tautan aktif" };
-  }
-
-  if (serviceStatus === "running") {
-    return { status: "reconnecting", label: "Menunggu tautan stabil" };
-  }
-
-  if (desiredState === "stopped" || serviceStatus === "stopped") {
-    return { status: "disabled", label: "Tautan belum aktif" };
-  }
-
-  if (hasPublicUrl) {
-    return { status: "available", label: "Tautan tersedia" };
-  }
-
-  return { status: "disabled", label: "Tautan belum tersedia" };
-}
-
-function getPublicUrlLabel(service) {
-  const linkBadge = getPublicLinkBadgeModel(service);
-  if (linkBadge.status === "ready") {
-    return "Tautan aktif";
-  }
-  if (linkBadge.status === "available") {
-    return "Tautan tersedia";
-  }
-  if (["starting", "waiting_retry", "reconnecting"].includes(linkBadge.status)) {
-    return "Tautan disiapkan";
-  }
-  return "Tautan akses";
-}
-
-function getTunnelProviderBadgeModel(value) {
-  const provider = String(value || "").trim().toLowerCase();
-  if (provider === "ngrok") {
-    return { status: "ready", label: "Tunnel: Ngrok", name: "Ngrok" };
-  }
-  if (provider === "cloudflare" || provider === "cloudflared") {
-    return { status: "ready", label: "Tunnel: Cloudflared", name: "Cloudflared" };
-  }
-  return { status: "idle", label: "Tunnel: menunggu", name: "Menunggu" };
-}
-
-function formatVersionLabel(version, releaseTag) {
-  const normalizedReleaseTag = String(releaseTag || "").trim();
-  if (normalizedReleaseTag) {
-    return normalizedReleaseTag;
-  }
-
-  const normalizedVersion = String(version || "").trim();
-  if (!normalizedVersion) {
-    return "belum dilaporkan";
-  }
-
-  return normalizedVersion.startsWith("v") ? normalizedVersion : `v${normalizedVersion}`;
-}
-
-const REMOTE_UPDATE_MIN_VERSION = "2.0.3";
-
-function normalizeVersionToken(value) {
-  return String(value || "").trim().replace(/^v/i, "");
-}
-
-function parseVersionParts(value) {
-  const match = normalizeVersionToken(value).match(/^(\d+)\.(\d+)\.(\d+)$/);
-  if (!match) {
-    return null;
-  }
-
-  return match.slice(1).map((part) => Number.parseInt(part, 10));
-}
-
-function compareVersionParts(left, right) {
-  for (let index = 0; index < 3; index += 1) {
-    const delta = (left[index] || 0) - (right[index] || 0);
-    if (delta !== 0) {
-      return delta;
-    }
-  }
-
-  return 0;
-}
-
-function getDeviceVersionToken(deviceRecord) {
-  return (
-    normalizeVersionToken(deviceRecord?.app_version || deviceRecord?.appVersion) ||
-    normalizeVersionToken(deviceRecord?.release_tag || deviceRecord?.releaseTag)
-  );
-}
-
-function supportsRemoteUpdate(deviceRecord) {
-  const localParts = parseVersionParts(getDeviceVersionToken(deviceRecord));
-  const minParts = parseVersionParts(REMOTE_UPDATE_MIN_VERSION);
-  return Boolean(localParts && minParts && compareVersionParts(localParts, minParts) >= 0);
-}
-
-function getDeviceVersionLabel(deviceRecord) {
-  return formatVersionLabel(
-    deviceRecord?.app_version || deviceRecord?.appVersion,
-    deviceRecord?.release_tag || deviceRecord?.releaseTag
-  );
-}
-
-function getDeviceLatestVersionLabel(deviceRecord) {
-  return formatVersionLabel(
-    deviceRecord?.latest_version || deviceRecord?.latestVersion,
-    deviceRecord?.latest_release_tag || deviceRecord?.latestReleaseTag
-  );
-}
-
-function getDeviceUpdateModel(deviceRecord) {
-  const status = String(
-    deviceRecord?.update_status || deviceRecord?.updateStatus || "unchecked"
-  ).trim();
-  const updateAvailable = Boolean(
-    deviceRecord?.update_available ?? deviceRecord?.updateAvailable
-  );
-  const checkedAt = deviceRecord?.update_checked_at || deviceRecord?.updateCheckedAt || null;
-  const startedAt = deviceRecord?.update_started_at || deviceRecord?.updateStartedAt || null;
-  const error = deviceRecord?.update_error || deviceRecord?.updateError || "";
-  const localVersion = getDeviceVersionLabel(deviceRecord);
-  const latestVersion = getDeviceLatestVersionLabel(deviceRecord);
-  const normalizedStatus =
-    status === "updating"
-      ? "updating"
-      : status === "failed"
-        ? "failed"
-        : updateAvailable
-          ? "available"
-          : status === "current"
-            ? "current"
-            : "unchecked";
-  const labels = {
-    available: "Update tersedia",
-    current: "Sudah terbaru",
-    updating: "Sedang update",
-    failed: "Gagal update",
-    unchecked: "Belum dicek",
-  };
-
-  return {
-    status: normalizedStatus,
-    label: labels[normalizedStatus] || labels.unchecked,
-    toneStatus:
-      normalizedStatus === "current"
-        ? "ready"
-        : normalizedStatus === "available" || normalizedStatus === "updating"
-          ? "reconnecting"
-          : normalizedStatus === "failed"
-            ? "failed"
-            : "unknown",
-    localVersion,
-    latestVersion,
-    checkedAt,
-    startedAt,
-    error,
-    updateAvailable,
-  };
-}
-
 function normalizeLoginEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
 function normalizeLoginPassword(value) {
   return String(value || "");
-}
-
-function statusTone(status) {
-  if (status === "pending_setup") {
-    return "warn";
-  }
-  if (
-    [
-      "running",
-      "completed",
-      "online",
-      "ready",
-      "super_admin",
-      "approved",
-      "available",
-      "connected",
-    ].includes(status)
-  ) {
-    return "good";
-  }
-  if (
-    [
-      "waiting_retry",
-      "starting",
-      "partial",
-      "pending",
-      "running_job",
-      "reconnecting",
-      "unstable",
-      "stopped",
-      "idle",
-      "degraded",
-      "stopping",
-      "restarting",
-      "updating",
-    ].includes(status)
-  ) {
-    return "warn";
-  }
-  if (
-    [
-      "error",
-      "failed",
-      "blocked",
-      "offline",
-      "missing",
-      "cancelled",
-      "expired",
-      "disabled",
-      "deleted",
-      "rejected",
-      "unavailable",
-    ].includes(status)
-  ) {
-    return "bad";
-  }
-  return "neutral";
-}
-
-function getStatusLabel(status) {
-  const normalized = String(status || "unknown").trim();
-  const labels = {
-    unknown: "Belum diketahui",
-    online: "Terhubung",
-    offline: "Terputus",
-    running: "Aktif",
-    ready: "Siap",
-    completed: "Selesai",
-    approved: "Disetujui",
-    available: "Tersedia",
-    connected: "Terhubung",
-    active: "Aktif",
-    inactive: "Nonaktif",
-    pending_setup: "Disiapkan",
-    waiting_retry: "Menunggu",
-    starting: "Menyiapkan layanan",
-    partial: "Sebagian",
-    pending: "Menunggu",
-    running_job: "Diproses",
-    unstable: "Belum stabil",
-    orphaned: "Tanpa job",
-    deleted: "Dihapus",
-    reconnecting: "Menyambung ulang",
-    stopped: "Berhenti",
-    stopping: "Menghentikan",
-    restarting: "Restart",
-    updating: "Update",
-    idle: "Siaga",
-    degraded: "Belum stabil",
-    error: "Gangguan",
-    failed: "Gagal",
-    blocked: "Dibatasi",
-    missing: "Belum lengkap",
-    cancelled: "Dibatalkan",
-    expired: "Kedaluwarsa",
-    disabled: "Nonaktif",
-    rejected: "Ditolak",
-    unavailable: "Tidak tersedia",
-    super_admin: "SuperAdmin",
-    operator: "Operator",
-    user: "User",
-  };
-  return labels[normalized] || normalized.replace(/_/g, " ");
 }
 
 function getActivityLabel(value) {
@@ -925,23 +386,6 @@ function truncateText(value, maxLength = 42) {
     return text;
   }
   return `${text.slice(0, Math.max(12, maxLength - 12))}...${text.slice(-8)}`;
-}
-
-function getStatusIcon(status) {
-  const tone = statusTone(status);
-  if (tone === "good") {
-    return CheckCircle2;
-  }
-  if (tone === "bad") {
-    return XCircle;
-  }
-  if (tone === "warn") {
-    return AlertTriangle;
-  }
-  if (tone === "neutral") {
-    return Info;
-  }
-  return Loader2;
 }
 
 function Surface({ children, className = "", as: Component = "section", ...props }) {
@@ -1223,20 +667,6 @@ function matchesDeviceQuery(device, query) {
   return [device.deviceName, device.deviceAlias, device.rawDeviceName, device.deviceId]
     .map((value) => String(value || "").toLowerCase())
     .some((value) => value.includes(needle));
-}
-
-function formatServiceDisplayName(name) {
-  const normalized = String(name || "").trim().toLowerCase();
-  if (normalized === "rapor") {
-    return "E-Rapor";
-  }
-  if (normalized === "dapodik") {
-    return "Dapodik";
-  }
-  if (!normalized) {
-    return "-";
-  }
-  return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function DeviceCombobox({
@@ -1629,268 +1059,6 @@ async function copyTextToClipboard(text) {
   document.execCommand("copy");
   textArea.remove();
 }
-
-function getUpdateStatusSummary(update) {
-  if (update.status === "current") {
-    return "Versi agent sudah sinkron dengan rilis terbaru.";
-  }
-  if (update.status === "available") {
-    return `Update ${update.latestVersion || "terbaru"} siap dipasang dari panel ini.`;
-  }
-  if (update.status === "updating") {
-    return "Agent sedang memasang pembaruan. Tunggu sampai layanan aktif kembali.";
-  }
-  if (update.status === "failed") {
-    return "Update terakhir gagal. Periksa detail error agent.";
-  }
-  return "Versi agent perangkat ini belum dilaporkan ke dashboard.";
-}
-
-function formatCommandTargetLabel(serviceName) {
-  if (!serviceName) {
-    return "agent";
-  }
-  const name = formatServiceDisplayName(serviceName);
-  return `layanan ${name}`;
-}
-
-function getCommandCopy(action, serviceName, versionLabel = "") {
-  const target = formatCommandTargetLabel(serviceName);
-
-  if (action === "start") {
-    return {
-      pending: `Menyalakan ${target}. Progress akan mengikuti status service secara realtime.`,
-      success: `${target} sudah aktif kembali.`,
-    };
-  }
-  if (action === "stop") {
-    return {
-      pending: `Menghentikan ${target}. Hanya layanan ini yang akan dihentikan.`,
-      success: `${target} sudah berhenti.`,
-    };
-  }
-  if (action === "agent_start") {
-    return {
-      pending: "Menyalakan agent dan seluruh layanan yang dikelola.",
-      success: "Agent dan seluruh layanan utama sudah aktif.",
-    };
-  }
-  if (action === "agent_stop") {
-    return {
-      pending: "Menghentikan layanan agent yang dikelola. Konektivitas heartbeat tetap dipertahankan.",
-      success: "Layanan agent sudah dihentikan tanpa memutus heartbeat perangkat.",
-    };
-  }
-  if (action === "agent_restart") {
-    return {
-      pending: "Merestart agent dan memulai ulang seluruh layanan hingga siap kembali.",
-      success: "Restart agent selesai dan layanan utama sudah aktif lagi.",
-    };
-  }
-  if (action === "update") {
-    return {
-      pending: `Update agent${versionLabel ? ` ke ${versionLabel}` : ""} sedang dipersiapkan.`,
-      success: "Update agent selesai.",
-    };
-  }
-  if (action === "configure_tunnel") {
-    return {
-      pending: "Preferensi tunnel dikirim. Agent akan membuat tunnel baru dan memperbarui link akses.",
-      success: "Preferensi tunnel aktif dan link akses diperbarui.",
-    };
-  }
-  if (stoppedAgents) {
-    return {
-      icon: AlertTriangle,
-      tone: "warn",
-      title: `${stoppedAgents} agent sedang berhenti.`,
-      description: "Tombol layanan dinonaktifkan pada perangkat tersebut. Gunakan Start Agent untuk memulihkan kontrol dan sinkronisasi.",
-    };
-  }
-  return {
-    pending: "Perintah sedang diproses.",
-    success: "Perintah selesai dijalankan.",
-  };
-}
-
-function buildWhatsAppShareUrl(url, label = "Tautan akses") {
-  const text = `${label}\n${url}`;
-  return `https://wa.me/?text=${encodeURIComponent(text)}`;
-}
-
-function getGuestStatusModel(device, service) {
-  const deviceStatus = device?.deviceStatus || "offline";
-  const serviceStatus =
-    deviceStatus === "blocked"
-      ? "blocked"
-      : deviceStatus === "pending_setup"
-        ? "pending_setup"
-      : deviceStatus === "offline"
-        ? "offline"
-        : service?.status || "unknown";
-  const desiredState = service?.desired_state || "unknown";
-  const hasPublicUrl = Boolean(service?.public_url);
-  const ready =
-    deviceStatus === "online" &&
-    serviceStatus === "running" &&
-    desiredState !== "stopped" &&
-    hasPublicUrl;
-
-  if (deviceStatus === "blocked") {
-    return {
-      overallStatus: "blocked",
-      headline: "Akses perangkat dibatasi",
-      description:
-        "Perangkat tersedia, tetapi aksesnya sedang dibatasi. Hubungi pengelola untuk mengaktifkannya kembali.",
-      publicStatus: "disabled",
-      publicLabel: "Tautan dibatasi",
-      runtimeLabel: "Perangkat diblokir",
-      runtimeChipLabel: "dibatasi",
-      ready,
-    };
-  }
-
-  if (deviceStatus === "pending_setup") {
-    return {
-      overallStatus: "pending_setup",
-      headline: "Perangkat sedang disiapkan",
-      description:
-        "Perangkat sedang disiapkan. Tunggu beberapa saat, lalu segarkan halaman ini.",
-      publicStatus: "disabled",
-      publicLabel: "Tautan belum tersedia",
-      runtimeLabel: "Menunggu perangkat",
-      runtimeChipLabel: "setup awal",
-      ready: false,
-    };
-  }
-
-  if (deviceStatus === "offline") {
-    return {
-      overallStatus: "offline",
-      headline: "Perangkat belum terhubung",
-      description:
-        "Pastikan aplikasi School Services sedang berjalan dan perangkat memiliki koneksi internet.",
-      publicStatus: hasPublicUrl ? "unavailable" : "disabled",
-      publicLabel: hasPublicUrl ? "Tautan terakhir tersedia" : "Tautan belum tersedia",
-      runtimeLabel: "Belum tersambung",
-      runtimeChipLabel: "offline",
-      ready,
-    };
-  }
-
-  if (ready) {
-    return {
-      overallStatus: "ready",
-      headline: "E-Rapor siap digunakan",
-      description:
-        "Perangkat tersambung dan layanan E-Rapor siap dibuka.",
-      publicStatus: "ready",
-      publicLabel: "Tautan aktif",
-      runtimeLabel: "Layanan aktif",
-      runtimeChipLabel: "aktif",
-      ready,
-    };
-  }
-
-  if (serviceStatus === "reconnecting") {
-    return {
-      overallStatus: "reconnecting",
-      headline: "Jaringan sedang berpindah",
-      description:
-        "Koneksi perangkat atau tunnel Cloudflare sedang disegarkan. Tunggu sampai tautan baru benar-benar siap dibuka.",
-      publicStatus: "reconnecting",
-      publicLabel: "Menunggu jaringan stabil",
-      runtimeLabel: "Layanan menyambung ulang",
-      runtimeChipLabel: "menyambung ulang",
-      ready,
-    };
-  }
-
-  if (serviceStatus === "starting") {
-    return {
-      overallStatus: "starting",
-      headline: "E-Rapor sedang disiapkan",
-      description:
-        "Permintaan diterima. Layanan sedang dinyalakan dan koneksi publik sedang disiapkan.",
-      publicStatus: "starting",
-      publicLabel: "Menyiapkan tautan",
-      runtimeLabel: "Sedang memulai layanan",
-      runtimeChipLabel: "menyiapkan",
-      ready,
-    };
-  }
-
-  if (serviceStatus === "waiting_retry") {
-    return {
-      overallStatus: "reconnecting",
-      headline: "Koneksi publik sedang dipulihkan",
-      description:
-        "Jaringan atau tunnel Cloudflare sedang beralih. Status akan aktif setelah tautan baru berhasil dihubungkan.",
-      publicStatus: "waiting_retry",
-      publicLabel: "Menunggu tunnel baru",
-      runtimeLabel: "Layanan menunggu koneksi",
-      runtimeChipLabel: "menunggu koneksi",
-      ready,
-    };
-  }
-
-  if (serviceStatus === "running" && !hasPublicUrl) {
-    return {
-      overallStatus: "degraded",
-      headline: "Layanan aktif, koneksi publik belum stabil",
-      description:
-        "E-Rapor sudah berjalan, tetapi tautan publik masih menunggu verifikasi koneksi sebelum dinyatakan siap.",
-      publicStatus: "reconnecting",
-      publicLabel: "Menunggu tautan stabil",
-      runtimeLabel: "Layanan aktif",
-      runtimeChipLabel: "aktif",
-      ready,
-    };
-  }
-
-  if (serviceStatus === "error") {
-    return {
-      overallStatus: "error",
-      headline: "Layanan memerlukan perhatian",
-      description:
-        "Layanan belum dapat dibuka. Periksa informasi di bawah atau hubungi pengelola.",
-      publicStatus: hasPublicUrl ? "unavailable" : "disabled",
-      publicLabel: hasPublicUrl ? "Tautan belum stabil" : "Tautan belum tersedia",
-      runtimeLabel: "Perlu dicek",
-      runtimeChipLabel: "perlu dicek",
-      ready,
-    };
-  }
-
-  if (desiredState === "stopped" || serviceStatus === "stopped") {
-    return {
-      overallStatus: "stopped",
-      headline: "Layanan belum dijalankan",
-      description:
-        "Perangkat tersambung. Tekan Mulai untuk menyalakan E-Rapor.",
-      publicStatus: hasPublicUrl ? "unavailable" : "disabled",
-      publicLabel: hasPublicUrl ? "Tautan terakhir tersedia" : "Tautan belum tersedia",
-      runtimeLabel: "Layanan berhenti",
-      runtimeChipLabel: "berhenti",
-      ready,
-    };
-  }
-
-  return {
-    overallStatus: serviceStatus,
-    headline: "Status layanan sedang diperiksa",
-    description:
-      "Status layanan sedang diperbarui. Tunggu beberapa saat lalu segarkan halaman.",
-    publicStatus: hasPublicUrl ? "available" : "disabled",
-    publicLabel: hasPublicUrl ? "Tautan tersedia" : "Tautan belum tersedia",
-    runtimeLabel: "Menunggu pembaruan status",
-    runtimeChipLabel: serviceStatus,
-    ready,
-  };
-}
-
-
-
 
 function ProfilePanel({ profile, session, onSignOut }) {
   const [currentPassword, setCurrentPassword] = useState("");

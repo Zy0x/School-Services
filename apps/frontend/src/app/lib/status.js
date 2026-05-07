@@ -434,6 +434,17 @@ export function getPublicUrlLabel(service) {
   return "Tautan akses";
 }
 
+export function getTunnelProviderBadgeModel(value) {
+  const provider = String(value || "").trim().toLowerCase();
+  if (provider === "ngrok") {
+    return { status: "ready", label: "Tunnel: Ngrok", name: "Ngrok" };
+  }
+  if (provider === "cloudflare" || provider === "cloudflared") {
+    return { status: "ready", label: "Tunnel: Cloudflared", name: "Cloudflared" };
+  }
+  return { status: "idle", label: "Tunnel: menunggu", name: "Menunggu" };
+}
+
 export function formatServiceDisplayName(name) {
   const normalized = String(name || "").trim().toLowerCase();
   if (normalized === "rapor") {

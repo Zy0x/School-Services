@@ -21,6 +21,7 @@ import { PublicLinkActions as GuestPublicLinkActions } from "../../guest/compone
 import {
   AccountTable,
   DeviceCombobox,
+  DeviceWarningPanel,
   EmptyState,
   FileTable,
   FloatingFileActivity,

@@ -75,6 +75,7 @@ import {
   deriveServiceStatus,
   formatRelativeTime,
   formatServiceDisplayName,
+  AGENT_LIFECYCLE_ACTIONS,
   getAgentStatusBadgeModel,
   getDeviceConnectivityBadgeModel,
   getDeviceStatusBadgeModel,

@@ -192,7 +192,7 @@ export function getDeviceStatusBadgeModel(status) {
   };
 }
 
-const AGENT_LIFECYCLE_ACTIONS = new Set([
+export const AGENT_LIFECYCLE_ACTIONS = new Set([
   "agent_start",
   "agent_stop",
   "agent_restart",

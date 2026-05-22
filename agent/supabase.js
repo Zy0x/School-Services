@@ -1,9 +1,19 @@
 const { createClient } = require("@supabase/supabase-js");
+const WebSocket = require("ws");
+
+function createClientOptions() {
+  return {
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { transport: WebSocket },
+  };
+}
 
 function createSupabaseApi(config) {
-  const client = createClient(config.url, config.serviceKey || config.anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const client = createClient(
+    config.url,
+    config.serviceKey || config.anonKey,
+    createClientOptions()
+  );
   let logWriteChain = Promise.resolve();
   let supportsExtendedServiceFields = true;
   let supportsExtendedDeviceFields = true;

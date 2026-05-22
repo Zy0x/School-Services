@@ -202,6 +202,49 @@ async function waitForServicesRestored(supabaseApi, deviceId, progress, startPer
   );
 }
 
+async function stopAgentForLifecycle(progress, percent, message) {
+  let stopError = null;
+  await progress.step("stopping_agent", percent, message);
+  try {
+    await stopAgentProcess();
+  } catch (error) {
+    stopError = error;
+    logger.warn(`Primary agent stop failed: ${error.message}`, {
+      serviceName: null,
+    });
+  }
+
+  if (await waitForAgentStopped(PROCESS_TIMEOUT_MS)) {
+    return;
+  }
+
+  await progress.step(
+    "cleanup_runtime",
+    Math.min(58, percent + 18),
+    "Agent belum berhenti normal. Menjalankan cleanup paksa runtime terpasang."
+  );
+  try {
+    await runInstalledStopCleanup();
+  } catch (error) {
+    logger.warn(`Installed stop cleanup failed after primary stop: ${error.message}`, {
+      serviceName: null,
+    });
+    if (!stopError) {
+      stopError = error;
+    }
+  }
+
+  if (await waitForAgentStopped(Math.max(15000, Math.round(PROCESS_TIMEOUT_MS / 2)))) {
+    return;
+  }
+
+  throw new Error(
+    stopError
+      ? `Timeout menghentikan proses School Services Agent setelah cleanup paksa. Error awal: ${stopError.message}`
+      : "Timeout menghentikan proses School Services Agent setelah cleanup paksa."
+  );
+}
+
 async function createTunnelManager(config) {
   return new TunnelManager({
     cloudflaredPath: config.cloudflaredPath,
@@ -368,12 +411,7 @@ async function processSupervisorCommand(command, supabaseApi, device, config) {
 
     if (action === "agent_stop") {
       writeSupervisorState({ desiredAgentState: "stopped" });
-      await progress.step("stopping_agent", 25, "Menghentikan proses School Services Agent.");
-      await stopAgentProcess();
-      const stopped = await waitForAgentStopped(PROCESS_TIMEOUT_MS);
-      if (!stopped) {
-        throw new Error("Timeout menghentikan proses School Services Agent.");
-      }
+      await stopAgentForLifecycle(progress, 25, "Menghentikan proses School Services Agent.");
       await stopManagedResourcesForAgentStop(config, supabaseApi, device, progress);
       await progress.done("School Services Agent, layanan Rapor/Dapodik, dan tunnel publik sudah berhenti.");
       return;
@@ -402,11 +440,7 @@ async function processSupervisorCommand(command, supabaseApi, device, config) {
 
     if (action === "agent_restart") {
       writeSupervisorState({ desiredAgentState: "running" });
-      await progress.step("stopping_agent", 18, "Menghentikan proses agent lama.");
-      await stopAgentProcess();
-      if (!(await waitForAgentStopped(PROCESS_TIMEOUT_MS))) {
-        throw new Error("Timeout menghentikan proses agent lama.");
-      }
+      await stopAgentForLifecycle(progress, 18, "Menghentikan proses agent lama.");
       await progress.step("cleanup_runtime", 36, "Membersihkan proses bootstrap dan tunnel lama sebelum start ulang.");
       await runInstalledStopCleanup();
       await progress.step("starting_agent", 45, "Memulai ulang School Services Agent.");

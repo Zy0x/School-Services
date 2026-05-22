@@ -378,6 +378,11 @@ function loadConfig() {
           process.env.AGENT_RESUME_GAP_MS ||
           Math.max(loopIntervalMs * 6, 45000)
       ),
+      networkReconnectRefreshMs: Number(
+        overrides.recovery?.networkReconnectRefreshMs ||
+          process.env.AGENT_NETWORK_RECONNECT_REFRESH_MS ||
+          Math.max(loopIntervalMs * 12, 60000)
+      ),
     },
     selfUpdate: {
       enabled: overrides.selfUpdate?.enabled !== false,

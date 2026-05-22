@@ -27,6 +27,7 @@ const {
   derivePublishedStatus,
   formatRemoteError,
   isSupabaseConnectivityError,
+  shouldRefreshTunnelsAfterReconnect,
   writeDeviceState,
 } = require("./runtimeState");
 
@@ -648,10 +649,29 @@ async function main() {
     }
 
     if (!wasConnected && remoteState.connected) {
-      if (disconnectedAtBeforeLoop && Date.now() - disconnectedAtBeforeLoop > 10000) {
-        logger.info("Supabase connection restored after a gap; preserving active Cloudflare tunnels.", {
+      const disconnectedMs = disconnectedAtBeforeLoop
+        ? Date.now() - disconnectedAtBeforeLoop
+        : 0;
+      if (
+        shouldRefreshTunnelsAfterReconnect(
+          disconnectedMs,
+          config.recovery.networkReconnectRefreshMs
+        )
+      ) {
+        logger.warn("Supabase connection restored after a long gap; forcing fresh tunnel recovery.", {
           serviceName: null,
-          disconnectedMs: Date.now() - disconnectedAtBeforeLoop,
+          disconnectedMs,
+          refreshThresholdMs: config.recovery.networkReconnectRefreshMs,
+        });
+        tunnelManager.requestFreshStartAll("network-reconnect");
+        for (const service of serviceManager.list()) {
+          publishedServiceState.delete(service.serviceName);
+        }
+      } else if (disconnectedMs > 10000) {
+        logger.info("Supabase connection restored after a short gap; preserving active tunnels.", {
+          serviceName: null,
+          disconnectedMs,
+          refreshThresholdMs: config.recovery.networkReconnectRefreshMs,
         });
       }
       try {

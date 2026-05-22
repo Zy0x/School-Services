@@ -72,6 +72,12 @@ function isSupabaseConnectivityError(error) {
   ].some((token) => message.includes(token));
 }
 
+function shouldRefreshTunnelsAfterReconnect(disconnectedMs, thresholdMs) {
+  const gap = Number(disconnectedMs || 0);
+  const threshold = Number(thresholdMs || 0);
+  return Number.isFinite(gap) && Number.isFinite(threshold) && threshold > 0 && gap >= threshold;
+}
+
 function formatRemoteError(error) {
   if (!error) {
     return "Unknown remote error";
@@ -135,7 +141,8 @@ module.exports = {
 
   isSupabaseConnectivityError,
 
+  shouldRefreshTunnelsAfterReconnect,
+
   writeDeviceState,
 
 };
-

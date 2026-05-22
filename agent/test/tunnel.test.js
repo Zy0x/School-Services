@@ -156,3 +156,52 @@ test("configureSettings validates, stores, and switches to ngrok token immediate
   assert.equal(settings.ngrokConfigured, true);
   assert.equal(stored.ngrokAuthtoken, "valid-token");
 });
+
+test("power transition process inspection does not start a duplicate tunnel", async () => {
+  const { manager } = createManager();
+  const service = {
+    serviceName: "rapor",
+    host: "127.0.0.1",
+    port: 8535,
+  };
+  const tunnel = manager.getOrCreateTunnel("rapor");
+  Object.assign(tunnel, {
+    pid: 12345,
+    state: "running",
+    publicUrl: "https://old.trycloudflare.com",
+    lastKnownPublicUrl: "https://old.trycloudflare.com",
+  });
+  manager.isPidAlive = async () => null;
+  manager.startTunnelProcess = async () => {
+    throw new Error("should not start while Windows power transition is in progress");
+  };
+
+  const recovered = await manager.ensureTunnel(service);
+
+  assert.equal(recovered.state, "reconnecting");
+  assert.equal(recovered.pid, 12345);
+  assert.equal(recovered.publicUrl, null);
+  assert.equal(recovered.lastKnownPublicUrl, "https://old.trycloudflare.com");
+  assert.equal(recovered.lastFailureCategory, "power_transition");
+  assert.match(recovered.lastError, /sleep\/shutdown/i);
+});
+
+test("fresh tunnel recovery preserves stale URL only as last known", () => {
+  const { manager } = createManager();
+  const tunnel = manager.getOrCreateTunnel("rapor");
+  Object.assign(tunnel, {
+    state: "running",
+    publicUrl: "https://stale.trycloudflare.com",
+    lastKnownPublicUrl: "https://stale.trycloudflare.com",
+  });
+
+  manager.requestFreshStart("rapor", "network-reconnect");
+
+  assert.equal(tunnel.state, "reconnecting");
+  assert.equal(tunnel.publicUrl, null);
+  assert.equal(tunnel.lastKnownPublicUrl, "https://stale.trycloudflare.com");
+  assert.equal(manager.getPublicUrl("rapor"), null);
+  assert.equal(manager.getLastKnownPublicUrl("rapor"), "https://stale.trycloudflare.com");
+  assert.equal(manager.getStatusSnapshot("rapor").publicUrl, null);
+  assert.equal(manager.getStatusSnapshot("rapor").lastKnownPublicUrl, "https://stale.trycloudflare.com");
+});

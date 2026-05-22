@@ -576,6 +576,12 @@ class TunnelManager {
       ]);
       return String(stdout || "").includes(`"${pid}"`);
     } catch (error) {
+      if (this.isWindowsPowerTransitionError(error)) {
+        logger.warn(`Deferring tunnel process inspection for ${pid}: Windows is entering sleep or shutdown.`, {
+          pid,
+        });
+        return null;
+      }
       logger.warn(`Failed to inspect tunnel process ${pid}: ${error.message}`, { pid });
       return false;
     }
@@ -748,6 +754,7 @@ class TunnelManager {
     tunnel.pid = null;
     tunnel.child = null;
     tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
+    tunnel.publicUrl = null;
     tunnel.lastError = retry.reason;
     tunnel.nextRetryAt = retry.nextRetryAt;
     tunnel.retryAttempt = retry.attempt;
@@ -857,6 +864,7 @@ class TunnelManager {
 
   markReconnectingState(serviceName, tunnel, issue, options = {}) {
     tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
+    tunnel.publicUrl = null;
     tunnel.lastError = issue.message;
     tunnel.lastFailureCategory = issue.category || null;
     tunnel.nextRetryAt = null;
@@ -926,16 +934,23 @@ class TunnelManager {
       return null;
     }
 
-    if (tunnel.pid && (await this.isPidAlive(tunnel.pid))) {
-      if (tunnel.startupDeadlineAt && Date.now() >= tunnel.startupDeadlineAt) {
-        this.applyRetryState(service.serviceName, tunnel, {
-          category: "transient",
-          message: `${this.getProviderLabel(tunnel.provider)} tunnel startup timed out before a public URL was detected.`,
-        });
+    if (tunnel.pid) {
+      const alive = await this.isPidAlive(tunnel.pid);
+      if (alive === null) {
+        this.markPowerTransitionDeferred(service.serviceName, tunnel);
         return null;
       }
+      if (alive) {
+        if (tunnel.startupDeadlineAt && Date.now() >= tunnel.startupDeadlineAt) {
+          this.applyRetryState(service.serviceName, tunnel, {
+            category: "transient",
+            message: `${this.getProviderLabel(tunnel.provider)} tunnel startup timed out before a public URL was detected.`,
+          });
+          return null;
+        }
 
-      this.markState(service.serviceName, tunnel, tunnel.hidden ? "stopped" : "starting");
+        this.markState(service.serviceName, tunnel, tunnel.hidden ? "stopped" : "starting");
+      }
     }
 
     return null;
@@ -944,9 +959,15 @@ class TunnelManager {
   async recoverTunnel(service) {
     const tunnel = this.getOrCreateTunnel(service.serviceName);
 
-    if (tunnel.pid && (await this.isPidAlive(tunnel.pid))) {
-      await this.refreshTunnelUrl(service);
-      return tunnel;
+    if (tunnel.pid) {
+      const alive = await this.isPidAlive(tunnel.pid);
+      if (alive === null) {
+        return this.markPowerTransitionDeferred(service.serviceName, tunnel);
+      }
+      if (alive) {
+        await this.refreshTunnelUrl(service);
+        return tunnel;
+      }
     }
 
     if (tunnel.pid) {
@@ -1041,7 +1062,7 @@ class TunnelManager {
       return null;
     }
 
-    return tunnel.publicUrl || tunnel.lastKnownPublicUrl || null;
+    return tunnel.publicUrl || null;
   }
 
   getLastKnownPublicUrl(serviceName) {
@@ -1200,22 +1221,24 @@ class TunnelManager {
   async ensureTunnel(service) {
     const tunnel = await this.recoverTunnel(service);
 
-    if (
-      tunnel.requiresFreshStart &&
-      tunnel.pid &&
-      (await this.isPidAlive(tunnel.pid))
-    ) {
-      logger.info(
-        `Restarting ${this.getProviderLabel(tunnel.provider)} tunnel for ${service.serviceName} after connectivity change`,
-        {
-          serviceName: service.serviceName,
-          provider: tunnel.provider,
-          publicUrl: tunnel.lastKnownPublicUrl || null,
-          lastError: tunnel.lastError || null,
-        }
-      );
-      await this.stopTunnel(service.serviceName);
-      return this.ensureTunnel(service);
+    if (tunnel.requiresFreshStart && tunnel.pid) {
+      const alive = await this.isPidAlive(tunnel.pid);
+      if (alive === null) {
+        return this.markPowerTransitionDeferred(service.serviceName, tunnel);
+      }
+      if (alive) {
+        logger.info(
+          `Restarting ${this.getProviderLabel(tunnel.provider)} tunnel for ${service.serviceName} after connectivity change`,
+          {
+            serviceName: service.serviceName,
+            provider: tunnel.provider,
+            publicUrl: tunnel.lastKnownPublicUrl || null,
+            lastError: tunnel.lastError || null,
+          }
+        );
+        await this.stopTunnel(service.serviceName);
+        return this.ensureTunnel(service);
+      }
     }
 
     if (tunnel.hidden) {
@@ -1251,9 +1274,15 @@ class TunnelManager {
       this.persistTunnelState(service.serviceName, tunnel);
     }
 
-    if (tunnel.pid && (await this.isPidAlive(tunnel.pid))) {
-      await this.refreshTunnelUrl(service);
-      return tunnel;
+    if (tunnel.pid) {
+      const alive = await this.isPidAlive(tunnel.pid);
+      if (alive === null) {
+        return this.markPowerTransitionDeferred(service.serviceName, tunnel);
+      }
+      if (alive) {
+        await this.refreshTunnelUrl(service);
+        return tunnel;
+      }
     }
 
     const blockers = this.retryManager.getBlockers(service.serviceName);
@@ -1315,6 +1344,7 @@ class TunnelManager {
     this.deleteLog(serviceName);
     tunnel.requiresFreshStart = true;
     tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
+    tunnel.publicUrl = null;
     if (!tunnel.hidden) {
       tunnel.state = "reconnecting";
       tunnel.lastError = this.describeFreshStartReason(reason);
@@ -1342,6 +1372,24 @@ class TunnelManager {
   isProcessNotFoundError(error) {
     const message = error instanceof Error ? error.message : String(error);
     return /not found|no running instance/i.test(message);
+  }
+
+  isWindowsPowerTransitionError(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return /system shutdown is in progress|shutdown is in progress|system is shutting down/i.test(message);
+  }
+
+  markPowerTransitionDeferred(serviceName, tunnel) {
+    tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
+    tunnel.publicUrl = null;
+    tunnel.lastError =
+      "Windows sedang sleep/shutdown. Agent menunda restart tunnel sampai perangkat aktif kembali.";
+    tunnel.lastFailureCategory = "power_transition";
+    tunnel.nextRetryAt = Date.now() + Math.max(this.startSpacingMs, 5000);
+    tunnel.retryAttempt = tunnel.retryAttempt || 0;
+    tunnel.state = "reconnecting";
+    this.persistTunnelState(serviceName, tunnel);
+    return tunnel;
   }
 
   async stopTunnel(serviceName) {

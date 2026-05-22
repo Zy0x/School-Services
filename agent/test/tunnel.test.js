@@ -205,3 +205,53 @@ test("fresh tunnel recovery preserves stale URL only as last known", () => {
   assert.equal(manager.getStatusSnapshot("rapor").publicUrl, null);
   assert.equal(manager.getStatusSnapshot("rapor").lastKnownPublicUrl, "https://stale.trycloudflare.com");
 });
+
+test("provider launch permission failure falls back when another provider is configured", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "erapor-tunnel-"));
+  const manager = new TunnelManager({
+    cloudflaredPath: "cloudflared",
+    ngrokPath: "ngrok",
+    ngrokAuthtoken: "test-token",
+    stateDir,
+    retryDelaysMs: [1],
+    globalCooldownMs: 1,
+  });
+  const service = {
+    serviceName: "rapor",
+    host: "127.0.0.1",
+    port: 8535,
+  };
+  manager.startTunnelProcess = async () => {
+    const error = new Error("spawn cloudflared.exe EACCES");
+    error.code = "EACCES";
+    throw error;
+  };
+
+  const tunnel = await manager.ensureTunnel(service);
+
+  assert.equal(tunnel.provider, "ngrok");
+  assert.equal(tunnel.state, "idle");
+  assert.match(tunnel.lastError, /switching to ngrok/i);
+});
+
+test("provider launch failure waits for retry when no fallback is available", async () => {
+  const { manager } = createManager();
+  const service = {
+    serviceName: "rapor",
+    host: "127.0.0.1",
+    port: 8535,
+  };
+  manager.startTunnelProcess = async () => {
+    const error = new Error("spawn cloudflared.exe ENOENT");
+    error.code = "ENOENT";
+    throw error;
+  };
+
+  const tunnel = await manager.ensureTunnel(service);
+
+  assert.equal(tunnel.provider, "cloudflare");
+  assert.equal(tunnel.state, "waiting_retry");
+  assert.equal(tunnel.publicUrl, null);
+  assert.equal(tunnel.lastFailureCategory, "provider_missing");
+  assert.match(tunnel.lastError, /executable tidak ditemukan/i);
+});

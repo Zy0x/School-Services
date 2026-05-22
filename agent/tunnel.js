@@ -3,8 +3,13 @@ const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const logger = require("./logger");
-const { getStateDir } = require("./paths");
+const { getInstallDir, getRuntimeDir, getStateDir } = require("./paths");
 const RetryManager = require("./retryManager");
+const {
+  ensureBundledCloudflared,
+  ensureExecutableAccess,
+  ensureRuntimeBinaryFromInstall,
+} = require("./embeddedBinary");
 
 const {
   NGROK_AUTH_ERROR_PATTERN,
@@ -1167,6 +1172,99 @@ class TunnelManager {
     });
   }
 
+  resolveProviderExecutable(providerKey) {
+    if (providerKey === "cloudflare") {
+      const candidates = [
+        this.cloudflaredPath,
+        ensureBundledCloudflared(),
+        path.join(getRuntimeDir(), "cloudflared.exe"),
+        path.join(getInstallDir(), "cloudflared.exe"),
+      ].filter(Boolean);
+      const resolved = candidates.find((candidate) => fs.existsSync(candidate));
+      if (resolved) {
+        this.cloudflaredPath = ensureExecutableAccess(resolved);
+        return this.cloudflaredPath;
+      }
+      return this.cloudflaredPath;
+    }
+
+    if (providerKey === "ngrok") {
+      const candidates = [
+        this.ngrokPath,
+        ensureRuntimeBinaryFromInstall("ngrok.exe"),
+        path.join(getRuntimeDir(), "ngrok.exe"),
+        path.join(getInstallDir(), "ngrok.exe"),
+      ].filter(Boolean);
+      const resolved = candidates.find((candidate) => fs.existsSync(candidate));
+      if (resolved) {
+        this.ngrokPath = ensureExecutableAccess(resolved);
+        return this.ngrokPath;
+      }
+      return this.ngrokPath;
+    }
+
+    return this.getProviderCommand(providerKey);
+  }
+
+  classifyProviderLaunchError(providerKey, error) {
+    const providerLabel = this.getProviderLabel(providerKey);
+    const code = String(error?.code || "").toUpperCase();
+    const message = error instanceof Error ? error.message : String(error);
+    const lowerMessage = message.toLowerCase();
+    const permissionDenied =
+      ["EACCES", "EPERM"].includes(code) ||
+      /access is denied|permission denied|operation not permitted/i.test(message);
+    const missingBinary =
+      code === "ENOENT" ||
+      /not found|cannot find|no such file|the system cannot find/i.test(message);
+
+    if (permissionDenied) {
+      return {
+        category: "provider_permission",
+        message: `${providerLabel} tidak bisa dijalankan karena izin Windows memblokir executable. Agent akan memperbaiki runtime permission lalu mencoba ulang atau fallback provider.`,
+      };
+    }
+
+    if (missingBinary) {
+      return {
+        category: "provider_missing",
+        message: `${providerLabel} executable tidak ditemukan. Agent akan mengekstrak ulang binary runtime lalu mencoba ulang atau fallback provider.`,
+      };
+    }
+
+    return {
+      category: "provider_launch_failed",
+      message: `${providerLabel} gagal dijalankan: ${message}`,
+    };
+  }
+
+  isProviderLaunchFailure(issue) {
+    return [
+      "provider_permission",
+      "provider_missing",
+      "provider_launch_failed",
+    ].includes(issue?.category);
+  }
+
+  async handleProviderLaunchFailure(serviceName, tunnel, error) {
+    const issue = this.classifyProviderLaunchError(tunnel.provider, error);
+    logger.warn(`${this.getProviderLabel(tunnel.provider)} tunnel launch failed for ${serviceName}: ${error.message}`, {
+      serviceName,
+      provider: tunnel.provider,
+      category: issue.category,
+    });
+
+    if (this.isProviderLaunchFailure(issue) && this.getNextProvider(tunnel.provider)) {
+      await this.switchToNextProvider(serviceName, tunnel, issue);
+      return tunnel;
+    }
+
+    tunnel.lastKnownPublicUrl = tunnel.lastKnownPublicUrl || tunnel.publicUrl || null;
+    tunnel.publicUrl = null;
+    this.applyRetryState(serviceName, tunnel, issue);
+    return tunnel;
+  }
+
   async startTunnelProcess(service, tunnel) {
     const provider = tunnel.provider || this.providerOrder[0] || "cloudflare";
     logger.info(`Starting ${this.getProviderLabel(provider)} tunnel for ${service.serviceName}`, {
@@ -1175,7 +1273,12 @@ class TunnelManager {
       mode: this.mode,
     });
 
-    const command = this.getProviderCommand(provider);
+    const command = this.resolveProviderExecutable(provider);
+    if (!command) {
+      const error = new Error(`${this.getProviderLabel(provider)} executable path is not configured.`);
+      error.code = "ENOENT";
+      throw error;
+    }
     const args = this.buildProviderArgs(service, provider);
     const { logPath } = this.getWritableTunnelPaths(service.serviceName, provider);
     const stdoutFd = fs.openSync(logPath, "a");
@@ -1312,7 +1415,11 @@ class TunnelManager {
       return tunnel;
     }
 
-    return this.startTunnelProcess(service, tunnel);
+    try {
+      return await this.startTunnelProcess(service, tunnel);
+    } catch (error) {
+      return this.handleProviderLaunchFailure(service.serviceName, tunnel, error);
+    }
   }
 
   async suspendTunnel(serviceName) {

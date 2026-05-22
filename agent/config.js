@@ -1,10 +1,15 @@
 const path = require("path");
 const dotenv = require("dotenv");
 const { LEGACY_GUEST_SHORTCUT_NAME } = require("./appConstants");
-const { ensureBundledCloudflared } = require("./embeddedBinary");
+const {
+  ensureBundledCloudflared,
+  ensureExecutableAccess,
+  ensureRuntimeBinaryFromInstall,
+} = require("./embeddedBinary");
 const {
   getFileJobsRoot,
   getInstallDir,
+  getRuntimeDir,
 } = require("./paths");
 const { buildDefaults } = require("./serviceConfigs");
 const logger = require("./logger");
@@ -89,14 +94,17 @@ function resolveExecutableFromPath(fileName) {
 
 function resolveNgrokPath(overridePath) {
   const baseDir = getInstallDir();
+  const runtimePath = ensureRuntimeBinaryFromInstall("ngrok.exe");
   const fileCandidates = [
     overridePath,
     process.env.NGROK_PATH,
+    runtimePath,
+    path.join(getRuntimeDir(), "ngrok.exe"),
     ...buildAncestorCandidates(process.cwd(), "ngrok.exe"),
     ...buildAncestorCandidates(baseDir, "ngrok.exe"),
     resolveExecutableFromPath("ngrok.exe"),
   ];
-  return resolveFirstExistingPath(fileCandidates);
+  return ensureExecutableAccess(resolveFirstExistingPath(fileCandidates));
 }
 
 function resolveConfigRelativePaths(filePaths, runtimeConfigPath) {

@@ -4,6 +4,26 @@ function compact(values) {
   return values.filter(Boolean);
 }
 
+function splitPathList(value) {
+  return String(value || "")
+    .split(/[;,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function defaultSearchRoots(extraRoots = []) {
+  const systemDrive = process.env.SystemDrive || "C:";
+  return compact([
+    ...extraRoots,
+    ...splitPathList(process.env.ERAPOR_SEARCH_ROOTS),
+    systemDrive.endsWith("\\") ? systemDrive : `${systemDrive}\\`,
+    "D:\\",
+    "E:\\",
+    process.env.ProgramFiles || "C:\\Program Files",
+    process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
+  ]);
+}
+
 function createRaporEnvTarget(targetId, candidates, options = {}) {
   return {
     targetId,
@@ -13,6 +33,12 @@ function createRaporEnvTarget(targetId, candidates, options = {}) {
     key: "app.baseURL",
     urlSource: options.urlSource || "public",
     formatter: (url) => `app.baseURL = '${url}/'`,
+    pathDiscovery: {
+      searchRoots: defaultSearchRoots(options.searchRoots || []),
+      includeDirAny: ["erapor", "e-rapor", "rapor", "apprapor", "newapprapor"],
+      maxDepth: 5,
+      maxVisited: 1800,
+    },
   };
 }
 

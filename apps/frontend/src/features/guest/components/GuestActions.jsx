@@ -137,7 +137,7 @@ export function SiteFooter() {
   return (
     <footer className="site-footer guest-site-footer">
       <div className="site-footer-copy guest-site-footer-copy">
-        <strong>School Services v2.0.7</strong>
+        <strong>School Services v2.0.8</strong>
         <p>Akses cepat untuk membuka E-Rapor dan melihat status perangkat tanpa panel yang berlebihan.</p>
       </div>
       <div className="support-cluster guest-support-cluster">

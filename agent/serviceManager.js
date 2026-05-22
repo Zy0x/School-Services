@@ -206,7 +206,8 @@ class ServiceManager {
   }
 
   scoreDiscoveredWindowsService(candidate, discovery = {}, explicitNames = []) {
-    const haystack = `${candidate.name} ${candidate.displayName}`.toLowerCase();
+    const haystack =
+      `${candidate.name} ${candidate.displayName} ${candidate.pathName || ""}`.toLowerCase();
     let score = 0;
 
     if (explicitNames.some((name) => name.toLowerCase() === candidate.name.toLowerCase())) {
@@ -237,7 +238,8 @@ class ServiceManager {
   }
 
   matchesDiscoveredWindowsService(candidate, discovery = {}) {
-    const haystack = `${candidate.name} ${candidate.displayName}`.toLowerCase();
+    const haystack =
+      `${candidate.name} ${candidate.displayName} ${candidate.pathName || ""}`.toLowerCase();
     const includeAny = Array.isArray(discovery.includeAny)
       ? discovery.includeAny.filter(Boolean)
       : [];
@@ -712,6 +714,127 @@ class ServiceManager {
     return requireExists ? null : firstCreatableCandidate;
   }
 
+  getConfigTargetSuffixes(target) {
+    return this.getConfigTargetCandidatePaths(target)
+      .map((candidatePath) =>
+        String(candidatePath || "")
+          .split(/[\\/]+/)
+          .filter(Boolean)
+      )
+      .flatMap((segments) => {
+        const nextSuffixes = [];
+        if (segments.length >= 2) {
+          nextSuffixes.push(path.join(...segments.slice(-2)));
+        }
+        if (segments.length >= 1) {
+          nextSuffixes.push(path.join(...segments.slice(-1)));
+        }
+        return nextSuffixes;
+      })
+      .filter(Boolean);
+  }
+
+  getDiscoveryPathScore(dirPath, discovery = {}) {
+    const basename = path.basename(String(dirPath || "")).toLowerCase();
+    const fullPath = String(dirPath || "").toLowerCase();
+    const includeAny = Array.isArray(discovery.includeDirAny)
+      ? discovery.includeDirAny.filter(Boolean)
+      : [];
+    let score = 0;
+
+    for (const token of includeAny) {
+      const normalized = String(token).toLowerCase();
+      if (basename.includes(normalized)) {
+        score += 100;
+      } else if (fullPath.includes(normalized)) {
+        score += 25;
+      }
+    }
+
+    if (/wwwroot|htdocs|public/i.test(basename)) {
+      score += 10;
+    }
+
+    return score;
+  }
+
+  listChildDirectories(dirPath) {
+    try {
+      return require("fs")
+        .readdirSync(dirPath, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(dirPath, entry.name));
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  discoverConfigPathFromSearchRoots(target, options = {}) {
+    const fs = require("fs");
+    const discovery = target?.pathDiscovery || {};
+    const searchRoots = Array.isArray(discovery.searchRoots)
+      ? discovery.searchRoots.filter(Boolean)
+      : [];
+    const suffixes = this.getConfigTargetSuffixes(target);
+    const maxDepth = Number(discovery.maxDepth || 4);
+    const maxVisited = Number(discovery.maxVisited || 1000);
+    const requireExists = options.requireExists !== false;
+    const visited = new Set();
+    let firstCreatableCandidate = null;
+
+    for (const rawRoot of searchRoots) {
+      const root = path.resolve(String(rawRoot));
+      if (!fs.existsSync(root)) {
+        continue;
+      }
+
+      const queue = [{ dirPath: root, depth: 0 }];
+      while (queue.length > 0 && visited.size < maxVisited) {
+        const current = queue.shift();
+        const normalizedDir = current.dirPath.toLowerCase();
+        if (visited.has(normalizedDir)) {
+          continue;
+        }
+        visited.add(normalizedDir);
+
+        for (const suffix of suffixes) {
+          const candidate = path.join(current.dirPath, suffix);
+          if (fileExists(candidate)) {
+            return candidate;
+          }
+
+          if (
+            !requireExists &&
+            !firstCreatableCandidate &&
+            fileExists(path.dirname(candidate))
+          ) {
+            firstCreatableCandidate = candidate;
+          }
+        }
+
+        if (current.depth >= maxDepth) {
+          continue;
+        }
+
+        const children = this.listChildDirectories(current.dirPath)
+          .map((dirPath) => ({
+            dirPath,
+            depth: current.depth + 1,
+            score: this.getDiscoveryPathScore(dirPath, discovery),
+          }))
+          .sort((left, right) => right.score - left.score || left.dirPath.localeCompare(right.dirPath));
+
+        for (const child of children) {
+          if (child.score > 0 || current.depth < 2) {
+            queue.push({ dirPath: child.dirPath, depth: child.depth });
+          }
+        }
+      }
+    }
+
+    return requireExists ? null : firstCreatableCandidate;
+  }
+
   isSameConfigTarget(left, right) {
     return isSameConfigTarget(left, right);
   }
@@ -781,6 +904,14 @@ class ServiceManager {
         }
       }
 
+      if (!exists) {
+        const discoveredPath = this.discoverConfigPathFromSearchRoots(target);
+        if (discoveredPath) {
+          resolvedPath = discoveredPath;
+          exists = true;
+        }
+      }
+
       if (!resolvedPath) {
         for (const executablePath of executablePaths) {
           const creatablePath = this.discoverConfigPathFromExecutable(
@@ -792,6 +923,15 @@ class ServiceManager {
             resolvedPath = creatablePath;
             break;
           }
+        }
+      }
+
+      if (!resolvedPath) {
+        const creatablePath = this.discoverConfigPathFromSearchRoots(target, {
+          requireExists: false,
+        });
+        if (creatablePath) {
+          resolvedPath = creatablePath;
         }
       }
 

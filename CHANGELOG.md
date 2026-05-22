@@ -4,6 +4,27 @@ Semua perubahan penting pada project ini dicatat di file ini.
 
 Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) dengan versi rilis project.
 
+## [2.0.8] - 2026-05-23
+
+### Added
+
+- Self-check public link berlapis untuk Cloudflare dan Ngrok agar link yang tidak bisa dimuat, 530, timeout, atau ditolak provider otomatis memicu recovery tunnel.
+- Discovery dinamis lokasi E-Rapor dari path Windows Service dan pencarian `.env` terbatas pada root instalasi custom seperti drive atau folder sekolah non-standar.
+- Matching Windows Service kini membaca `PathName` executable, sehingga service Dapodik/E-Rapor dengan nama custom tetap bisa dikenali bila path instalasinya mengandung identitas aplikasi.
+- Scheduled task SYSTEM untuk Start, Stop, dan Restart agent supaya kontrol lokal pasca-install tidak memunculkan UAC.
+
+### Changed
+
+- Restart agent kini membersihkan tunnel/service stale dan membangun ulang public URL sampai state agent kembali sinkron.
+- Installer memperkuat permission folder install, runtime binary, firewall, serta grant task access menggunakan path absolut `icacls.exe`.
+- Agent mempertahankan versi runtime `2.0.8` untuk memicu self-update dari GitHub latest tanpa mengubah kontrak API atau schema.
+
+### Fixed
+
+- Ngrok error page seperti `ERR_NGROK_727` tidak lagi dianggap link sehat.
+- Cloudflare quick tunnel yang sudah membuat URL tetapi belum benar-benar bisa diload tidak lagi dipublish permanen sebagai running.
+- Instalasi di direktori E-Rapor custom tidak lagi bergantung penuh pada fallback `C:\newappraporsd2025`.
+
 ## [2.0.7] - 2026-05-07
 
 ### Added

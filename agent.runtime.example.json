@@ -55,7 +55,13 @@
             "C:\\erapor\\.env"
           ],
           "key": "app.baseURL",
-          "urlSource": "local"
+          "urlSource": "local",
+          "pathDiscovery": {
+            "searchRoots": ["${ERAPOR_SEARCH_ROOTS}", "C:\\", "D:\\", "E:\\"],
+            "includeDirAny": ["erapor", "e-rapor", "rapor", "apprapor", "newapprapor"],
+            "maxDepth": 5,
+            "maxVisited": 1800
+          }
         },
         {
           "targetId": "rapor-wwwroot-env",
@@ -69,7 +75,13 @@
             "C:\\erapor\\wwwroot\\.env"
           ],
           "key": "app.baseURL",
-          "urlSource": "public"
+          "urlSource": "public",
+          "pathDiscovery": {
+            "searchRoots": ["${ERAPOR_SEARCH_ROOTS}", "C:\\", "D:\\", "E:\\"],
+            "includeDirAny": ["erapor", "e-rapor", "rapor", "apprapor", "newapprapor"],
+            "maxDepth": 5,
+            "maxVisited": 1800
+          }
         }
       ],
       "key": "app.baseURL"

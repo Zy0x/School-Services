@@ -50,7 +50,12 @@ function updateEnvValues(nextValues) {
 }
 
 function resolveExecutable(commandName) {
-  if (process.platform === "win32" && !path.extname(commandName)) {
+  if (
+    process.platform === "win32" &&
+    !path.extname(commandName) &&
+    !commandName.includes("/") &&
+    !commandName.includes("\\")
+  ) {
     return `${commandName}.cmd`;
   }
 
@@ -58,17 +63,32 @@ function resolveExecutable(commandName) {
 }
 
 function getSupabaseCliPath() {
-  const localCliPath =
+  const candidates =
     process.platform === "win32"
-      ? path.join(repoRoot, "node_modules", "supabase", "bin", "supabase.exe")
-      : path.join(repoRoot, "node_modules", ".bin", "supabase");
+      ? [
+          path.join(repoRoot, "node_modules", "supabase", "dist", "supabase.js"),
+          path.join(repoRoot, "node_modules", ".bin", "supabase.cmd"),
+          path.join(repoRoot, "node_modules", "supabase", "bin", "supabase.exe"),
+          "supabase.cmd",
+        ]
+      : [path.join(repoRoot, "node_modules", ".bin", "supabase"), "supabase"];
 
-  return fs.existsSync(localCliPath) ? localCliPath : "supabase";
+  return candidates.find((candidate) => candidate.includes("\\") || candidate.includes("/") ? fs.existsSync(candidate) : true);
 }
 
 function run(commandName, args, options = {}) {
   const executable = resolveExecutable(commandName);
-  const result = spawnSync(executable, args, {
+  const isNodeScript =
+    process.platform === "win32" && executable.toLowerCase().endsWith(".js");
+  const isWindowsCmd =
+    process.platform === "win32" && executable.toLowerCase().endsWith(".cmd");
+  const spawnExecutable = isNodeScript ? process.execPath : isWindowsCmd ? "cmd.exe" : executable;
+  const spawnArgs = isNodeScript
+    ? [executable, ...args]
+    : isWindowsCmd
+      ? ["/d", "/c", "call", executable, ...args]
+    : args;
+  const result = spawnSync(spawnExecutable, spawnArgs, {
     cwd: repoRoot,
     stdio: options.captureOutput ? "pipe" : "inherit",
     shell: false,

@@ -255,6 +255,8 @@ async function createTunnelManager(config) {
     providerOrder: config.tunnel.providerOrder,
     startSpacingMs: config.tunnel.startSpacingMs,
     startupTimeoutMs: config.tunnel.startupTimeoutMs,
+    publicProbeFailureThreshold: config.tunnel.publicProbeFailureThreshold,
+    publicProbeRestartMs: config.tunnel.publicProbeRestartMs,
     retryDelaysMs: config.tunnel.retryDelaysMs,
     globalCooldownMs: config.tunnel.globalCooldownMs,
     onUrl: () => {},

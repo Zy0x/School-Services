@@ -222,6 +222,16 @@ function loadConfig() {
       process.env.TUNNEL_STARTUP_TIMEOUT_MS ||
       30000
   );
+  const tunnelPublicProbeFailureThreshold = Number(
+    overrides.tunnel?.publicProbeFailureThreshold ||
+      process.env.TUNNEL_PUBLIC_PROBE_FAILURE_THRESHOLD ||
+      3
+  );
+  const tunnelPublicProbeRestartMs = Number(
+    overrides.tunnel?.publicProbeRestartMs ||
+      process.env.TUNNEL_PUBLIC_PROBE_RESTART_MS ||
+      Math.max(loopIntervalMs * 12, 60000)
+  );
   const tunnelRetryDelaysMs = Array.isArray(overrides.tunnel?.retryDelaysMs)
     ? overrides.tunnel.retryDelaysMs
         .map((value) => Number(value))
@@ -324,6 +334,8 @@ function loadConfig() {
       startSpacingMs: tunnelStartSpacingMs,
       globalCooldownMs: tunnelGlobalCooldownMs,
       startupTimeoutMs: tunnelStartupTimeoutMs,
+      publicProbeFailureThreshold: tunnelPublicProbeFailureThreshold,
+      publicProbeRestartMs: tunnelPublicProbeRestartMs,
       retryDelaysMs: tunnelRetryDelaysMs,
       providerOrder: tunnelProviderOrder,
       ngrokPath,

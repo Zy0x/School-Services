@@ -45,6 +45,21 @@ class TunnelManager {
     this.loadPersistedSettings();
     this.startSpacingMs = Number(options.startSpacingMs || 5000);
     this.startupTimeoutMs = Number(options.startupTimeoutMs || 30000);
+    const configuredPublicProbeFailureThreshold = Number(
+      options.publicProbeFailureThreshold
+    );
+    this.publicProbeFailureThreshold =
+      Number.isFinite(configuredPublicProbeFailureThreshold) &&
+      configuredPublicProbeFailureThreshold > 0
+        ? Math.max(1, Math.round(configuredPublicProbeFailureThreshold))
+        : 3;
+    const configuredPublicProbeRestartMs = Number(options.publicProbeRestartMs);
+    this.publicProbeRestartMs = Math.max(
+      PUBLIC_URL_PROBE_TIMEOUT_MS * this.publicProbeFailureThreshold,
+      Number.isFinite(configuredPublicProbeRestartMs) && configuredPublicProbeRestartMs > 0
+        ? configuredPublicProbeRestartMs
+        : 60000
+    );
     this.retryManager =
       options.retryManager ||
       new RetryManager({
@@ -390,6 +405,10 @@ class TunnelManager {
       lastFailureCategory: payload.lastFailureCategory || null,
       startedAt: payload.startedAt || null,
       startupDeadlineAt: payload.startupDeadlineAt || null,
+      publicProbeFailures: Number(payload.publicProbeFailures || 0),
+      firstPublicProbeFailureAt: payload.firstPublicProbeFailureAt || null,
+      lastPublicProbeFailureAt: payload.lastPublicProbeFailureAt || null,
+      lastPublicProbeCategory: payload.lastPublicProbeCategory || null,
       state:
         payload.state ||
         (payload.hidden ? "stopped" : payload.publicUrl ? "running" : "idle"),
@@ -415,6 +434,10 @@ class TunnelManager {
       lastFailureCategory: tunnel.lastFailureCategory,
       startedAt: tunnel.startedAt,
       startupDeadlineAt: tunnel.startupDeadlineAt,
+      publicProbeFailures: tunnel.publicProbeFailures || 0,
+      firstPublicProbeFailureAt: tunnel.firstPublicProbeFailureAt || null,
+      lastPublicProbeFailureAt: tunnel.lastPublicProbeFailureAt || null,
+      lastPublicProbeCategory: tunnel.lastPublicProbeCategory || null,
       state: tunnel.state,
     });
   }
@@ -661,6 +684,14 @@ class TunnelManager {
     tunnel.lastFailureCategory = null;
     tunnel.startedAt = null;
     tunnel.startupDeadlineAt = null;
+    this.clearPublicProbeFailureState(tunnel);
+  }
+
+  clearPublicProbeFailureState(tunnel) {
+    tunnel.publicProbeFailures = 0;
+    tunnel.firstPublicProbeFailureAt = null;
+    tunnel.lastPublicProbeFailureAt = null;
+    tunnel.lastPublicProbeCategory = null;
   }
 
   getProviderLabel(providerKey) {
@@ -883,6 +914,64 @@ class TunnelManager {
     return tunnel;
   }
 
+  recordPublicProbeFailure(serviceName, tunnel, issue) {
+    const now = Date.now();
+    const category = issue.category || "transient";
+    const lastFailureAt = Number(tunnel.lastPublicProbeFailureAt || 0);
+    const staleWindowMs = Math.max(this.publicProbeRestartMs * 2, 120000);
+    const shouldResetCounter =
+      !tunnel.firstPublicProbeFailureAt ||
+      tunnel.lastPublicProbeCategory !== category ||
+      (lastFailureAt && now - lastFailureAt > staleWindowMs);
+
+    if (shouldResetCounter) {
+      tunnel.publicProbeFailures = 1;
+      tunnel.firstPublicProbeFailureAt = now;
+    } else {
+      tunnel.publicProbeFailures = Number(tunnel.publicProbeFailures || 0) + 1;
+    }
+
+    tunnel.lastPublicProbeFailureAt = now;
+    tunnel.lastPublicProbeCategory = category;
+
+    const elapsedMs = now - Number(tunnel.firstPublicProbeFailureAt || now);
+    const restartRecommended =
+      issue.restartRecommended === true ||
+      tunnel.publicProbeFailures >= this.publicProbeFailureThreshold ||
+      elapsedMs >= this.publicProbeRestartMs;
+    const message = restartRecommended
+      ? `${issue.message} Link publik gagal diverifikasi berulang kali; agent akan membuka tunnel baru.`
+      : issue.message;
+
+    this.markReconnectingState(
+      serviceName,
+      tunnel,
+      {
+        ...issue,
+        message,
+        category,
+      },
+      { restartRecommended }
+    );
+
+    if (restartRecommended) {
+      logger.warn(`Public URL probe failed repeatedly for ${serviceName}; scheduling tunnel restart.`, {
+        serviceName,
+        provider: tunnel.provider,
+        failures: tunnel.publicProbeFailures,
+        elapsedMs,
+        category,
+        lastKnownPublicUrl: tunnel.lastKnownPublicUrl || null,
+      });
+    }
+
+    return {
+      restartRecommended,
+      failures: tunnel.publicProbeFailures,
+      elapsedMs,
+    };
+  }
+
   shouldKeepExistingRetry(tunnel, issue) {
     return (
       tunnel.state === "waiting_retry" &&
@@ -904,9 +993,18 @@ class TunnelManager {
       const probe = await this.probePublicUrl(publicUrl);
       if (!probe.ok) {
         tunnel.lastKnownPublicUrl = publicUrl;
-        this.markReconnectingState(service.serviceName, tunnel, probe, {
-          restartRecommended: probe.restartRecommended,
-        });
+        const failure = this.recordPublicProbeFailure(service.serviceName, tunnel, probe);
+        if (
+          failure.restartRecommended &&
+          failure.failures >= this.publicProbeFailureThreshold * 2 &&
+          this.getNextProvider(tunnel.provider)
+        ) {
+          await this.switchToNextProvider(service.serviceName, tunnel, {
+            category: probe.category || "public_probe",
+            message:
+              "Public link failed repeated health checks; switching tunnel provider.",
+          });
+        }
         return null;
       }
 
@@ -971,6 +1069,9 @@ class TunnelManager {
       }
       if (alive) {
         await this.refreshTunnelUrl(service);
+        if (tunnel.requiresFreshStart) {
+          return this.ensureTunnel(service);
+        }
         return tunnel;
       }
     }

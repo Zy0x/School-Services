@@ -3,9 +3,15 @@ const {
   APP_NAME,
   LAUNCHER_EXE_NAME,
   LEGACY_GUEST_SHORTCUT_NAME,
+  RESTART_SERVICE_TASK_DESCRIPTION,
+  RESTART_SERVICE_TASK_NAME,
+  START_SERVICE_TASK_DESCRIPTION,
+  START_SERVICE_TASK_NAME,
   STARTUP_TASK_DESCRIPTION,
   STARTUP_TASK_NAME,
   SUPERVISOR_EXE_NAME,
+  STOP_SERVICE_TASK_DESCRIPTION,
+  STOP_SERVICE_TASK_NAME,
 } = require("../appConstants");
 
 function createElevatedVbsScript(targetScriptName) {
@@ -26,6 +32,15 @@ function createSilentPowerShellVbsScript(targetScriptName) {
     'currentDir = fso.GetParentFolderName(WScript.ScriptFullName)',
     `args = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & currentDir & "\\${targetScriptName}" & Chr(34)`,
     'shellApp.ShellExecute "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", args, currentDir, "", 0',
+    "",
+  ].join("\r\n");
+}
+
+function createScheduledTaskVbsScript(taskName) {
+  const escapedTaskName = String(taskName || "").replace(/"/g, '""');
+  return [
+    'Set shell = CreateObject("WScript.Shell")',
+    `shell.Run "schtasks.exe /Run /TN ""${escapedTaskName}""", 0, False`,
     "",
   ].join("\r\n");
 }
@@ -81,6 +96,12 @@ function createFirewallRuleFunctions() {
     "    & icacls $runtimeDir /inheritance:e /grant '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /T /C *> $null",
     "  } catch {}",
     "}",
+    "function Set-InstallControlPermissions([string]$installDir) {",
+    "  if (-not $installDir -or -not (Test-Path $installDir)) { return }",
+    "  try {",
+    "    & icacls $installDir /inheritance:e /grant '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /T /C *> $null",
+    "  } catch {}",
+    "}",
     "function Ensure-SilentFirewallAccess([string]$installDir, [string]$runtimeDir) {",
     `  $appName = '${APP_NAME.replace(/'/g, "''")}'`,
     `  $agentExeName = '${AGENT_EXE_NAME.replace(/'/g, "''")}'`,
@@ -103,6 +124,7 @@ function createFirewallRuleFunctions() {
     "    Copy-Item -LiteralPath $bundledNgrokPath -Destination $runtimeNgrokPath -Force",
     "    Unblock-RuntimeExecutable $runtimeNgrokPath",
     "  }",
+    "  Set-InstallControlPermissions $installDir",
     "  Set-RuntimeExecutablePermissions $runtimeDir",
     "  Remove-FirewallRuleGroup ($appName + ' ')",
     "  Ensure-FirewallRule ($appName + ' Agent Inbound') $agentExePath 'Inbound'",
@@ -121,8 +143,14 @@ function createFirewallRuleFunctions() {
 function createPowerShellScripts() {
   const registerStartupPs1 = [
     '$ErrorActionPreference = "Stop"',
-    `$taskName = '${STARTUP_TASK_NAME.replace(/'/g, "''")}'`,
-    `$description = '${STARTUP_TASK_DESCRIPTION.replace(/'/g, "''")}'`,
+    `$startupTaskName = '${STARTUP_TASK_NAME.replace(/'/g, "''")}'`,
+    `$startupTaskDescription = '${STARTUP_TASK_DESCRIPTION.replace(/'/g, "''")}'`,
+    `$startTaskName = '${START_SERVICE_TASK_NAME.replace(/'/g, "''")}'`,
+    `$startTaskDescription = '${START_SERVICE_TASK_DESCRIPTION.replace(/'/g, "''")}'`,
+    `$stopTaskName = '${STOP_SERVICE_TASK_NAME.replace(/'/g, "''")}'`,
+    `$stopTaskDescription = '${STOP_SERVICE_TASK_DESCRIPTION.replace(/'/g, "''")}'`,
+    `$restartTaskName = '${RESTART_SERVICE_TASK_NAME.replace(/'/g, "''")}'`,
+    `$restartTaskDescription = '${RESTART_SERVICE_TASK_DESCRIPTION.replace(/'/g, "''")}'`,
     `$installDir = $PSScriptRoot`,
     '$installLogsDir = Join-Path $installDir "logs"',
     '$logPath = Join-Path $installLogsDir "school-services.log"',
@@ -131,20 +159,46 @@ function createPowerShellScripts() {
     '$programData = $env:ProgramData',
     'if (-not $programData) { $programData = "C:\\ProgramData" }',
     '$dataDir = Join-Path $programData $appName',
-    '$startScriptPath = Join-Path $installDir "start-supervisor.ps1"',
     '$powerShellPath = Join-Path $env:SystemRoot "System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
     'New-Item -ItemType Directory -Path $dataDir -Force | Out-Null',
-    '$argument = \'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "\' + $startScriptPath + \'"\'',
-    '$action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $argument',
-    '$trigger = New-ScheduledTaskTrigger -AtStartup',
     "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest",
     '$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -StartWhenAvailable',
-    'if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {',
-    '  Write-StartupLog ("Replacing existing scheduled task " + $taskName)',
-    '  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false',
+    'function Grant-TaskRunAccess([string]$name) {',
+    '  try {',
+    '    $taskPath = Join-Path $env:SystemRoot ("System32\\Tasks\\" + $name)',
+    '    if (Test-Path $taskPath) {',
+    "      & icacls $taskPath /grant '*S-1-5-32-545:RX' /C *> $null",
+    '    }',
+    '  } catch {',
+    '    Write-StartupLog ("Could not grant task run access for " + $name + ": " + $_.Exception.Message)',
+    '  }',
     '}',
-    'Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description $description -Force | Out-Null',
-    'Write-StartupLog ("Registered scheduled task " + $taskName + " -> " + $startScriptPath)',
+    'function Register-ServiceTask([string]$name, [string]$description, [string]$scriptPath, [bool]$atStartup) {',
+    '  $argument = \'-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "\' + $scriptPath + \'"\'',
+    '  $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $argument',
+    '  $taskParams = @{',
+    '    TaskName = $name',
+    '    Action = $action',
+    '    Principal = $principal',
+    '    Settings = $settings',
+    '    Description = $description',
+    '    Force = $true',
+    '  }',
+    '  if ($atStartup) {',
+    '    $taskParams.Trigger = New-ScheduledTaskTrigger -AtStartup',
+    '  }',
+    '  if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {',
+    '    Write-StartupLog ("Replacing existing scheduled task " + $name)',
+    '    Unregister-ScheduledTask -TaskName $name -Confirm:$false',
+    '  }',
+    '  Register-ScheduledTask @taskParams | Out-Null',
+    '  Grant-TaskRunAccess $name',
+    '  Write-StartupLog ("Registered scheduled task " + $name + " -> " + $scriptPath)',
+    '}',
+    'Register-ServiceTask $startupTaskName $startupTaskDescription (Join-Path $installDir "start-supervisor.ps1") $true',
+    'Register-ServiceTask $startTaskName $startTaskDescription (Join-Path $installDir "School Services Start Service.ps1") $false',
+    'Register-ServiceTask $stopTaskName $stopTaskDescription (Join-Path $installDir "School Services Stop Service.ps1") $false',
+    'Register-ServiceTask $restartTaskName $restartTaskDescription (Join-Path $installDir "School Services Restart Service.ps1") $false',
     '',
   ].join("\r\n");
 
@@ -589,6 +643,9 @@ function createPowerShellScripts() {
   const uninstallCleanupPs1 = [
     '$ErrorActionPreference = "Continue"',
     `try { Unregister-ScheduledTask -TaskName '${STARTUP_TASK_NAME.replace(/'/g, "''")}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}`,
+    `try { Unregister-ScheduledTask -TaskName '${START_SERVICE_TASK_NAME.replace(/'/g, "''")}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}`,
+    `try { Unregister-ScheduledTask -TaskName '${STOP_SERVICE_TASK_NAME.replace(/'/g, "''")}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}`,
+    `try { Unregister-ScheduledTask -TaskName '${RESTART_SERVICE_TASK_NAME.replace(/'/g, "''")}' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}`,
     `try { Get-NetFirewallRule -DisplayName '${APP_NAME.replace(/'/g, "''")} *' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue } catch {}`,
     '& (Join-Path $PSScriptRoot "stop-supervisor.ps1")',
     '& (Join-Path $PSScriptRoot "stop-agent.ps1")',
@@ -609,14 +666,14 @@ function createPowerShellScripts() {
     "School Services Start Service.ps1": adminStartServicePs1,
     "School Services Stop Service.ps1": adminStopServicePs1,
     "School Services Restart Service.ps1": adminRestartServicePs1,
-    "School Services Start Service.vbs": createElevatedVbsScript(
-      "School Services Start Service.ps1"
+    "School Services Start Service.vbs": createScheduledTaskVbsScript(
+      START_SERVICE_TASK_NAME
     ),
-    "School Services Stop Service.vbs": createElevatedVbsScript(
-      "School Services Stop Service.ps1"
+    "School Services Stop Service.vbs": createScheduledTaskVbsScript(
+      STOP_SERVICE_TASK_NAME
     ),
-    "School Services Restart Service.vbs": createElevatedVbsScript(
-      "School Services Restart Service.ps1"
+    "School Services Restart Service.vbs": createScheduledTaskVbsScript(
+      RESTART_SERVICE_TASK_NAME
     ),
     "update-and-run.ps1": updateAndRunPs1,
     "post-install.ps1": postInstallPs1,
@@ -627,5 +684,6 @@ function createPowerShellScripts() {
 module.exports = {
   createElevatedVbsScript,
   createPowerShellScripts,
+  createScheduledTaskVbsScript,
   createSilentPowerShellVbsScript,
 };

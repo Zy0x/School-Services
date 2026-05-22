@@ -206,6 +206,50 @@ test("fresh tunnel recovery preserves stale URL only as last known", () => {
   assert.equal(manager.getStatusSnapshot("rapor").lastKnownPublicUrl, "https://stale.trycloudflare.com");
 });
 
+test("repeated public link probe failures force a fresh tunnel restart", () => {
+  const { manager } = createManager();
+  manager.publicProbeFailureThreshold = 2;
+  manager.publicProbeRestartMs = 60000;
+  const tunnel = manager.getOrCreateTunnel("rapor");
+  Object.assign(tunnel, {
+    pid: 12345,
+    state: "running",
+    publicUrl: "https://stale.trycloudflare.com",
+    lastKnownPublicUrl: "https://stale.trycloudflare.com",
+  });
+  const issue = {
+    category: "network_switch",
+    message: "Koneksi publik belum stabil.",
+    restartRecommended: false,
+  };
+
+  const first = manager.recordPublicProbeFailure("rapor", tunnel, issue);
+  const second = manager.recordPublicProbeFailure("rapor", tunnel, issue);
+
+  assert.equal(first.restartRecommended, false);
+  assert.equal(second.restartRecommended, true);
+  assert.equal(tunnel.requiresFreshStart, true);
+  assert.equal(tunnel.publicUrl, null);
+  assert.equal(tunnel.lastKnownPublicUrl, "https://stale.trycloudflare.com");
+  assert.equal(tunnel.publicProbeFailures, 2);
+  assert.match(tunnel.lastError, /membuka tunnel baru/i);
+});
+
+test("successful public link probe clears accumulated failure counters", () => {
+  const { manager } = createManager();
+  const tunnel = manager.getOrCreateTunnel("rapor");
+  manager.recordPublicProbeFailure("rapor", tunnel, {
+    category: "network_switch",
+    message: "Koneksi publik belum stabil.",
+  });
+
+  manager.clearRetryState("rapor", tunnel);
+
+  assert.equal(tunnel.publicProbeFailures, 0);
+  assert.equal(tunnel.firstPublicProbeFailureAt, null);
+  assert.equal(tunnel.lastPublicProbeCategory, null);
+});
+
 test("provider launch permission failure falls back when another provider is configured", async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "erapor-tunnel-"));
   const manager = new TunnelManager({

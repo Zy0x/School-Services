@@ -698,10 +698,20 @@ class TunnelManager {
     return (PROVIDERS[providerKey] || PROVIDERS.cloudflare).label;
   }
 
-  getNextProvider(currentProvider) {
+  getNextProvider(currentProvider, options = {}) {
     const currentIndex = this.providerOrder.indexOf(currentProvider);
     const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
-    return this.providerOrder.slice(startIndex).find((provider) => {
+    const candidates = options.wrap
+      ? [
+          ...this.providerOrder.slice(startIndex),
+          ...this.providerOrder.slice(0, Math.max(currentIndex, 0)),
+        ]
+      : this.providerOrder.slice(startIndex);
+
+    return candidates.find((provider) => {
+      if (provider === currentProvider) {
+        return false;
+      }
       if (provider === "ngrok") {
         return Boolean(this.ngrokPath && this.ngrokAuthtoken);
       }
@@ -738,8 +748,8 @@ class TunnelManager {
     }
   }
 
-  async switchToNextProvider(serviceName, tunnel, issue) {
-    const nextProvider = this.getNextProvider(tunnel.provider);
+  async switchToNextProvider(serviceName, tunnel, issue, options = {}) {
+    const nextProvider = this.getNextProvider(tunnel.provider, options);
     if (!nextProvider) {
       return false;
     }
@@ -858,6 +868,17 @@ class TunnelManager {
           "user-agent": "school-services-agent",
         },
       });
+      const ngrokErrorCode = response.headers?.get?.("ngrok-error-code");
+
+      if (ngrokErrorCode) {
+        return {
+          ok: false,
+          category: "provider_rejected",
+          message:
+            `Provider Ngrok menolak tautan publik (${ngrokErrorCode}). Agent akan membuka tunnel baru.`,
+          restartRecommended: true,
+        };
+      }
 
       if (response.status === 530) {
         return {
@@ -995,15 +1016,16 @@ class TunnelManager {
         tunnel.lastKnownPublicUrl = publicUrl;
         const failure = this.recordPublicProbeFailure(service.serviceName, tunnel, probe);
         if (
-          failure.restartRecommended &&
-          failure.failures >= this.publicProbeFailureThreshold * 2 &&
-          this.getNextProvider(tunnel.provider)
+          ((failure.restartRecommended &&
+            failure.failures >= this.publicProbeFailureThreshold * 2) ||
+            probe.category === "provider_rejected") &&
+          this.getNextProvider(tunnel.provider, { wrap: true })
         ) {
           await this.switchToNextProvider(service.serviceName, tunnel, {
             category: probe.category || "public_probe",
             message:
               "Public link failed repeated health checks; switching tunnel provider.",
-          });
+          }, { wrap: true });
         }
         return null;
       }

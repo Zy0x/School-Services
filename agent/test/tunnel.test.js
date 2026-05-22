@@ -250,6 +250,32 @@ test("successful public link probe clears accumulated failure counters", () => {
   assert.equal(tunnel.lastPublicProbeCategory, null);
 });
 
+test("ngrok provider error responses are treated as broken public links", async () => {
+  const { manager } = createManager();
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    status: 403,
+    headers: {
+      get(name) {
+        return String(name).toLowerCase() === "ngrok-error-code"
+          ? "ERR_NGROK_727"
+          : null;
+      },
+    },
+  });
+
+  try {
+    const probe = await manager.probePublicUrl("https://bad.ngrok-free.app");
+
+    assert.equal(probe.ok, false);
+    assert.equal(probe.category, "provider_rejected");
+    assert.equal(probe.restartRecommended, true);
+    assert.match(probe.message, /ERR_NGROK_727/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("provider launch permission failure falls back when another provider is configured", async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "erapor-tunnel-"));
   const manager = new TunnelManager({

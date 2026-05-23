@@ -198,7 +198,12 @@ Deno.serve(async (request) => {
       return json({ ok: true, command: commandRow, cancelled: true });
     }
 
-    if (action === "start" || action === "stop" || action === "update") {
+    if (
+      action === "start" ||
+      action === "stop" ||
+      action === "update" ||
+      action === "agent_restart"
+    ) {
       if (!device) {
         return json({
           ok: false,
@@ -206,6 +211,16 @@ Deno.serve(async (request) => {
           error:
             "Perangkat belum terhubung. Buka aplikasi School Services di komputer ini sampai status perangkat aktif, lalu coba lagi.",
         });
+      }
+
+      if (action === "agent_restart") {
+        if (!isFresh(device.supervisor_last_seen, 30000)) {
+          return json({
+            ok: false,
+            error:
+              "Supervisor perangkat belum siap menerima recovery. Pastikan komputer tersambung internet lalu segarkan halaman.",
+          });
+        }
       }
 
       const latestRelease =
@@ -244,12 +259,15 @@ Deno.serve(async (request) => {
         .from("commands")
         .insert({
           device_id: deviceId,
-          service_name: action === "update" ? null : "rapor",
+          service_name: action === "update" || action === "agent_restart" ? null : "rapor",
           action,
           status: "pending",
           progress_percent: 0,
           phase: "queued",
-          message: "Perintah masuk antrean dan menunggu agent mengambil tugas.",
+          message:
+            action === "agent_restart"
+              ? "Perintah recovery masuk antrean dan menunggu supervisor perangkat."
+              : "Perintah masuk antrean dan menunggu agent mengambil tugas.",
           error: null,
         })
         .select(
@@ -266,7 +284,7 @@ Deno.serve(async (request) => {
         queued: true,
         action,
         deviceId,
-        serviceName: action === "update" ? null : "rapor",
+        serviceName: action === "update" || action === "agent_restart" ? null : "rapor",
         command: commandRow,
       });
     }

@@ -376,6 +376,9 @@ export function createDashboardRenderers(ctx) {
     const agentStopped = selectedDevice.agentStatus === "stopped";
     const agentRunning = selectedDevice.agentStatus === "running";
     const agentControlReady = selectedDevice.agentControlReady;
+    const agentRecoverable =
+      agentControlReady &&
+      ["offline", "unstable", "stopped", "unknown", "pending_setup"].includes(selectedDevice.agentStatus);
     const remoteUpdateSupported = supportsRemoteUpdate(selectedDevice.deviceRecord);
     const canControlAgent = isSuperAdmin || isOperator;
     const canUpdate =
@@ -475,7 +478,7 @@ export function createDashboardRenderers(ctx) {
               className="primary-button action-start"
               icon={Play}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_start`}
-              disabled={busyAction !== "" || agentLifecycleInFlight || !agentStopped || !agentControlReady}
+              disabled={busyAction !== "" || agentLifecycleInFlight || !(agentStopped || agentRecoverable)}
               onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_start")}
             >
               Start Agent
@@ -493,7 +496,7 @@ export function createDashboardRenderers(ctx) {
               className="secondary-button action-restart"
               icon={RotateCcw}
               busy={busyAction === `${selectedDevice.deviceId}:device:agent_restart`}
-              disabled={busyAction !== "" || agentLifecycleInFlight || !agentRunning || !agentControlReady}
+              disabled={busyAction !== "" || agentLifecycleInFlight || !agentControlReady}
               onClick={() => queueCommand(selectedDevice.deviceId, null, "agent_restart")}
             >
               Restart Agent

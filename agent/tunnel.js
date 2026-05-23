@@ -1092,7 +1092,13 @@ class TunnelManager {
       if (alive) {
         await this.refreshTunnelUrl(service);
         if (tunnel.requiresFreshStart) {
-          return this.ensureTunnel(service);
+          logger.info(`Fresh tunnel restart is pending for ${service.serviceName}; returning control to ensureTunnel.`, {
+            serviceName: service.serviceName,
+            provider: tunnel.provider,
+            pid: tunnel.pid,
+            lastKnownPublicUrl: tunnel.lastKnownPublicUrl || null,
+          });
+          return tunnel;
         }
         return tunnel;
       }

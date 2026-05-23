@@ -131,7 +131,11 @@ export function shouldAutoShowCommandProgress(command, deviceStatus = "") {
   }
 
   const commandStatus = String(command?.status || "").toLowerCase();
+  const action = String(command?.action || "").toLowerCase();
   if (commandStatus === "running") {
+    return true;
+  }
+  if (["agent_start", "agent_restart", "update"].includes(action)) {
     return true;
   }
 
@@ -206,6 +210,19 @@ export function getGuestStatusModel(device, service) {
   }
 
   if (deviceStatus === "offline") {
+    if (device?.agentControlReady) {
+      return {
+        overallStatus: "reconnecting",
+        headline: "Agent tidak tersambung",
+        description:
+          "Perangkat masih online melalui supervisor. Gunakan Pulihkan Agent untuk memulai ulang agent dan membuka link baru.",
+        publicStatus: hasPublicUrl ? "unavailable" : "disabled",
+        publicLabel: hasPublicUrl ? "Tautan terakhir tersedia" : "Tautan belum tersedia",
+        runtimeLabel: "Agent perlu dipulihkan",
+        runtimeChipLabel: "agent offline",
+        ready: false,
+      };
+    }
     return {
       overallStatus: "offline",
       headline: "Perangkat belum terhubung",

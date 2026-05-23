@@ -4,6 +4,24 @@ Semua perubahan penting pada project ini dicatat di file ini.
 
 Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) dengan versi rilis project.
 
+## [2.0.9] - 2026-05-23
+
+### Added
+
+- Supervisor watchdog yang merestart paksa agent ketika heartbeat agent stale tetapi heartbeat supervisor masih sehat.
+- Tombol Pulihkan Agent di Guest Access saat device masih online melalui supervisor namun agent tidak tersambung.
+- Log loop agent dan supervisor sekarang menyertakan stack/cause agar audit koneksi putus, sleep/hibernate, DNS, dan ECONNRESET lebih presisi.
+
+### Changed
+
+- Dashboard SuperAdmin/Operator tetap mengaktifkan Restart Agent saat kontrol supervisor siap walaupun heartbeat agent sudah stale.
+- Guest Access dapat mengirim command recovery `agent_restart` ke supervisor dengan validasi heartbeat supervisor fresh.
+
+### Fixed
+
+- Recovery tunnel tidak lagi macet dalam rekursi saat `requiresFreshStart=true` tetapi proses Cloudflare/Ngrok lama masih hidup.
+- Kondisi WiFi putus-nyambung yang menyisakan `publicUrl=null`, proses tunnel hidup, dan tombol web terkunci kini punya jalur recovery otomatis dan manual.
+
 ## [2.0.8] - 2026-05-23
 
 ### Added

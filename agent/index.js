@@ -818,7 +818,11 @@ async function main() {
           null
         );
       } catch (error) {
-        logger.error(`Service loop failed for ${service.serviceName}: ${error.message}`);
+        logger.error(`Service loop failed for ${service.serviceName}: ${error.message}`, {
+          serviceName: service.serviceName,
+          stack: error.stack || null,
+          cause: error.cause?.message || null,
+        });
         const locationPayload = await buildLocationPayload(service.serviceName);
         await trySupabase(
           `publish-service-error:${service.serviceName}`,

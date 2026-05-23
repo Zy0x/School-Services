@@ -22,6 +22,7 @@ const {
   getDesiredAgentState,
   normalizeTime,
   readSupervisorState,
+  shouldRestartStaleAgent,
   shouldClaimCommand,
   writeSupervisorState,
 } = require("./supervisorState");
@@ -538,6 +539,51 @@ async function processSupervisorCommand(command, supabaseApi, device, config) {
   }
 }
 
+function hasActiveLifecycleCommand(commands = []) {
+  return commands.some(
+    (command) =>
+      SUPERVISOR_ACTIONS.has(String(command?.action || "").toLowerCase()) &&
+      ["pending", "running"].includes(String(command?.status || "").toLowerCase())
+  );
+}
+
+async function restartStaleAgentIfNeeded(deviceRow) {
+  if (getDesiredAgentState() !== "running") {
+    return false;
+  }
+
+  const supervisorState = readSupervisorState();
+  if (!shouldRestartStaleAgent(deviceRow, supervisorState)) {
+    return false;
+  }
+
+  const running = await isAgentRunning();
+  logger.warn("Agent watchdog detected stale heartbeat while supervisor is healthy; forcing agent restart.", {
+    serviceName: null,
+    lastSeen: deviceRow?.last_seen || null,
+    running,
+    lastWatchdogRestartAt: supervisorState.lastAgentWatchdogRestartAt || null,
+  });
+  writeSupervisorState({ desiredAgentState: "running", lastAgentWatchdogRestartAt: new Date().toISOString() });
+
+  if (running) {
+    try {
+      await stopAgentProcess();
+      await waitForAgentStopped(20000);
+    } catch (error) {
+      logger.warn(`Agent watchdog stop failed; running installed cleanup before restart: ${error.message}`, {
+        serviceName: null,
+      });
+      await runInstalledStopCleanup().catch((cleanupError) => {
+        logger.warn(`Agent watchdog cleanup failed: ${cleanupError.message}`, { serviceName: null });
+      });
+    }
+  }
+
+  startAgentProcess();
+  return true;
+}
+
 async function main() {
   const config = loadConfig();
   logger.setLogFile(config.localLogPath, { maxBytes: config.localLogMaxBytes });
@@ -572,9 +618,21 @@ async function main() {
   while (true) {
     try {
       await supabaseApi.heartbeatSupervisor(device, readSupervisorState());
+      const deviceRow = await supabaseApi.fetchDevice(device.deviceId).catch((error) => {
+        logger.warn(`Supervisor device health fetch failed: ${error.message}`, { serviceName: null });
+        return null;
+      });
       const commands = await supabaseApi.fetchSupervisorCommands(device.deviceId);
       for (const command of commands) {
         await processSupervisorCommand(command, supabaseApi, device, config);
+      }
+
+      if (deviceRow && !hasActiveLifecycleCommand(commands)) {
+        const restarted = await restartStaleAgentIfNeeded(deviceRow);
+        if (restarted) {
+          await sleep(SUPERVISOR_POLL_MS);
+          continue;
+        }
       }
 
       if (getDesiredAgentState() === "running" && !(await isAgentRunning())) {
@@ -584,7 +642,21 @@ async function main() {
         startAgentProcess();
       }
     } catch (error) {
-      logger.warn(`Supervisor loop failed: ${error.message}`, { serviceName: null });
+      logger.warn(`Supervisor loop failed: ${error.message}`, {
+        serviceName: null,
+        stack: error.stack || null,
+        cause: error.cause?.message || null,
+      });
+      try {
+        if (getDesiredAgentState() === "running" && !(await isAgentRunning())) {
+          logger.warn("Supervisor remote loop failed, but local agent is not running; starting it anyway.", {
+            serviceName: null,
+          });
+          startAgentProcess();
+        }
+      } catch (localError) {
+        logger.warn(`Supervisor local recovery check failed: ${localError.message}`, { serviceName: null });
+      }
     }
     await sleep(SUPERVISOR_POLL_MS);
   }

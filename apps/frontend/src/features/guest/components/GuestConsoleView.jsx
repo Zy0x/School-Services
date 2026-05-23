@@ -46,6 +46,7 @@ export function GuestConsoleView({
   offlineUpdateMessage,
   refreshing,
   registerUrl,
+  recoveryDisabled,
   sendCommand,
   service,
   serviceLabel,
@@ -220,6 +221,14 @@ export function GuestConsoleView({
                     onClick={() => sendCommand("update")}
                   >
                     {updateButtonLabel}
+                  </ActionButton>
+                  <ActionButton
+                    className="secondary-button action-restart guest-cta-button guest-cta-recovery"
+                    busy={busy && commandModal.action === "agent_restart"}
+                    disabled={recoveryDisabled}
+                    onClick={() => sendCommand("agent_restart")}
+                  >
+                    Pulihkan Agent
                   </ActionButton>
                 </div>
                 <p>{agentControlMessage || offlineUpdateMessage || unsupportedUpdateMessage || guestUpdateSummary}</p>

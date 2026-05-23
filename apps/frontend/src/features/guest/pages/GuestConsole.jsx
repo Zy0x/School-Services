@@ -179,18 +179,23 @@ export function GuestConsole({ deviceId }) {
     try {
       setBusy(true);
       const isUpdateAction = action === "update";
+      const isAgentRecoveryAction = action === "agent_restart";
       setCommandModal({
         open: true,
         action,
         title:
           action === "start"
             ? "Menyalakan E-Rapor"
+            : isAgentRecoveryAction
+              ? "Memulihkan Agent"
             : isUpdateAction
               ? "Mengupdate Agent & Service"
               : "Menghentikan E-Rapor",
         message:
           action === "start"
             ? "Permintaan sedang diproses. Status halaman akan diperbarui otomatis."
+            : isAgentRecoveryAction
+              ? "Permintaan recovery dikirim ke supervisor. Agent akan direstart paksa jika heartbeat macet."
             : isUpdateAction
               ? "Permintaan update sedang dikirim. Installer silent akan berjalan setelah agent menerima command."
               : "Permintaan sedang diproses. Tunggu beberapa saat sampai status berubah.",
@@ -215,9 +220,13 @@ export function GuestConsole({ deviceId }) {
       }
       await loadGuest({ silent: true });
       pushToast(
-        isUpdateAction ? "Update dimulai" : action === "start" ? "Perintah start dikirim" : "Perintah stop dikirim",
+        isAgentRecoveryAction
+          ? "Recovery agent dikirim"
+          : isUpdateAction ? "Update dimulai" : action === "start" ? "Perintah start dikirim" : "Perintah stop dikirim",
         isUpdateAction
           ? "Agent akan menghentikan layanan, memasang versi baru, lalu aktif kembali otomatis."
+          : isAgentRecoveryAction
+            ? "Supervisor akan memulai ulang agent dan membuka ulang link layanan."
           : action === "start"
             ? "Layanan E-Rapor sedang disiapkan."
             : "Permintaan penghentian layanan sedang dijalankan.",
@@ -229,6 +238,8 @@ export function GuestConsole({ deviceId }) {
         message:
           action === "start"
             ? "E-Rapor sedang dinyalakan. Status akan berubah setelah layanan siap."
+            : isAgentRecoveryAction
+              ? "Agent sedang dipulihkan. Status akan berubah setelah heartbeat dan link layanan kembali stabil."
             : isUpdateAction
               ? "Update diminta. Agent akan menghentikan layanan, memasang versi baru, lalu aktif kembali otomatis."
               : "E-Rapor sedang dihentikan. Status akan diperbarui setelah selesai.",
@@ -358,6 +369,10 @@ export function GuestConsole({ deviceId }) {
   const serviceCommandAvailable = agentStatus === "running";
   const startDisabled = busy || commandInFlight || activeServiceCommandInFlight || !serviceCommandAvailable || isServiceActiveOrStarting;
   const stopDisabled = busy || commandInFlight || activeServiceCommandInFlight || !serviceCommandAvailable || (!isServiceActiveOrStarting && !isServiceStopping);
+  const canRecoverAgent =
+    agentControlReady &&
+    ["offline", "unstable", "stopped", "unknown", "pending_setup"].includes(agentStatus);
+  const recoveryDisabled = busy || commandInFlight || !canRecoverAgent;
   const canUpdateService =
     guestUpdate.updateAvailable &&
     guestUpdate.status !== "updating" &&
@@ -532,6 +547,7 @@ export function GuestConsole({ deviceId }) {
       offlineUpdateMessage={offlineUpdateMessage}
       refreshing={refreshing}
       registerUrl={registerUrl}
+      recoveryDisabled={recoveryDisabled}
       sendCommand={sendCommand}
       service={service}
       serviceLabel={serviceLabel}

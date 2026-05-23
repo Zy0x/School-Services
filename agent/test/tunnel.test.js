@@ -206,6 +206,46 @@ test("fresh tunnel recovery preserves stale URL only as last known", () => {
   assert.equal(manager.getStatusSnapshot("rapor").lastKnownPublicUrl, "https://stale.trycloudflare.com");
 });
 
+test("fresh tunnel recovery restarts an alive stale process without recursion", async () => {
+  const { manager } = createManager();
+  const service = {
+    serviceName: "rapor",
+    host: "127.0.0.1",
+    port: 8535,
+  };
+  const tunnel = manager.getOrCreateTunnel("rapor");
+  Object.assign(tunnel, {
+    pid: 12345,
+    state: "reconnecting",
+    requiresFreshStart: true,
+    publicUrl: null,
+    lastKnownPublicUrl: "https://stale.trycloudflare.com",
+  });
+  let stopped = 0;
+  let started = 0;
+  manager.isPidAlive = async (pid) => pid === 12345 && stopped === 0;
+  manager.stopTunnel = async (serviceName) => {
+    stopped += 1;
+    assert.equal(serviceName, "rapor");
+    tunnel.pid = null;
+    tunnel.state = "idle";
+    tunnel.requiresFreshStart = false;
+  };
+  manager.startTunnelProcess = async () => {
+    started += 1;
+    tunnel.pid = 22222;
+    tunnel.state = "starting";
+    tunnel.requiresFreshStart = false;
+    return tunnel;
+  };
+
+  const recovered = await manager.ensureTunnel(service);
+
+  assert.equal(stopped, 1);
+  assert.equal(started, 1);
+  assert.equal(recovered.pid, 22222);
+});
+
 test("repeated public link probe failures force a fresh tunnel restart", () => {
   const { manager } = createManager();
   manager.publicProbeFailureThreshold = 2;

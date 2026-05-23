@@ -3,6 +3,8 @@ const path = require("path");
 const { getStateDir } = require("./paths");
 
 const COMMAND_STALE_MS = 5 * 60 * 1000;
+const AGENT_HEARTBEAT_STALE_MS = 90 * 1000;
+const AGENT_WATCHDOG_RESTART_COOLDOWN_MS = 3 * 60 * 1000;
 
 function readJsonFile(filePath) {
   try {
@@ -62,15 +64,32 @@ function shouldClaimCommand(command) {
   return Date.now() - normalizeTime(command.updated_at || command.started_at) > COMMAND_STALE_MS;
 }
 
+function isAgentHeartbeatStale(device, now = Date.now(), thresholdMs = AGENT_HEARTBEAT_STALE_MS) {
+  const lastSeen = normalizeTime(device?.last_seen || device?.lastSeen);
+  return !lastSeen || now - lastSeen > thresholdMs;
+}
+
+function shouldRestartStaleAgent(device, supervisorState = {}, now = Date.now()) {
+  if (!isAgentHeartbeatStale(device, now)) {
+    return false;
+  }
+  const lastRestartAt = normalizeTime(supervisorState.lastAgentWatchdogRestartAt);
+  return !lastRestartAt || now - lastRestartAt > AGENT_WATCHDOG_RESTART_COOLDOWN_MS;
+}
+
 module.exports = {
+  AGENT_HEARTBEAT_STALE_MS,
+  AGENT_WATCHDOG_RESTART_COOLDOWN_MS,
   COMMAND_STALE_MS,
   getAgentLockPath,
   getDesiredAgentState,
   getLockedAgentPid,
   getSupervisorStatePath,
+  isAgentHeartbeatStale,
   normalizeTime,
   readJsonFile,
   readSupervisorState,
+  shouldRestartStaleAgent,
   shouldClaimCommand,
   writeSupervisorState,
 };

@@ -8,6 +8,7 @@ const {
   RESTART_SERVICE_TASK_NAME,
   START_SERVICE_TASK_NAME,
   STOP_SERVICE_TASK_NAME,
+  WATCHDOG_TASK_NAME,
 } = require("../appConstants");
 
 test("admin helper VBS files run pre-registered SYSTEM tasks without UAC runas", () => {
@@ -35,8 +36,36 @@ test("startup registration provisions manual service control tasks", () => {
   assert.match(register, new RegExp(START_SERVICE_TASK_NAME));
   assert.match(register, new RegExp(STOP_SERVICE_TASK_NAME));
   assert.match(register, new RegExp(RESTART_SERVICE_TASK_NAME));
+  assert.match(register, new RegExp(WATCHDOG_TASK_NAME));
   assert.match(register, /Grant-TaskRunAccess/);
   assert.match(register, /New-ScheduledTaskPrincipal -UserId 'SYSTEM'/);
+});
+
+test("startup registration provisions a SYSTEM watchdog for user switch recovery", () => {
+  const scripts = createPowerShellScripts();
+  const register = scripts["register-startup.ps1"];
+
+  assert.match(register, /Register-WatchdogTask/);
+  assert.match(register, /New-ScheduledTaskTrigger -AtLogOn/);
+  assert.match(register, /RepetitionInterval \(New-TimeSpan -Minutes 1\)/);
+  assert.match(register, /start-supervisor\.ps1/);
+});
+
+test("post install starts supervisor through the SYSTEM watchdog task", () => {
+  const scripts = createPowerShellScripts();
+  const postInstall = scripts["post-install.ps1"];
+
+  assert.match(postInstall, /schtasks\.exe/);
+  assert.match(postInstall, /\/Run \/TN \$watchdogTaskName/);
+  assert.match(postInstall, /Falling back to direct bootstrap/);
+});
+
+test("local stop disables the watchdog while start and restart re-enable it", () => {
+  const scripts = createPowerShellScripts();
+
+  assert.match(scripts["School Services Stop Service.ps1"], /Disable-ScheduledTask -TaskName \$watchdogTaskName/);
+  assert.match(scripts["School Services Start Service.ps1"], /Enable-ScheduledTask -TaskName \$watchdogTaskName/);
+  assert.match(scripts["School Services Restart Service.ps1"], /Enable-ScheduledTask -TaskName \$watchdogTaskName/);
 });
 
 test("scheduled task VBS escapes task names for schtasks", () => {

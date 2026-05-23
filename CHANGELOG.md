@@ -19,6 +19,8 @@ Format mengikuti prinsip [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
+- Agent tidak lagi bergantung pada sesi user Windows aktif setelah pindah user/logoff karena installer membuat watchdog SYSTEM berkala dan logon trigger.
+- Post-install sekarang memulai supervisor lewat scheduled task SYSTEM agar proses agent/supervisor tidak mati bersama sesi user yang memasang aplikasi.
 - Recovery tunnel tidak lagi macet dalam rekursi saat `requiresFreshStart=true` tetapi proses Cloudflare/Ngrok lama masih hidup.
 - Kondisi WiFi putus-nyambung yang menyisakan `publicUrl=null`, proses tunnel hidup, dan tombol web terkunci kini punya jalur recovery otomatis dan manual.
 

@@ -6,6 +6,9 @@ const SUPERVISOR_EXE_NAME = "School Services Supervisor.exe";
 const STARTUP_TASK_NAME = "School Services Agent Startup";
 const STARTUP_TASK_DESCRIPTION =
   "Starts School Services agent automatically at system startup with highest privileges.";
+const WATCHDOG_TASK_NAME = "School Services Agent Watchdog";
+const WATCHDOG_TASK_DESCRIPTION =
+  "Keeps School Services supervisor alive after logon, user switch, unlock, or session changes.";
 const START_SERVICE_TASK_NAME = "School Services Agent Start";
 const START_SERVICE_TASK_DESCRIPTION =
   "Starts School Services supervisor and agent with highest privileges.";
@@ -33,5 +36,7 @@ module.exports = {
   STOP_SERVICE_TASK_NAME,
   STARTUP_TASK_DESCRIPTION,
   STARTUP_TASK_NAME,
+  WATCHDOG_TASK_DESCRIPTION,
+  WATCHDOG_TASK_NAME,
   VERSIONED_INSTALLER_PREFIX,
 };
